@@ -17,8 +17,16 @@ import { smartwatchTable as smartwatchSLOT } from '../../constants/sites/slot/sm
 import { soundTable as soundSLOT } from '../../constants/sites/slot/soundSLOT';
 import { tabletTable as tabletSLOT } from '../../constants/sites/slot/tabletSLOT';
 
+// jiji
+import { iphoneTable as iphoneJIJI } from '../../constants/sites/jiji/iphoneJIJI';
+import { laptopTable as laptopJIJI } from '../../constants/sites/jiji/laptopJIJI';
+import { samsungTable as samsungJIJI } from '../../constants/sites/jiji/samsungJIJI';
+import { smartwatchTable as smartwatchJIJI } from '../../constants/sites/jiji/smartwatchJIJI';
+import { soundTable as soundJIJI } from '../../constants/sites/jiji/soundJIJI';
+import { tabletTable as tabletJIJI } from '../../constants/sites/jiji/tabletJIJI';
+
 export default class ComparePricesHandler {
-  sites = ['Jumia', 'Obiwezy', 'Slot'];
+  sites = ['Jumia', 'Obiwezy', 'Slot', 'Jiji'];
   constructor(selectedDeviceName, selectedSite, deviceType) {
     this.selectedDeviceName = selectedDeviceName;
     this.selectedSite = selectedSite;
@@ -334,6 +342,113 @@ export default class ComparePricesHandler {
             }
           } else if (this.deviceType === 'tablet') {
             const filteredData = tabletSLOT.find(
+              (device) => device.Pname === this.selectedDeviceName
+            );
+            if (filteredData) {
+              result.push({
+                type: i,
+                productName: filteredData.Pname,
+                link: filteredData.Link,
+                H1: filteredData.H1,
+                H2: filteredData.H2,
+                H3: filteredData.H3,
+                L1: filteredData.L1,
+                L2: filteredData.L2,
+                L3: filteredData.L3,
+              });
+            }
+          } else {
+            return null;
+          }
+          break;
+        case 'Jiji':
+          if (this.deviceType === 'iphone') {
+            const filteredData = iphoneJIJI.find(
+              (device) => device.Pname === this.selectedDeviceName
+            );
+            if (filteredData) {
+              result.push({
+                type: i,
+                productName: filteredData.Pname,
+                link: filteredData.Link,
+                H1: filteredData.H1,
+                H2: filteredData.H2,
+                H3: filteredData.H3,
+                L1: filteredData.L1,
+                L2: filteredData.L2,
+                L3: filteredData.L3,
+              });
+            }
+          } else if (this.deviceType === 'laptop') {
+            const filteredData = laptopJIJI.find(
+              (device) => device.Pname === this.selectedDeviceName
+            );
+            if (filteredData) {
+              result.push({
+                type: i,
+                productName: filteredData.Pname,
+                link: filteredData.Link,
+                H1: filteredData.H1,
+                H2: filteredData.H2,
+                H3: filteredData.H3,
+                L1: filteredData.L1,
+                L2: filteredData.L2,
+                L3: filteredData.L3,
+              });
+            }
+          } else if (this.deviceType === 'samsung') {
+            const filteredData = samsungJIJI.find(
+              (device) => device.Pname === this.selectedDeviceName
+            );
+            if (filteredData) {
+              result.push({
+                type: i,
+                productName: filteredData.Pname,
+                link: filteredData.Link,
+                H1: filteredData.H1,
+                H2: filteredData.H2,
+                H3: filteredData.H3,
+                L1: filteredData.L1,
+                L2: filteredData.L2,
+                L3: filteredData.L3,
+              });
+            }
+          } else if (this.deviceType === 'smartwatch') {
+            const filteredData = smartwatchJIJI.find(
+              (device) => device.Pname === this.selectedDeviceName
+            );
+            if (filteredData) {
+              result.push({
+                type: i,
+                productName: filteredData.Pname,
+                link: filteredData.Link,
+                H1: filteredData.H1,
+                H2: filteredData.H2,
+                H3: filteredData.H3,
+                L1: filteredData.L1,
+                L2: filteredData.L2,
+                L3: filteredData.L3,
+              });
+            }
+          } else if (this.deviceType === 'sound') {
+            const filteredData = soundJIJI.find(
+              (device) => device.Pname === this.selectedDeviceName
+            );
+            if (filteredData) {
+              result.push({
+                type: i,
+                productName: filteredData.Pname,
+                link: filteredData.Link,
+                H1: filteredData.H1,
+                H2: filteredData.H2,
+                H3: filteredData.H3,
+                L1: filteredData.L1,
+                L2: filteredData.L2,
+                L3: filteredData.L3,
+              });
+            }
+          } else if (this.deviceType === 'tablet') {
+            const filteredData = tabletJIJI.find(
               (device) => device.Pname === this.selectedDeviceName
             );
             if (filteredData) {
