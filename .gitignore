@@ -1,4 +1,5 @@
 node_modules
 generator/venv/
+generator/myenv/
 **/.env*
 .DS_Store
