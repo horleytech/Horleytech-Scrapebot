@@ -12,7 +12,7 @@ app = Flask(__name__)
 
 # init cors
 # CORS(app)
-CORS(app, resources={r"/process_text": {"origins": "http://127.0.0.1:5173"}})
+CORS(app, resources={r"/process_text": {"origins": "http://0.0.0.0:5173"}})
 
 @app.route("/process_text", methods=["POST"])
 @cross_origin()

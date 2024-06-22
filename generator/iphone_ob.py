@@ -246,6 +246,6 @@ if __name__ == "__main__":
             print(f"Skipping '{product_name}' due to an error in the request.")
 
 
-    with open('iphoneOBIWEZY.js', 'w') as js_file:
+    with open('src/constants/sites/obewezy/iphoneOBIWEZY.js', 'w') as js_file:
         js_file.write("export const iphoneTable = " + json.dumps(iphone_table, indent=2))
    

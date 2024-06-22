@@ -278,7 +278,7 @@ if __name__ == "__main__":
 
         # Allow further testing by leaving the input part
     
-    with open('samsungSLOT.js', 'w') as js_file:
+    with open('src/constants/sites/slot/samsungSLOT.js', 'w') as js_file:
                 js_file.write("export const samsungTable = " + json.dumps(Samsung_table, indent=2))
 
         

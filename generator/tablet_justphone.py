@@ -1,10 +1,11 @@
-﻿import requests
+import requests
 import json
+import os
 from bs4 import BeautifulSoup
 
 def get_product_info(product_name):
-    # Function to scrape Jumia search results for the given product_name
-    base_url = 'https://www.jumia.com.ng/catalog/?q='
+    # Function to scrape justfones search results for the given product_name
+    base_url = 'https://www.justfones.ng/catalogsearch/result/?q='
     search_url = base_url + product_name.replace(' ', '+')
 
     try:
@@ -12,7 +13,7 @@ def get_product_info(product_name):
         response.raise_for_status()
         soup = BeautifulSoup(response.text, 'html.parser')
 
-        product_elements = soup.find_all('a', class_='core')
+        product_elements = soup.find_all('li', class_='item product product-item')
 
         if not product_elements:
             print(f"Product not available for '{product_name}'.")
@@ -23,28 +24,38 @@ def get_product_info(product_name):
 
         product_data = []
         for element in product_elements:
-            name_element = element.find('h3', class_='name')
-            price_element = element.find('div', class_='prc')
+            name_element = element.find('h3', class_='product-item-name')
+            price_element = element.find('span', class_='price-wrapper')
+            
 
             if name_element and price_element:
                 # Special case for "apple iphone 13 6.1" 128gb"
                 if product_name in [
-                    'Apple IWATCH SE (1ST GEN)',
-                    'Apple IWATCH ULTRA',
+                    'SAMSUNG TAB A7 LITE',
+                    'SAMSUNG TAB S6 LITE',
+                    'SAMSUNG TAB S7 FE',
+                    'SAMSUNG TAB S8 PLUS',
+                    'SAMSUNG TAB S8 ULTRA',
+                    'SAMSUNG TAB S9 5G',
+                    'SAMSUNG TAB S9 ULTRA 5G',
                     ]:
-                    name_words = name_element.text.lower().split()[:3]
-                    input_words = product_name.lower().split()[:3]
+                    name_words = name_element.text.lower().split()[:4]
+                    input_words = product_name.lower().split()[:4]
 
                 elif product_name in [
-                    'Samsung GALAXY WATCH 5 PRO',
-                    'Samsung Galaxy Watch4 Classic,46mm, Bluetooth,',
-                    'Samsung GALAXY WATCH 5 smartwatch',
-                    ]:
+                    'apple ipad 10.9" 10th gen',
+                    'apple ipad pro 12.9" m2',
+                    'samsung galaxy tab s6 lite',
+                    'samsung galaxy tab s6 lite',
+                    'SAMSUNG galaxy TAB S7 FE',
+                    'SAMSUNG galaxy TAB S8 PLUS',
+                    'SAMSUNG galaxy tab S9 ULTRA 5G',
+                            ]:
                     name_words = name_element.text.lower().split()[:5]
                     input_words = product_name.lower().split()[:5]
                 else:
-                    name_words = name_element.text.lower().split()[:4]
-                    input_words = product_name.lower().split()[:4]
+                    name_words = name_element.text.lower().split()[:3]
+                    input_words = product_name.lower().split()[:3]
                     
 
                 # Check if the first four words match
@@ -85,23 +96,37 @@ def print_product_info(products, label):
 if __name__ == "__main__":
     
     product_names = [
-        'Apple IWATCH SE (1ST GEN)',
-        'Apple IWATCH SERIES 3',
-        'Apple IWATCH SERIES 4',
-        'Apple IWATCH SERIES 5',
-        'Apple IWATCH SERIES 6',
-        'Apple IWATCH SERIES 7',
-        'Apple IWATCH SERIES 8',
-        'Apple IWATCH SERIES SE (2ND GEN)',
-        'Apple IWATCH ULTRA',
-        'Apple IWATCH ULTRA 2',
-        'Samsung GALAXY WATCH 4',
-        'Samsung Galaxy Watch4 Classic,46mm, Bluetooth,',
-        'Samsung GALAXY WATCH 5 smartwatch',
-        'Samsung GALAXY WATCH 5 PRO',
+        'apple ipad 10.9\" 10th gen',
+         'apple IPAD 5TH GEN',
+         'apple IPAD 6TH GEN',
+         'apple IPAD 9TH GEN',
+         'apple IPAD AIR 2ND GEN',
+         'apple IPAD AIR 4TH GEN',
+         'apple IPAD AIR 5TH GEN',
+         'apple IPAD MINI 4TH GEN',
+         'apple IPAD MINI 6',
+         'apple IPAD PRO 3RD GEN',
+         'apple IPAD PRO 4TH GEN',
+         'apple IPAD PRO 5TH GEN',
+         'apple ipad pro 12.9" m2',
+         'SAMSUNG TAB A7 LITE',
+         'SAMSUNG TAB A8 tablet',
+         'samsung galaxy tab s6 lite',
+         'SAMSUNG galaxy TAB S7 FE',
+         'SAMSUNG galaxy TAB S8',
+         'SAMSUNG galaxy TAB S8 PLUS',
+         'SAMSUNG galaxy TAB S8 ULTRA',
+         'SAMSUNG galaxy TAB S9',
+         'SAMSUNG galaxy tab S9 ULTRA 5G',
+         'NOKIA T10 tablet',
+         'NOKIA T20 tablet',
+         'NOKIA T21 tablet',
+         'AMAZON FIRE HD 10 PRO tablet',
+         'AMAZON FIRE HD 8 PRO tablet',
+         'BEBE Kids Tab B88 5G tablet',
         
     ]
-    smartwatch_table = []
+    tablet_table = []
 
     for index, product_name in enumerate(product_names, start=1):
         print(f"\n*** Searching for '{product_name}' ***")
@@ -126,20 +151,35 @@ if __name__ == "__main__":
 
             # Assign specific product names based on the index
         assigned_product_name = {
-                1: 'Apple IWATCH SE (1ST GEN)',
-                2: 'Apple IWATCH SERIES 3',
-                3: 'Apple IWATCH SERIES 4',
-                4: 'Apple IWATCH SERIES 5',
-                5: 'Apple IWATCH SERIES 6',
-                6: 'Apple IWATCH SERIES 7',
-                7: 'Apple IWATCH SERIES 8',
-                8: 'Apple IWATCH SERIES SE (2ND GEN)',
-                9: 'Apple IWATCH ULTRA',
-                10: 'Apple IWATCH ULTRA 2',
-                11: 'Samsung GALAXY WATCH 4',
-                12: 'Samsung GALAXY WATCH 4 CLASSIC',
-                13: 'Samsung GALAXY WATCH 5',
-                14: 'Samsung GALAXY WATCH 5 PRO',
+                1: 'IPAD 10TH GEN',
+                2: 'IPAD 5TH GEN',
+                3: 'IPAD 6TH GEN',
+                4: 'IPAD 9TH GEN',
+                5: 'IPAD AIR 2ND GEN',
+                6: 'IPAD AIR 4TH GEN',
+                7: 'IPAD AIR 5TH GEN',
+                8: 'IPAD MINI 4TH GEN',
+                9: 'IPAD MINI 6',
+                10: 'IPAD PRO 3RD GEN',
+                11: 'IPAD PRO 4TH GEN',
+                12: 'IPAD PRO 5TH GEN',
+                13: 'IPAD PRO 6TH GEN',
+                14: 'SAMSUNG TAB A7 LITE',
+                15: 'SAMSUNG TAB A8',
+                16: 'SAMSUNG TAB S6 LITE',
+                17: 'SAMSUNG TAB S7 FE',
+                18: 'SAMSUNG TAB S8',
+                19: 'SAMSUNG TAB S8 PLUS',
+                20: 'SAMSUNG TAB S8 ULTRA',
+                21: 'SAMSUNG TAB S9 5G',
+                22: 'SAMSUNG TAB S9 ULTRA 5G',
+                23: 'NOKIA T10',
+                24: 'NOKIA T20',
+                25: 'NOKIA T21',
+                26: 'AMAZON FIRE HD 10 PRO',
+                27: 'AMAZON FIRE HD 8 PRO',
+                28: 'BEBE Kids Tab B88 5G',
+
                 # Add other product names here
             }.get(index, f"Unknown Product {index}")
 
@@ -148,7 +188,7 @@ if __name__ == "__main__":
         entry = {
             'id': index,
             'Pname': assigned_product_name,
-            'Link': f"https://www.jumia.com.ng/catalog/?q={product_name.replace(' ', '+')}",
+            'Link': f"https://www.justfones.ng/catalogsearch/result/?q={product_name.replace(' ', '+')}",
             'H1': f"{prices_highest[0]:,.0f}",
             'H2': f"{prices_highest[1]:,.0f}",
             'H3': f"{prices_highest[2]:,.0f}",
@@ -157,9 +197,10 @@ if __name__ == "__main__":
             'L3': f"{prices_lowest[2]:,.0f}",
             }
 
-        smartwatch_table.append(entry)
+        tablet_table.append(entry)
 
     # Allow further testing by leaving the input part
     
-    with open('src/constants/sites/jumia/smartwatchJumia.js', 'w') as js_file:
-        js_file.write("export const smartwatchTable = " + json.dumps(smartwatch_table, indent=2))
+    os.chdir('..')
+    with open('src/constants/sites/justfone/tabletJUSTPHONE.js', 'w') as js_file:
+        js_file.write("export const tabletTable = " + json.dumps(tablet_table, indent=2))

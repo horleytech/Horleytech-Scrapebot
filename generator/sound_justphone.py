@@ -1,10 +1,11 @@
-﻿import requests
+import requests
 import json
+import os
 from bs4 import BeautifulSoup
 
 def get_product_info(product_name):
-    # Function to scrape Jumia search results for the given product_name
-    base_url = 'https://www.jumia.com.ng/catalog/?q='
+    # Function to scrape justfones search results for the given product_name
+    base_url = 'https://www.justfones.ng/catalogsearch/result/?q='
     search_url = base_url + product_name.replace(' ', '+')
 
     try:
@@ -12,7 +13,7 @@ def get_product_info(product_name):
         response.raise_for_status()
         soup = BeautifulSoup(response.text, 'html.parser')
 
-        product_elements = soup.find_all('a', class_='core')
+        product_elements = soup.find_all('li', class_='item product product-item')
 
         if not product_elements:
             print(f"Product not available for '{product_name}'.")
@@ -23,28 +24,41 @@ def get_product_info(product_name):
 
         product_data = []
         for element in product_elements:
-            name_element = element.find('h3', class_='name')
-            price_element = element.find('div', class_='prc')
+            name_element = element.find('h3', class_='product-item-name')
+            price_element = element.find('span', class_='price-wrapper')
+            
 
             if name_element and price_element:
                 # Special case for "apple iphone 13 6.1" 128gb"
                 if product_name in [
-                    'Apple IWATCH SE (1ST GEN)',
-                    'Apple IWATCH ULTRA',
+                    'Apple AIRPOD PRO 1ST GEN',
+                    'Apple AIRPODS 3 2021',
+                    'SAMSUNG galaxy BUDS 2',
+                    'SAMSUNG galaxy BUDS LIVE',
+                    'SAMSUNG galaxy EARBUDS PLUS',
+                    'SAMSUNG galaxy EARBUDS PRO',
+                    'SAMSUNG galaxy BUDS LIVE',
+                    ]:
+                    name_words = name_element.text.lower().split()[:4]
+                    input_words = product_name.lower().split()[:4]
+
+                elif product_name in [
+                    'SAMSUNG galaxy BUDS 2 PRO',
+                    ]:
+                    name_words = name_element.text.lower().split()[:5]
+                    input_words = product_name.lower().split()[:5]
+                elif product_name in [
+                    'SAMSUNG galaxy BUDS',
+                    'SAMSUNG EARBUDS PLUS',
+                    'Samsung Galaxy Buds2,',
+                    'SAMSUNG galaxy BUDS2,',
                     ]:
                     name_words = name_element.text.lower().split()[:3]
                     input_words = product_name.lower().split()[:3]
 
-                elif product_name in [
-                    'Samsung GALAXY WATCH 5 PRO',
-                    'Samsung Galaxy Watch4 Classic,46mm, Bluetooth,',
-                    'Samsung GALAXY WATCH 5 smartwatch',
-                    ]:
-                    name_words = name_element.text.lower().split()[:5]
-                    input_words = product_name.lower().split()[:5]
                 else:
-                    name_words = name_element.text.lower().split()[:4]
-                    input_words = product_name.lower().split()[:4]
+                    name_words = name_element.text.lower().split()[:6]
+                    input_words = product_name.lower().split()[:6]
                     
 
                 # Check if the first four words match
@@ -85,23 +99,25 @@ def print_product_info(products, label):
 if __name__ == "__main__":
     
     product_names = [
-        'Apple IWATCH SE (1ST GEN)',
-        'Apple IWATCH SERIES 3',
-        'Apple IWATCH SERIES 4',
-        'Apple IWATCH SERIES 5',
-        'Apple IWATCH SERIES 6',
-        'Apple IWATCH SERIES 7',
-        'Apple IWATCH SERIES 8',
-        'Apple IWATCH SERIES SE (2ND GEN)',
-        'Apple IWATCH ULTRA',
-        'Apple IWATCH ULTRA 2',
-        'Samsung GALAXY WATCH 4',
-        'Samsung Galaxy Watch4 Classic,46mm, Bluetooth,',
-        'Samsung GALAXY WATCH 5 smartwatch',
-        'Samsung GALAXY WATCH 5 PRO',
+        'Apple Airpods 2 WIth Charging Case',
+        'Apple AIRPOD PRO 1ST GEN',
+        'Apple AIRPODS 3 2021',
+        'Apple Airpods Pro ( 2nd Generation )',
+        'SAMSUNG galaxy BUDS2,',
+        'SAMSUNG galaxy BUDS 2 PRO',
+        'SAMSUNG galaxy BUDS',
+        'SAMSUNG galaxy BUDS LIVE',
+        'SAMSUNG galaxy EARBUDS PLUS',
+        'SAMSUNG galaxy EARBUDS PRO',
+        'SAMSUNG galaxy BUDS LIVE',
+        'Samsung Galaxy Buds2,',
+        'Samsung Galaxy Type C Wired Earphones',
+        'Beats By Dre Beats Fit Pro',
+        'Beats By Dre Beats Studio Buds',
+        'Beats By Dre Beats Powerbeats Pro Wireless Earbud',
         
     ]
-    smartwatch_table = []
+    sound_table = []
 
     for index, product_name in enumerate(product_names, start=1):
         print(f"\n*** Searching for '{product_name}' ***")
@@ -123,23 +139,27 @@ if __name__ == "__main__":
             prices_highest = []
 
         prices_highest += [0.0] * (3 - len(prices_highest))
-
+            
             # Assign specific product names based on the index
         assigned_product_name = {
-                1: 'Apple IWATCH SE (1ST GEN)',
-                2: 'Apple IWATCH SERIES 3',
-                3: 'Apple IWATCH SERIES 4',
-                4: 'Apple IWATCH SERIES 5',
-                5: 'Apple IWATCH SERIES 6',
-                6: 'Apple IWATCH SERIES 7',
-                7: 'Apple IWATCH SERIES 8',
-                8: 'Apple IWATCH SERIES SE (2ND GEN)',
-                9: 'Apple IWATCH ULTRA',
-                10: 'Apple IWATCH ULTRA 2',
-                11: 'Samsung GALAXY WATCH 4',
-                12: 'Samsung GALAXY WATCH 4 CLASSIC',
-                13: 'Samsung GALAXY WATCH 5',
-                14: 'Samsung GALAXY WATCH 5 PRO',
+                1: 'Apple AIRPOD 2 CHARGING CASE',
+                2: 'Apple AIRPOD PRO 1ST GEN',
+                3: 'Apple AIRPODS 3 2021',
+                4: 'Apple AIRPODS PRO 2ND GEN',
+                5: 'SAMSUNG BUDS 2',
+                6: 'SAMSUNG BUDS 2 PRO',
+                7: 'SAMSUNG EARBUDS',
+                8: 'SAMSUNG EARBUDS LIVE',
+                9: 'SAMSUNG EARBUDS PLUS',
+                10: 'SAMSUNG EARBUDS PRO',
+                11: 'SAMSUNG EARBUDS pro',
+                12: 'Samsung Galaxy Buds Live – Mystic Black',
+                13: 'Samsung Galaxy Buds2',
+                14: 'Samsung usb c akg earphones',
+                15: 'BEATS FIT PRO',
+                16: 'BEATS STUDIO BUDS',
+                17: 'POWERBEATS PRO',
+
                 # Add other product names here
             }.get(index, f"Unknown Product {index}")
 
@@ -148,7 +168,7 @@ if __name__ == "__main__":
         entry = {
             'id': index,
             'Pname': assigned_product_name,
-            'Link': f"https://www.jumia.com.ng/catalog/?q={product_name.replace(' ', '+')}",
+            'Link': f"https://www.justfones.ng/catalogsearch/result/?q={product_name.replace(' ', '+')}",
             'H1': f"{prices_highest[0]:,.0f}",
             'H2': f"{prices_highest[1]:,.0f}",
             'H3': f"{prices_highest[2]:,.0f}",
@@ -157,9 +177,10 @@ if __name__ == "__main__":
             'L3': f"{prices_lowest[2]:,.0f}",
             }
 
-        smartwatch_table.append(entry)
+        sound_table.append(entry)
 
     # Allow further testing by leaving the input part
     
-    with open('src/constants/sites/jumia/smartwatchJumia.js', 'w') as js_file:
-        js_file.write("export const smartwatchTable = " + json.dumps(smartwatch_table, indent=2))
+    os.chdir('..')
+    with open('src/constants/sites/justfone/soundJUSTPHONE.js', 'w') as js_file:
+        js_file.write("export const soundTable = " + json.dumps(sound_table, indent=2))

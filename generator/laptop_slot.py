@@ -328,5 +328,5 @@ if __name__ == "__main__":
 
         laptop_table.append(entry)
 
-    with open('laptopSLOT.js', 'w') as js_file:
+    with open('src/constants/sites/slot/laptopSLOT.js', 'w') as js_file:
         js_file.write("export const laptopTable = " + json.dumps(laptop_table, indent=2))

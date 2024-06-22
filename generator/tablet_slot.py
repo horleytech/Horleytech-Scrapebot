@@ -183,6 +183,6 @@ if __name__ == "__main__":
         Tablet_table.append(entry)
         # Allow further testing by leaving the input part
     
-    with open('tabletSLOT.js', 'w') as js_file:
+    with open('src/constants/sites/slot/tabletSLOT.js', 'w') as js_file:
                 js_file.write("export const tabletTable = " + json.dumps(Tablet_table, indent=2))
                 

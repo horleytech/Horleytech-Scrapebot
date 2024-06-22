@@ -296,6 +296,6 @@ if __name__ == "__main__":
 
         Samsung_table.append(entry)
 
-    with open('samsungJUMIA.js', 'w') as js_file:
+    with open('src/constants/sites/jumia/samsungJUMIA.js', 'w') as js_file:
         js_file.write("export const samsungTable = " + json.dumps(Samsung_table, indent=2))
     

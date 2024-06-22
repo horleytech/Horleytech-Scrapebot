@@ -1,10 +1,11 @@
-﻿import requests
+import requests
 import json
+import os
 from bs4 import BeautifulSoup
 
 def get_product_info(product_name):
-    # Function to scrape Jumia search results for the given product_name
-    base_url = 'https://www.jumia.com.ng/catalog/?q='
+    # Function to scrape justfones search results for the given product_name
+    base_url = 'https://www.justfones.ng/catalogsearch/result/?q='
     search_url = base_url + product_name.replace(' ', '+')
 
     try:
@@ -12,7 +13,7 @@ def get_product_info(product_name):
         response.raise_for_status()
         soup = BeautifulSoup(response.text, 'html.parser')
 
-        product_elements = soup.find_all('a', class_='core')
+        product_elements = soup.find_all('li', class_='item product product-item')
 
         if not product_elements:
             print(f"Product not available for '{product_name}'.")
@@ -23,8 +24,9 @@ def get_product_info(product_name):
 
         product_data = []
         for element in product_elements:
-            name_element = element.find('h3', class_='name')
-            price_element = element.find('div', class_='prc')
+            name_element = element.find('h3', class_='product-item-name')
+            price_element = element.find('span', class_='price-wrapper')
+            
 
             if name_element and price_element:
                 # Special case for "apple iphone 13 6.1" 128gb"
@@ -334,7 +336,7 @@ if __name__ == "__main__":
         entry = {
             'id': index,
             'Pname': assigned_product_name,
-            'Link': f"https://www.jumia.com.ng/catalog/?q={product_name.replace(' ', '+')}",
+            'Link': f"https://www.justfones.ng/catalogsearch/result/?q={product_name.replace(' ', '+')}",
             'H1': f"{prices_highest[0]:,.0f}",
             'H2': f"{prices_highest[1]:,.0f}",
             'H3': f"{prices_highest[2]:,.0f}",
@@ -345,5 +347,6 @@ if __name__ == "__main__":
 
         laptop_table.append(entry)
 
-    with open('src/constants/sites/jumia/laptopJUMIA.js', 'w') as js_file:
+    os.chdir('..')
+    with open('src/constants/sites/justfone/laptopJUSTPHONE.js', 'w') as js_file:
         js_file.write("export const laptopTable = " + json.dumps(laptop_table, indent=2))

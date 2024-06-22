@@ -1,5 +1,6 @@
 ﻿import time
 import json
+import requests
 from selenium import webdriver
 from selenium.webdriver.common.keys import Keys
 from bs4 import BeautifulSoup
@@ -8,20 +9,23 @@ def get_product_info(product_name):
     # Function to scrape Jumia search results for the given product_name
 
     # Use a headless browser (Chrome in this case)
-    driver = webdriver.Chrome()
+    # driver = webdriver.Chrome()
 
     base_url = 'https://jiji.ng/search?query='
     search_url = base_url + product_name.replace(' ', '%20')
 
     try:
-        driver.get(search_url)
+        # driver.get(search_url)
 
-        # Scroll down to load more products dynamically
-        for _ in range(8):  # Adjust the number of scrolls based on your needs
-            driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-            time.sleep(2)  # Adjust the sleep time if needed
+        # # Scroll down to load more products dynamically
+        # for _ in range(15):  # Adjust the number of scrolls based on your needs
+        #     driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+        #     time.sleep(2)  # Adjust the sleep time if needed
 
-        soup = BeautifulSoup(driver.page_source, 'html.parser')
+        response = requests.get(search_url)
+        response.raise_for_status()
+        soup = BeautifulSoup(response.text, 'html.parser')
+        # soup = BeautifulSoup(driver.page_source, 'html.parser')
 
         product_elements = soup.find_all('div', class_='b-list-advert-base__data__header')
 
@@ -119,7 +123,7 @@ def get_product_info(product_name):
         # Extract the first three lowest and the first three highest
         first_three_lowest = sorted_products[:3]
         first_three_highest = sorted_products[-3:]
-
+       
         return {
             'first_three_lowest': first_three_lowest,
             'first_three_highest': first_three_highest
@@ -128,8 +132,8 @@ def get_product_info(product_name):
     except Exception as e:
         print(f"Error during the request: {e}")
         return None
-    finally:
-        driver.quit()
+    # finally:
+        # driver.quit()
 
     
 
@@ -395,6 +399,6 @@ if __name__ == "__main__":
 
     # Allow further testing by leaving the input part
     
-    with open('laptopJIJI.js', 'w') as js_file:
+    with open('src/constants/sites/jiji/laptopJIJI.js', 'w') as js_file:
         js_file.write("export const laptopTable = " + json.dumps(laptop_table, indent=2))
 

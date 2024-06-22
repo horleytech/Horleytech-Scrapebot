@@ -179,5 +179,5 @@ if __name__ == "__main__":
 
     # Allow further testing by leaving the input part
     
-    with open('soundJUMIA.js', 'w') as js_file:
+    with open('src/constants/sites/jumia/soundJUMIA.js', 'w') as js_file:
         js_file.write("export const soundTable = " + json.dumps(sound_table, indent=2))

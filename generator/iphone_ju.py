@@ -221,5 +221,5 @@ if __name__ == "__main__":
 
         iphone_table.append(entry)
 
-    with open('iphoneJUMIA.js', 'w') as js_file:
+    with open('src/constants/sites/jumia/iphoneJUMIA.js', 'w') as js_file:
         js_file.write("export const iphoneTable = " + json.dumps(iphone_table, indent=2))

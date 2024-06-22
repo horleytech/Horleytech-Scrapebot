@@ -1,10 +1,11 @@
-﻿import requests
+import requests
 import json
+import os
 from bs4 import BeautifulSoup
 
 def get_product_info(product_name):
-    # Function to scrape Jumia search results for the given product_name
-    base_url = 'https://slot.ng/catalogsearch/result/?q='
+    # Function to scrape justfones search results for the given product_name
+    base_url = 'https://www.justfones.ng/catalogsearch/result/?q='
     search_url = base_url + product_name.replace(' ', '+')
 
     try:
@@ -12,7 +13,7 @@ def get_product_info(product_name):
         response.raise_for_status()
         soup = BeautifulSoup(response.text, 'html.parser')
 
-        product_elements = soup.find_all('div', class_='product-info')
+        product_elements = soup.find_all('li', class_='item product product-item')
 
         if not product_elements:
             print(f"Product not available for '{product_name}'.")
@@ -23,69 +24,25 @@ def get_product_info(product_name):
 
         product_data = []
         for element in product_elements:
-            name_element = element.find('h3', class_='product-name')
-            price_element = element.find('span', class_='price')
+            name_element = element.find('h3', class_='product-item-name')
+            price_element = element.find('span', class_='price-wrapper')
+            
 
             if name_element and price_element:
                 # Special case for "apple iphone 13 6.1" 128gb"
-                if product_name in [
-                    'apple iphone 15 128gb',
-                    "apple iphone 15 256gb",
-                    'apple iphone 13 128gb',
-                    'apple iphone 13 256gb',
-                    'Apple IPhone 11 256gb',
-                    'Apple IPhone 11 128gb',
-                    'Apple IPhone 11 64gb',
-                    'apple iphone xr 128gb',
-                    'apple iphone xr 64gb',
-                    'apple iphone xs 128gb',
-                    'apple iphone xs 64gb',
-                    'Apple IPhone X 64GB',
-                    'Apple IPhone X 256GB',
-                    'Apple IPhone 8 64gb',
-                    'Apple IPhone 8 256gb',
-                    'Apple IPhone 7 128gb',
-                    'Apple IPhone 7 32gb',
-                    'apple iphone 13pro 128gb',
-                ]:
+                if product_name == 'apple iphone 13 6.1" 128gb' or 'apple iphone 13 6.1" 256gb' or 'apple iphone 12 pro - 6.1" 128gb' or 'apple iphone 12 - 6.1" 256gb':
                     name_words = name_element.text.lower().split()[:4]
                     input_words = product_name.lower().split()[:4]
-                elif product_name in [
-                    "apple iphone 15 pro 128gb",
-                    "apple iphone 15 pro 256gb",
-                    "apple iphone 14 pro max 1tb",
-                    'apple iphone 14 pro 128gb',
-                    'apple iphone 14 pro 256gb',
-                    'apple iphone 14 pro 512gb',
-                    'apple iphone 14 pro 1 tb',
-                    'Apple IPhone 14 Plus 128gb',
-                    'Apple IPhone 14 Plus 256gb',
-                    'apple iphone 13 pro 128gb',
-                    "apple iphone 13 mini 256gb",
-                    'apple iphone 12 pro 128gb',
-                    'apple iphone 12 pro 256gb',
-                    'apple IPhone 11 Pro 256gb',
-                    'Apple IPhone 11 Pro 64gb',
-                    'apple iphone xs max 256gb',
-                    'apple iphone xs max 64gb',
-                    'Apple IPhone 8 plus 256gb',
-                    'Apple IPhone 8 plus 64gb',
-                    'Apple IPhone 7 plus 128gb',
-                    'Apple IPhone 7 plus 32gb',
-                    ]:
+                else:
                     name_words = name_element.text.lower().split()[:5]
                     input_words = product_name.lower().split()[:5]
-                else:
-                    name_words = name_element.text.lower().split()[:6]
-                    input_words = product_name.lower().split()[:6]
                     
 
                 # Check if the first four words match
                 if name_words == input_words:
-                    name = name_element.text.strip()
                     price = price_element.text.strip()
                     
-                    product_data.append({'name': name,'price': price})
+                    product_data.append({'price': price})
 
         # Sort products by price
         sorted_products = sorted(product_data, key=lambda x: float(x['price'].replace('₦', '').replace(',', '')))
@@ -93,7 +50,6 @@ def get_product_info(product_name):
         # Extract the first three lowest and the first three highest
         first_three_lowest = sorted_products[:3]
         first_three_highest = sorted_products[-3:]
-
         return {
             'first_three_lowest': first_three_lowest,
             'first_three_highest': first_three_highest
@@ -110,7 +66,7 @@ def print_product_info(products, label):
     if products:
         print(f"\n{label} Product Information:")
         for product in products:
-            print(f"Name: {product['name']}\n{'-'*30}\nPrice: {product['price']}\n{'-'*30}")
+            print(f"Price: {product['price']}")
     else:
         print(f"\nProduct not Found.")
 
@@ -120,68 +76,68 @@ if __name__ == "__main__":
     product_names = [
         "apple iphone 15 pro max 256gb",
         "apple iphone 15 pro max 512gb",
-        "apple iphone 15 pro max 1 tb",
+        "apple iphone 15 pro max 1tb",
         "apple iphone 15 pro 128gb",
         "apple iphone 15 pro 256gb",
-        'apple iphone 15 128gb',
+        'apple iphone 15 -128gb - facetime - 6.1" - a16',
         "apple iphone 15 256gb",
         "apple iphone 14 pro max 128gb",
         "apple iphone 14 pro max 256gb",
         "apple iphone 14 pro max 512gb",
         "apple iphone 14 pro max 1tb",
-        'apple iphone 14 pro 128gb',
-        'apple iphone 14 pro 256gb',
-        'apple iphone 14 pro 512gb',
-        'apple iphone 14 pro 1 tb',
-        'Apple IPhone 14 Plus 128gb',
-        'Apple IPhone 14 Plus 256gb',
+        'apple iphone 14 pro 6.1" 128gb',
+        'apple iphone 14 pro 6.1" 256gb',
+        'apple iphone 14 pro 6.1" 512gb',
+        'apple iphone 14 pro 6.1" 1tb',
+        'Apple IPhone 14 Plus 6.7" 128gb',
+        'Apple IPhone 14 Plus 6.7" 256gb',
         "apple iphone 13 pro max 128gb",
         "apple iphone 13 pro max 256gb",
         "apple iphone 13 pro max 512gb",
-        "apple iphone 13 pro max 1 tb",
-        'apple iphone 13pro 128gb',
-        'apple iphone 13 pro 256gb',
-        'apple iphone 13 128gb',
-        'apple iphone 13 256gb',
+        "apple iphone 13 pro max 1tb",
+        'apple iphone 13 pro 6.1" 128gb',
+        'apple iphone 13 pro 6.1 256gb',
+        'apple iphone 13 6.1" 128gb',
+        'apple iphone 13 6.1" 256gb',
         "apple iphone 13 mini 256gb",
         "apple iphone 12 pro max 128gb",
         "apple iphone 12 pro max 256gb",
         "apple iphone 12 pro max 512gb",
-        'apple iphone 12 pro 128gb',
-        'apple iphone 12 pro 256gb',
-        'apple iphone 12 128gb',
-        'apple iphone 12 64gb',
+        'apple iphone 12 pro - 6.1" 128gb',
+        'apple iphone 12 pro - 6.1" 256gb',
+        'apple iphone 12 - 6.1" 128gb',
+        'apple iphone 12 - 6.1" 64gb',
         "apple iphone 11 pro max 256gb",
         "apple iphone 11 pro max 64gb",
-        'apple IPhone 11 Pro 256gb',
-        'Apple IPhone 11 Pro 64gb',
-        'Apple IPhone 11 256gb',
-        'Apple IPhone 11 128gb',
-        'Apple IPhone 11 64gb',
+        'apple IPhone 11 Pro 5.8-Inch 256gb',
+        'Apple IPhone 11 Pro 5.8-Inch 64gb',
+        'Apple IPhone 11 6.1-Inch 256gb',
+        'Apple IPhone 11 6.1-Inch 128gb',
+        'Apple IPhone 11 6.1-Inch 64gb',
         'apple iphone xs max 256gb',
         'apple iphone xs max 64gb',
         'apple iphone xr 128gb',
         'apple iphone xr 64gb',
         'apple iphone xs 128gb',
         'apple iphone xs 64gb',
-        'Apple IPhone X 64GB',
-        'Apple IPhone X 256GB',
+        'Apple IPhone X - 5.8" 64GB',
+        'Apple IPhone X - 5.8" 256GB',
         'Apple IPhone 8 plus 256gb',
         'Apple IPhone 8 plus 64gb',
-        'Apple IPhone 8 64gb',
-        'Apple IPhone 8 256gb',
+        'Apple IPhone 8 4.7-Inch 64gb',
+        'Apple IPhone 8 4.7-Inch 256gb',
         'Apple IPhone 7 plus 128gb',
         'Apple IPhone 7 plus 32gb',
         'Apple IPhone 7 128gb',
         'Apple IPhone 7 32gb',
     ]
-    
+
     iphone_table = []
 
     for index, product_name in enumerate(product_names, start=1):
         print(f"\n*** Searching for '{product_name}' ***")
         results = get_product_info(product_name)
-        
+
         # Extract prices and ensure there are at least three prices for highest and lowest
         prices_lowest = [float(product['price'].replace('₦', '').replace(',', '')) for product in results['first_three_lowest']]
         prices_lowest += [0.0] * (3 - len(prices_lowest))
@@ -255,7 +211,7 @@ if __name__ == "__main__":
         entry = {
             'id': index,
             'Pname': assigned_product_name,
-            'Link': f"https://slot.ng/catalogsearch/result/?q={product_name.replace(' ', '+')}",
+            'Link': f"https://www.justfones.ng/catalogsearch/result/?q={product_name.replace(' ', '+')}",
             'H1': f"{prices_highest[0]:,.0f}",
             'H2': f"{prices_highest[1]:,.0f}",
             'H3': f"{prices_highest[2]:,.0f}",
@@ -265,8 +221,7 @@ if __name__ == "__main__":
         }
 
         iphone_table.append(entry)
-
-    with open('src/constants/sites/slot/iphoneSLOT.js', 'w') as js_file:
-        js_file.write("export const iphoneTable = " + json.dumps(iphone_table, indent=2))
-
     
+    os.chdir('..')
+    with open('src/constants/sites/justfone/iphoneJUSTPHONE.js', 'w') as js_file:
+        js_file.write("export const iphoneTable = " + json.dumps(iphone_table, indent=2))
