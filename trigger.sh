@@ -1,0 +1,30 @@
+git pull
+python3 iphone_justphone.py     
+python3 laptop_slot.py          
+python3 samsung_jiji.py         
+python3 samsung_slot.py         
+python3 smartwatch_slot.py      
+python3 sound_slot.py           
+python3 tablet_slot.py
+python3 iphone_ob.py            
+python3 laptops_jiji.py         
+python3 samsung_ju.py           
+python3 smartwatch_jiji.py      
+python3 sound_jiji.py           
+python3 tablet_jiji.py
+python3 iphone_jiji.py          
+python3 iphone_slot.py          
+python3 laptops_ju.py           
+python3 samsung_justphone.py    
+python3 smartwatch_ju.py        
+python3 sound_ju.py             
+python3 tablet_ju.py
+python3 iphone_ju.py            
+python3 laptop_justphone.py          
+python3 samsung_ob.py           
+python3 smartwatch_justphone.py 
+python3 sound_justphone.py      
+python3 tablet_justphone.py
+git add .
+git commit "Added scrapped data"
+git push 
