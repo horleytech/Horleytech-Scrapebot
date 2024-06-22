@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { tabletTable as tabletJUMIA } from '../../constants/sites/jumia/tabletJUMIA';
+import { tabletTable as tabletJIJI } from '../../constants/sites/jiji/tabletJIJI';
 // import { tabletTable as tabletJIJI } from "../../constants/sites/jiji/tabletJIJI";
 // import { tabletTable as tabletOBIWEZY } from "../../constants/sites/obiwezy/tabletOBIWEZY";
 import { tabletTable as tabletSLOT } from '../../constants/sites/slot/tabletSLOT';
@@ -69,6 +70,9 @@ const Tablet = () => {
       case 'Slot':
         setData(tabletSLOT);
         return;
+      case 'Jiji':
+        setData(tabletJIJI);
+        return;
       case 'Offline':
         setData(tabletOffline);
         return;
@@ -115,6 +119,7 @@ const Tablet = () => {
               {/* <option value="Jiji">Jiji</option> */}
               <option value="Obiwezy">Obiwezy</option>
               <option value="Slot">Slot</option>
+              <option value="Jiji">Jiji</option>
             </select>
           </div>
         ) : (

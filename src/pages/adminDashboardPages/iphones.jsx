@@ -3,6 +3,7 @@ import { collection, query, where, getDocs } from 'firebase/firestore';
 import { iphoneTable as iphoneJUMIA } from '../../constants/sites/jumia/iphoneJUMIA';
 import { iphoneTable as iphoneOBIWEZY } from '../../constants/sites/obiwezy/iphoneOBIWEZY';
 import { iphoneTable as iphoneSLOT } from '../../constants/sites/slot/iphoneSLOT';
+import { iphoneTable as iphoneJIJI } from '../../constants/sites/jiji/iphoneJIJI';
 
 import { DiApple } from 'react-icons/di';
 
@@ -70,6 +71,9 @@ const Iphones = () => {
       case 'Slot':
         setData(iphoneSLOT);
         return;
+      case 'Jiji':
+        setData(iphoneJIJI);
+        return;
       case 'Offline':
         return;
       default:
@@ -115,6 +119,7 @@ const Iphones = () => {
               {/* <option value="Jiji">Jiji</option> */}
               <option value="Obiwezy">Obiwezy</option>
               <option value="Slot">Slot</option>
+              <option value="Jiji">Jiji</option>
             </select>
           </div>
         ) : (
