@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { soundTable as soundJUMIA } from '../../constants/sites/jumia/soundJUMIA';
+import { soundTable as soundJIJI } from '../../constants/sites/jiji/soundJIJI';
 // import { soundTable as soundJIJI } from "../../constants/sites/jiji/soundJIJI";
 // import { soundTable as soundOBIWEZY } from "../../constants/sites/obiwezy/soundOBIWEZY";
 import { soundTable as soundSLOT } from '../../constants/sites/slot/soundSLOT';
@@ -70,6 +71,9 @@ const Sounds = () => {
       case 'Slot':
         setData(soundSLOT);
         return;
+      case 'Jiji':
+        setData(soundJIJI);
+        return;
       case 'Offline':
         setData(soundOffline);
         return;
@@ -117,6 +121,7 @@ const Sounds = () => {
               {/* <option value="Jiji">Jiji</option> */}
               <option value="Obiwezy">Obiwezy</option>
               <option value="Slot">Slot</option>
+              <option value="Jiji">Jiji</option>
             </select>
           </div>
         ) : (
