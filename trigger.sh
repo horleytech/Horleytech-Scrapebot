@@ -26,5 +26,5 @@ python3 smartwatch_justphone.py
 python3 sound_justphone.py      
 python3 tablet_justphone.py
 git add .
-git commit "Added scrapped data"
+git commit -m "Added scrapped data"
 git push 
