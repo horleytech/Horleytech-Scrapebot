@@ -19,7 +19,7 @@ client = OpenAI(api_key=api_key)
 
 app = Flask(__name__)
 
-CORS(app, resources={r"/process_text": {"origins": "0.0.0.0:5000"}})
+CORS(app, resources={r"/process_text": {"origins": "0.0.0.0:5173"}})
 
 @app.route("/process_text", methods=["POST"])
 @cross_origin()
