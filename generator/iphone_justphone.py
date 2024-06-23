@@ -222,6 +222,6 @@ if __name__ == "__main__":
 
         iphone_table.append(entry)
     
-    os.chdir('..')
+    # os.chdir('..')
     with open('src/constants/sites/justfone/iphoneJUSTPHONE.js', 'w') as js_file:
         js_file.write("export const iphoneTable = " + json.dumps(iphone_table, indent=2))

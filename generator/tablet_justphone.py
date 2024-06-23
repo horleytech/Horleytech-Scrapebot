@@ -201,6 +201,6 @@ if __name__ == "__main__":
 
     # Allow further testing by leaving the input part
     
-    os.chdir('..')
+    # os.chdir('..')
     with open('src/constants/sites/justfone/tabletJUSTPHONE.js', 'w') as js_file:
         js_file.write("export const tabletTable = " + json.dumps(tablet_table, indent=2))

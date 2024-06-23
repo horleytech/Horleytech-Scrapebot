@@ -298,7 +298,7 @@ if __name__ == "__main__":
 
         Samsung_table.append(entry)
 
-    os.chdir('..')
+    # os.chdir('..')
     with open('src/constants/sites/justfone/samsungJUSTPHONE.js', 'w') as js_file:
         js_file.write("export const samsungTable = " + json.dumps(Samsung_table, indent=2))
     

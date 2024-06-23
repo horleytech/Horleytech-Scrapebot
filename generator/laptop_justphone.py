@@ -347,6 +347,6 @@ if __name__ == "__main__":
 
         laptop_table.append(entry)
 
-    os.chdir('..')
+    # os.chdir('..')
     with open('src/constants/sites/justfone/laptopJUSTPHONE.js', 'w') as js_file:
         js_file.write("export const laptopTable = " + json.dumps(laptop_table, indent=2))
