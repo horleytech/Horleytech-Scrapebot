@@ -69,10 +69,10 @@ export const smartwatchTable = [
     "id": 7,
     "Pname": "Apple IWATCH SERIES 8",
     "Link": "https://slot.ng/catalogsearch/result/?q=Apple+IWATCH+SERIES+8",
-    "H1": "450,000",
+    "H1": "0",
     "H2": "0",
     "H3": "0",
-    "L1": "450,000",
+    "L1": "0",
     "L2": "0",
     "L3": "0"
   },
