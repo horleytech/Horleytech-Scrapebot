@@ -108,7 +108,7 @@ const Ai = () => {
     const formData = new FormData();
     formData.append('file', file);
 
-    fetch('http://127.0.0.1:5000/process_text', {
+    fetch('http://64.227.43.103:8000/process_text', {
       method: 'POST',
       body: formData,
       headers: {
