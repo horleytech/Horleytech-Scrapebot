@@ -28,6 +28,12 @@ app.add_middleware(
     allow_headers=["*"],  # Allow all headers
 )
 
+@app.get("/")
+async def index():
+    return JSONResponse({
+        "success": True
+    })
+
 @app.post("/process_text")
 async def process_text(file: UploadFile = File(...)):
     """
