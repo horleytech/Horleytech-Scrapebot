@@ -19,10 +19,12 @@ client = OpenAI(api_key=api_key)
 
 app = Flask(__name__)
 
-CORS(app, resources={r"/process_text": {"origins": "0.0.0.0:5173"}})
+# CORS(app, resources={r"/process_text": {"origins": "0.0.0.0:5173"}})
+# CORS(app, resources={r"/process_text": {"origins": "*"}})
+CORS(app)
 
 @app.route("/process_text", methods=["POST"])
-@cross_origin()
+# @cross_origin()
 def process_text():
     """
     API endpoint to process uploaded text file
