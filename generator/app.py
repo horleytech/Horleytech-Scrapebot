@@ -5,6 +5,8 @@ from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from openai import OpenAI
 from dotenv import load_dotenv
+from starlette.middleware.httpsredirect import HTTPSRedirectMiddleware
+import ssl
 
 # Load the .env file
 load_dotenv()
@@ -18,6 +20,12 @@ set_max_token = 17500
 client = OpenAI(api_key=api_key)
 
 app = FastAPI()
+
+# https cert setup
+ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+ssl_context.load_cert_chain('/etc/letsencrypt/live/backend.horleytech.com/fullchain.pem', keyfile='/etc/letsencrypt/live/backend.horleytech.com/privkey.pem')
+
+app.add_middleware(HTTPSRedirectMiddleware)
 
 # Add CORS middleware
 app.add_middleware(
@@ -78,4 +86,4 @@ async def process_text(file: UploadFile = File(...)):
 
 if __name__ == '__main__':
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000, log_level="debug")
+    uvicorn.run(app, host="0.0.0.0", port=8000, log_level="debug", ssl=ssl_context)
