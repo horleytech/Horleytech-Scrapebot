@@ -7,6 +7,7 @@ from openai import OpenAI
 from dotenv import load_dotenv
 from starlette.middleware.httpsredirect import HTTPSRedirectMiddleware
 import ssl
+import uvicorn
 
 # Load the .env file
 load_dotenv()
@@ -23,7 +24,7 @@ app = FastAPI()
 
 # https cert setup
 ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-ssl_context.load_cert_chain('/etc/letsencrypt/live/backend.horleytech.com/fullchain.pem', keyfile='/etc/letsencrypt/live/backend.horleytech.com/privkey.pem')
+# ssl_context.load_cert_chain('/etc/letsencrypt/live/backend.horleytech.com/fullchain.pem', keyfile='/etc/letsencrypt/live/backend.horleytech.com/privkey.pem')
 
 app.add_middleware(HTTPSRedirectMiddleware)
 
@@ -56,6 +57,7 @@ async def process_text(file: UploadFile = File(...)):
         raise HTTPException(status_code=400, detail="Invalid file format. Only .txt files allowed")
 
     # Read the file content
+    
     try:
         sample_text = (await file.read()).decode("utf-8")
         if len(sample_text) > set_max_token:
@@ -85,5 +87,4 @@ async def process_text(file: UploadFile = File(...)):
     return JSONResponse(content=json.loads(model_response))
 
 if __name__ == '__main__':
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000, log_level="debug", ssl=ssl_context)
+    uvicorn.run(app, host="0.0.0.0", port=8000, log_level="debug")

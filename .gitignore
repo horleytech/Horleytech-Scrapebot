@@ -3,3 +3,5 @@ generator/venv/
 generator/myenv/
 **/.env*
 .DS_Store
+ssl
+uploads
