@@ -5,6 +5,7 @@ import dotenv from 'dotenv';
 import multer from 'multer';
 import OpenAI from 'openai';
 import morgan from 'morgan';
+import cors from 'cors';
 import { fileURLToPath } from 'url';
 
 dotenv.config();
@@ -21,6 +22,7 @@ const upload = multer({ dest: './uploads' });
 
 const app = express();
 
+app.use(cors());
 app.use(express.json());
 app.use(morgan('dev'));
 
