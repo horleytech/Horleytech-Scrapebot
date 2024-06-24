@@ -161,5 +161,5 @@ if __name__ == "__main__":
 
     # Allow further testing by leaving the input part
     
-    with open('src/constants/sites/jumia/smartwatchJumia.js', 'w') as js_file:
+    with open('src/constants/sites/jumia/smartwatchJUMIA.js', 'w') as js_file:
         js_file.write("export const smartwatchTable = " + json.dumps(smartwatch_table, indent=2))
