@@ -1,10 +1,10 @@
-import https from 'https';
 import fs from 'fs';
 import path from 'path';
 import express from 'express';
 import dotenv from 'dotenv';
 import multer from 'multer';
 import OpenAI from 'openai';
+import morgan from 'morgan';
 import { fileURLToPath } from 'url';
 
 dotenv.config();
@@ -22,17 +22,18 @@ const upload = multer({ dest: './uploads' });
 const app = express();
 
 app.use(express.json());
+app.use(morgan('dev'));
 
 const PORT = process.env.PORT || 8000;
 
-const options = {
-  key: fs.readFileSync(
-    '/etc/letsencrypt/live/backend.horleytech.com/privkey.pem'
-  ),
-  cert: fs.readFileSync(
-    '/etc/letsencrypt/live/backend.horleytech.com/fullchain.pem'
-  ),
-};
+// const options = {
+//   key: fs.readFileSync(
+//     '/etc/letsencrypt/live/backend.horleytech.com/privkey.pem'
+//   ),
+//   cert: fs.readFileSync(
+//     '/etc/letsencrypt/live/backend.horleytech.com/fullchain.pem'
+//   ),
+// };
 
 app.get('/', (req, res) => {
   res.json({ message: 'Server Running' });
@@ -91,6 +92,6 @@ app.post('/process', upload.single('file'), async (req, res) => {
   });
 });
 
-https.createServer(options, app).listen(PORT, () => {
+app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
