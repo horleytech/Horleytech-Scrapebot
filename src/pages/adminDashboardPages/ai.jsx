@@ -123,6 +123,17 @@ const Ai = () => {
       })
       .then(async (data) => {
         console.log('Success:', data);
+        if (data.status === false) {
+          setFile(null);
+          setTitle('');
+          setResponseMessage(
+            data.message || 'Error uploading file. Probably too large.'
+          );
+          setSuccess(false);
+          setLoading(false);
+          toast(data.message || 'Error');
+          return;
+        }
         // handleAiResponse(data);
         if (data.length > 0) {
           const firebaseGroupResponse = await addGroup();
@@ -224,7 +235,7 @@ const Ai = () => {
                   success ? 'text-green-600' : 'text-red-600'
                 } font-bold`}
               >
-                Successfully Uploaded
+                {responseMessage}
               </p>
             )}
             <div className="flex items-center justify-center">

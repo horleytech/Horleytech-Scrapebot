@@ -4,6 +4,7 @@ import { tabletTable as tabletJIJI } from '../../constants/sites/jiji/tabletJIJI
 // import { tabletTable as tabletJIJI } from "../../constants/sites/jiji/tabletJIJI";
 // import { tabletTable as tabletOBIWEZY } from "../../constants/sites/obiwezy/tabletOBIWEZY";
 import { tabletTable as tabletSLOT } from '../../constants/sites/slot/tabletSLOT';
+import { tabletTable as tabletJustfone } from '../../constants/sites/justfone/tabletJUSTPHONE';
 import { FaTabletAlt } from 'react-icons/fa';
 import { useSelector } from 'react-redux';
 import tabletOffline from '../../constants/sites/offline/tablet.json';
@@ -73,6 +74,9 @@ const Tablet = () => {
       case 'Jiji':
         setData(tabletJIJI);
         return;
+      case 'JustFone':
+        setData(tabletJustfone);
+        return;
       case 'Offline':
         setData(tabletOffline);
         return;
@@ -120,6 +124,7 @@ const Tablet = () => {
               <option value="Obiwezy">Obiwezy</option>
               <option value="Slot">Slot</option>
               <option value="Jiji">Jiji</option>
+              <option value="JustFone">JustFone</option>
             </select>
           </div>
         ) : (

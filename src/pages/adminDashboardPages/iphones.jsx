@@ -4,6 +4,7 @@ import { iphoneTable as iphoneJUMIA } from '../../constants/sites/jumia/iphoneJU
 import { iphoneTable as iphoneOBIWEZY } from '../../constants/sites/obiwezy/iphoneOBIWEZY';
 import { iphoneTable as iphoneSLOT } from '../../constants/sites/slot/iphoneSLOT';
 import { iphoneTable as iphoneJIJI } from '../../constants/sites/jiji/iphoneJIJI';
+import { iphoneTable as iphoneJustfone } from '../../constants/sites/justfone/iphoneJUSTPHONE';
 
 import { DiApple } from 'react-icons/di';
 
@@ -74,6 +75,9 @@ const Iphones = () => {
       case 'Jiji':
         setData(iphoneJIJI);
         return;
+      case 'JustFone':
+        setData(iphoneJustfone);
+        return;
       case 'Offline':
         return;
       default:
@@ -120,6 +124,7 @@ const Iphones = () => {
               <option value="Obiwezy">Obiwezy</option>
               <option value="Slot">Slot</option>
               <option value="Jiji">Jiji</option>
+              <option value="JustFone">JustFone</option>
             </select>
           </div>
         ) : (

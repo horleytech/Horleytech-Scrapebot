@@ -4,6 +4,7 @@ import { smartwatchTable as smartwatchJUMIA } from '../../constants/sites/jumia/
 // import { smartwatchTable as smartwatchOBIWEZY } from "../../constants/sites/obiwezy/smartwatchOBIWEZY";
 import { smartwatchTable as smartwatchSLOT } from '../../constants/sites/slot/smartwatchSLOT';
 import { smartwatchTable as smartwatchJIJI } from '../../constants/sites/jiji/smartwatchJIJI';
+import { smartwatchTable as smartwatchJustFone } from '../../constants/sites/justfone/smartwatchJUSTPHONE';
 
 import { IoWatch } from 'react-icons/io5';
 import { useEffect } from 'react';
@@ -74,6 +75,9 @@ const Smartwatch = () => {
       case 'Jiji':
         setData(smartwatchJIJI);
         return;
+      case 'JustFone':
+        setData(smartwatchJustFone);
+        return;
       case 'Offline':
         setData(smartwatchOffline);
         return;
@@ -122,6 +126,7 @@ const Smartwatch = () => {
               <option value="Obiwezy">Obiwezy</option>
               <option value="Slot">Slot</option>
               <option value="Jiji">Jiji</option>
+              <option value="JustFone">JustFone</option>
             </select>
           </div>
         ) : (

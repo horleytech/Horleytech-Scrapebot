@@ -5,6 +5,7 @@ import { samsungTable as samsungJUMIA } from '../../constants/sites/jumia/samsun
 import { samsungTable as samsungOBIWEZY } from '../../constants/sites/obiwezy/samsungOBIWEZY';
 import { samsungTable as samsungSLOT } from '../../constants/sites/slot/samsungSLOT';
 import { samsungTable as samsungJIJI } from '../../constants/sites/jiji/samsungJIJI';
+import { samsungTable as samsungJustfone } from '../../constants/sites/justfone/samsungJUSTPHONE';
 import { DiSmashingMagazine } from 'react-icons/di';
 import { useSelector } from 'react-redux';
 import { useEffect } from 'react';
@@ -74,6 +75,9 @@ const Samsung = () => {
       case 'Jiji':
         setData(samsungSLOT);
         return;
+      case 'JustFone':
+        setData(samsungJustfone);
+        return;
       case 'Offline':
         setData(samsungOffline);
         return;
@@ -121,6 +125,7 @@ const Samsung = () => {
               <option value="Obiwezy">Obiwezy</option>
               <option value="Slot">Slot</option>
               <option value="Jiji">Jiji</option>
+              <option value="JustFone">JustFone</option>
             </select>
           </div>
         ) : (

@@ -4,6 +4,7 @@ import { soundTable as soundJIJI } from '../../constants/sites/jiji/soundJIJI';
 // import { soundTable as soundJIJI } from "../../constants/sites/jiji/soundJIJI";
 // import { soundTable as soundOBIWEZY } from "../../constants/sites/obiwezy/soundOBIWEZY";
 import { soundTable as soundSLOT } from '../../constants/sites/slot/soundSLOT';
+import { soundTable as soundJustfone } from '../../constants/sites/justfone/soundJUSTPHONE';
 import { useEffect } from 'react';
 import { useSelector } from 'react-redux';
 import soundOffline from '../../constants/sites/offline/sound.json';
@@ -74,6 +75,9 @@ const Sounds = () => {
       case 'Jiji':
         setData(soundJIJI);
         return;
+      case 'JustFone':
+        setData(soundJIJI);
+        return;
       case 'Offline':
         setData(soundOffline);
         return;
@@ -122,6 +126,7 @@ const Sounds = () => {
               <option value="Obiwezy">Obiwezy</option>
               <option value="Slot">Slot</option>
               <option value="Jiji">Jiji</option>
+              <option value="JustFone">JustFone</option>
             </select>
           </div>
         ) : (

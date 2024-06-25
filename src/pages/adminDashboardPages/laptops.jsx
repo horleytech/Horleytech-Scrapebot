@@ -4,6 +4,7 @@ import { laptopTable as laptopJUMIA } from '../../constants/sites/jumia/laptopJU
 // import { laptopTable as laptopOBIWEZY } from "../../constants/sites/obiwezy/laptopOBIWEZY";
 import { laptopTable as laptopSLOT } from '../../constants/sites/slot/laptopSLOT';
 import { laptopTable as laptopJIJI } from '../../constants/sites/jiji/laptopJIJI';
+import { laptopTable as laptopJustfone } from '../../constants/sites/justfone/laptopJUSTPHONE';
 import { FaLaptop } from 'react-icons/fa';
 import { useEffect } from 'react';
 
@@ -79,6 +80,9 @@ const Laptops = () => {
       case 'Jiji':
         setData(laptopJIJI);
         return;
+      case 'JustFone':
+        setData(laptopJustfone);
+        return;
       case 'Offline':
         // setData(laptopOffline);
         return;
@@ -121,6 +125,7 @@ const Laptops = () => {
               <option value="Obiwezy">Obiwezy</option>
               <option value="Slot">Slot</option>
               <option value="Jiji">Jiji</option>
+              <option value="JustFone">JustFone</option>
             </select>
           </div>
         ) : (
