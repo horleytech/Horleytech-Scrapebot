@@ -31,6 +31,22 @@ def get_product_info(product_name):
             if name_element and price_element:
                 # Special case for "apple iphone 13 6.1" 128gb"
                 if product_name in [
+                    'samsung galaxy z fold 5 - 7.6" 1tb',
+                    'samsung galaxy z fold 5 - 7.6" 512gb',
+                    'samsung galaxy z fold 5 - 7.6" 256gb',
+                    'samsung galaxy z fold 4 - 7.6" 512gb',
+                    'samsung galaxy z fold 4 - 7.6" 256gb',
+                    'samsung galaxy z fold 3 - 7.6" 512gb',
+                    'samsung galaxy z fold 3 - 7.6" 256gb',
+                    'samsung galaxy z fold 2 - 7.6" 256gb',
+                    'samsung galaxy fold 5 - 7.6" 1tb',
+                    'samsung galaxy fold 5 - 7.6" 512gb',
+                    'samsung galaxy fold 5 - 7.6" 256gb',
+                    'samsung galaxy fold 4 - 7.6" 512gb',
+                    'samsung galaxy fold 4 - 7.6" 256gb',
+                    'samsung galaxy fold 3 - 7.6" 512gb',
+                    'samsung galaxy fold 3 - 7.6" 256gb',
+                    'samsung galaxy fold 2 - 7.6" 256gb',
                     'samsung galaxy s23 ultra 512gb',
                     'samsung galaxy s23 ultra 256gb',
                     'samsung galaxy s22 ultra 512gb',
