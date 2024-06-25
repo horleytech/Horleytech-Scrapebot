@@ -73,7 +73,7 @@ app.post('/process', upload.single('file'), async (req, res) => {
     }
 
     const content = `Extract Model, Storage (GB), Lock Status, SIM Type, Device Type(iphone, samsung, laptop, watch, sound) and Price from the text below and return the value as a list of json object with each object like 'model':'value', 'storage':'value', 'lock_status':'value', 'sim_type':'value', 'device_type':'value': 'price':'value'. If a line contains more than one price specification, extract each price as different json object.
-                  Ensure that data is well represented under each key. Ensure that price is in numbers (e.g. 20k should be represented as 20,000). If any device has extra information that is not part of the key, add these extra information under lock status.
+                  Ensure that data is well represented under each key. Ensure that price is in numbers (e.g. 20k should be represented as 20,000).
                 ${fileContent}`;
 
     const response = await openai.chat.completions.create({
