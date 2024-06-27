@@ -108,7 +108,7 @@ const Ai = () => {
     const formData = new FormData();
     formData.append('file', file);
 
-    fetch('https://backend.horleytech.com/process', {
+    fetch('http://localhost:8000/process', {
       method: 'POST',
       body: formData,
       headers: {
