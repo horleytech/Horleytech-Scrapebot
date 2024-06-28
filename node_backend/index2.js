@@ -55,6 +55,7 @@ app.post('/process', upload.single('file'), async (req, res) => {
     }
 
     let finalResponse = '';
+    let finalReponseArray = [];
 
     for (const chunk of chunks) {
       const content = `Extract Model, Storage (GB), Lock Status, SIM Type, Device Type(iphone, samsung, laptop, watch, sound) and Price from the text below and return the value as a list of json object with each object like 'model':'value', 'storage':'value', 'lock_status':'value', 'sim_type':'value', 'device_type':'value': 'price':'value'. If a line contains more than one price specification, extract each price as different json object.
@@ -67,15 +68,29 @@ app.post('/process', upload.single('file'), async (req, res) => {
           model: 'gpt-3.5-turbo',
         });
         const temp = JSON.parse(response.choices[0].message.content);
-        console.log({ temp });
+        // console.log({ temp });
+        finalReponseArray = finalReponseArray.concat(temp);
+        console.log({ finalReponseArray });
         for (const datum of temp) {
-          finalResponse += JSON.stringify(datum);
+          finalResponse += JSON.stringify(datum) + ',';
         }
         //   finalResponse += temp.join('');
         console.log({ finalResponse });
       } catch (error) {
         console.error('Error processing chunk:', error);
-        return res.status(500).send('Error processing file.');
+        fs.unlink(filePath, (err) => {
+          if (err) {
+            console.error('Error deleting file:', err);
+          } else {
+            console.log('Deleted File');
+          }
+        });
+        return res
+          .status(500)
+          .json({
+            status: false,
+            message: 'Could not process file. Please try again soon 😥',
+          });
       }
     }
 
@@ -86,8 +101,8 @@ app.post('/process', upload.single('file'), async (req, res) => {
         console.log('Deleted File');
       }
     });
-
-    res.json(finalResponse);
+    console.log({ httpResponse: finalResponse });
+    res.json(finalReponseArray);
   });
 });
 

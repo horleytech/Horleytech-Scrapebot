@@ -32,6 +32,7 @@ const Ai = () => {
     'AI is working... 🤖',
     'AI Studying Data 🧐...',
     'AI working hard 🕵️...',
+    'This may take some time...',
   ];
 
   // FIREBASE...
@@ -46,7 +47,7 @@ const Ai = () => {
 
   const addPrices = async (pricesData) => {
     const batch = writeBatch(db);
-    pricesData = JSON.parse(pricesData);
+    // pricesData = JSON.parse(pricesData);
 
     pricesData.forEach((priceDatum) => {
       const datumRef = doc(db, 'prices', generateRandomString(10));
@@ -127,7 +128,7 @@ const Ai = () => {
           setFile(null);
           setTitle('');
           setResponseMessage(
-            data.message || 'Error uploading file. Probably too large.'
+            data.message || 'Error uploading file. Try Again.'
           );
           setSuccess(false);
           setLoading(false);
@@ -136,6 +137,8 @@ const Ai = () => {
         }
         // handleAiResponse(data);
         if (data.length > 0) {
+          console.log(typeof data);
+
           const firebaseGroupResponse = await addGroup();
           console.log({ firebaseGroupResponse });
 
