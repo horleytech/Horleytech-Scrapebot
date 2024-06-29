@@ -16,7 +16,7 @@ const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const setMaxToken = 17500;
+const CHUNK_SIZE = 20_000;
 
 const upload = multer({ dest: './uploads' });
 
@@ -28,28 +28,9 @@ app.use(morgan('dev'));
 
 const PORT = process.env.PORT || 8000;
 
-// const options = {
-//   key: fs.readFileSync(
-//     '/etc/letsencrypt/live/backend.horleytech.com/privkey.pem'
-//   ),
-//   cert: fs.readFileSync(
-//     '/etc/letsencrypt/live/backend.horleytech.com/fullchain.pem'
-//   ),
-// };
-
-const chunkText = (text, chunkSize) => {
-  const chunks = [];
-  for (let i = 0; i < text.length; i += chunkSize) {
-    chunks.push(text.slice(i, i + chunkSize));
-  }
-  return chunks;
-};
-
 app.get('/', (req, res) => {
   res.json({ message: 'Server Running' });
 });
-
-let fileContent = '';
 
 app.post('/process', upload.single('file'), async (req, res) => {
   if (!req.file) {
@@ -60,41 +41,55 @@ app.post('/process', upload.single('file'), async (req, res) => {
   const filePath = path.join(__dirname, '../', req.file.path);
   console.log({ reqFilePath: req.file.path });
   console.log({ __dirname, __filename, filePath });
+
   fs.readFile(filePath, 'utf8', async (err, data) => {
     if (err) {
       console.log({ err });
       return res.status(500).send('Error reading file.');
     }
 
-    // Store the content in a variable
-    fileContent = data;
+    // Break the file content into chunks
+    const chunks = [];
+    for (let i = 0; i < data.length; i += CHUNK_SIZE) {
+      chunks.push(data.substring(i, i + CHUNK_SIZE));
+    }
 
-    // if (fileContent.length > setMaxToken) {
-    //   fs.unlink(filePath, (err) => {
-    //     if (err) {
-    //       console.error('Error deleting file:', err);
-    //     } else {
-    //       console.log('Deleted File');
-    //     }
-    //   });
-    //   return res.json({ status: false, message: 'Maximum token exceeded' });
-    // }
+    let finalResponse = '';
+    let finalReponseArray = [];
 
-    const chunks = chunkText(fileContent, 20000);
-    const responses = [];
     for (const chunk of chunks) {
       const content = `Extract Model, Storage (GB), Lock Status, SIM Type, Device Type(iphone, samsung, laptop, watch, sound) and Price from the text below and return the value as a list of json object with each object like 'model':'value', 'storage':'value', 'lock_status':'value', 'sim_type':'value', 'device_type':'value': 'price':'value'. If a line contains more than one price specification, extract each price as different json object.
-                    Ensure that data is well represented under each key. Ensure that price is in numbers (e.g. 20k should be represented as 20,000). Please return just a valid json object, no extra markdown character. Don't add these characters "\`\`\`json"
+                  Ensure that data is well represented under each key. Ensure that price is in numbers (e.g. 20k should be represented as 20,000). Please return just a valid json object, no extra markdown character. Don't add these characters "\`\`\`json"
                   ${chunk}`;
 
-      const response = await openai.chat.completions.create({
-        messages: [{ role: 'system', content }],
-        model: 'gpt-3.5-turbo',
-      });
-
-      const apiResponse = response.choices[0].message.content;
-      console.log({ apiResponse });
-      responses.push(JSON.parse(apiResponse));
+      try {
+        const response = await openai.chat.completions.create({
+          messages: [{ role: 'system', content }],
+          model: 'gpt-3.5-turbo',
+        });
+        const temp = JSON.parse(response.choices[0].message.content);
+        // console.log({ temp });
+        finalReponseArray = finalReponseArray.concat(temp);
+        console.log({ finalReponseArray });
+        for (const datum of temp) {
+          finalResponse += JSON.stringify(datum) + ',';
+        }
+        //   finalResponse += temp.join('');
+        console.log({ finalResponse });
+      } catch (error) {
+        console.error('Error processing chunk:', error);
+        fs.unlink(filePath, (err) => {
+          if (err) {
+            console.error('Error deleting file:', err);
+          } else {
+            console.log('Deleted File');
+          }
+        });
+        return res.status(500).json({
+          status: false,
+          message: 'Could not process file. Please try again soon 😥',
+        });
+      }
     }
 
     fs.unlink(filePath, (err) => {
@@ -104,12 +99,8 @@ app.post('/process', upload.single('file'), async (req, res) => {
         console.log('Deleted File');
       }
     });
-    [[], []];
-    const finalReponse = [];
-    for (const singleResponse of responses) {
-      finalReponse.push(JSON.stringify(singleResponse));
-    }
-    res.json(finalReponse.join(''));
+    console.log({ httpResponse: finalResponse });
+    res.json(finalReponseArray);
   });
 });
 
