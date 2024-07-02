@@ -42,7 +42,6 @@ event.on('process', async (data, filePath, title) => {
     chunks.push(data.substring(i, i + CHUNK_SIZE));
   }
 
-  let finalResponse = '';
   let finalReponseArray = [];
 
   for (const chunk of chunks) {
@@ -59,6 +58,7 @@ event.on('process', async (data, filePath, title) => {
       // console.log({ temp });
       finalReponseArray = finalReponseArray.concat(temp);
       console.log({ finalReponseArray });
+      console.log('CHAT GPT RESPONSE GOTTEN');
       // for (const datum of temp) {
       //   finalResponse += JSON.stringify(datum) + ',';
       // }
@@ -76,7 +76,7 @@ event.on('process', async (data, filePath, title) => {
       // Send 'failed' email here
       const sgResponse = await sg.send(
         {
-          to: 'horleytech@gmail.com',
+          to: 'joshuaajagbe96@gmail.com',
           subject: 'File Processing Failed',
           html: `
 				<h1>Failed File Processed</h1>
