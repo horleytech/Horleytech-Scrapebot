@@ -1,6 +1,7 @@
 import fs from 'fs';
 import EventEmitter from 'events';
 import dotenv from 'dotenv';
+import NodeCache from 'node-cache';
 
 import OpenAI from 'openai';
 import sg from '@sendgrid/mail';
@@ -8,9 +9,12 @@ import admin from 'firebase-admin';
 
 dotenv.config();
 
+export const stateCache = new NodeCache();
+
 export const event = new EventEmitter();
 
 const CHUNK_SIZE = 20_000;
+const CACHE_TIMEOUT = 7_200;
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 sg.setApiKey(process.env.SENDGRID_API_KEY);
@@ -36,6 +40,8 @@ function generateRandomIds() {
 
 event.on('process', async (data, filePath, title) => {
   console.log('Events Fired  🔥');
+  stateCache.set('state', 'pending', 7200);
+
   // Break the file content into chunks
   const chunks = [];
   for (let i = 0; i < data.length; i += CHUNK_SIZE) {
@@ -46,7 +52,8 @@ event.on('process', async (data, filePath, title) => {
 
   for (const chunk of chunks) {
     const content = `Extract Model, Storage (GB), Lock Status, SIM Type, Device Type(iphone, samsung, laptop, watch, sound) and Price from the text below and return the value as a list of json object with each object like 'model':'value', 'storage':'value', 'lock_status':'value', 'sim_type':'value', 'device_type':'value': 'price':'value'. If a line contains more than one price specification, extract each price as different json object.
-                  Ensure that data is well represented under each key. Ensure that price is in numbers (e.g. 20k should be represented as 20,000). Please return just a valid json object, no extra markdown character. Don't add these characters "\`\`\`json"
+                  Ensure that data is well represented under each key. Ensure that price is in numbers (e.g. 20k should be represented as 20,000). Please return just a valid json object, no extra markdown character. Don't add these characters "\`\`\`json".
+						Please try to always stick to the pattern without any deviation. Your response should not be in markdown. Send it to me as a direct string.
                   ${chunk}`;
     console.log('Chunking request');
     try {
@@ -54,16 +61,12 @@ event.on('process', async (data, filePath, title) => {
         messages: [{ role: 'system', content }],
         model: 'gpt-3.5-turbo',
       });
+      console.log({ response: response.choices[0].message.content });
       const temp = JSON.parse(response.choices[0].message.content);
       // console.log({ temp });
       finalReponseArray = finalReponseArray.concat(temp);
-      console.log({ finalReponseArray });
+      // console.log({ finalReponseArray });
       console.log('CHAT GPT RESPONSE GOTTEN');
-      // for (const datum of temp) {
-      //   finalResponse += JSON.stringify(datum) + ',';
-      // }
-      // //   finalResponse += temp.join('');
-      // console.log({ finalResponse });
     } catch (error) {
       console.error('Error processing chunk:', error);
       fs.unlink(filePath, (err) => {
@@ -92,6 +95,7 @@ event.on('process', async (data, filePath, title) => {
         false
       );
       console.log({ sgResponse });
+      stateCache.set('state', 'completed', CACHE_TIMEOUT);
       return;
     }
   }
@@ -153,5 +157,7 @@ event.on('process', async (data, filePath, title) => {
     },
     false
   );
+
+  stateCache.set('state', 'completed', CACHE_TIMEOUT);
   console.log({ sgResponse });
 });

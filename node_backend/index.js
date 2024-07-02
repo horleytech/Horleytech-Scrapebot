@@ -8,7 +8,7 @@ import morgan from 'morgan';
 import compression from 'compression';
 import cors from 'cors';
 import { fileURLToPath } from 'url';
-import { event } from './fileProcessor.js';
+import { event, stateCache } from './fileProcessor.js';
 
 dotenv.config();
 
@@ -34,6 +34,14 @@ app.get('/', (req, res) => {
 app.post('/process', upload.single('file'), async (req, res) => {
   if (!req.file) {
     return res.status(400).send('No file uploaded.');
+  }
+
+  const value = stateCache.get('state');
+  if (value === 'pending') {
+    return res.json({
+      status: false,
+      message: 'Process pending. Try again later.',
+    });
   }
 
   // Read the content of the file
