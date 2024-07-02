@@ -62,11 +62,16 @@ event.on('process', async (data, filePath, title) => {
         model: 'gpt-3.5-turbo',
       });
       console.log({ response: response.choices[0].message.content });
-      const temp = JSON.parse(response.choices[0].message.content);
-      // console.log({ temp });
-      finalReponseArray = finalReponseArray.concat(temp);
-      // console.log({ finalReponseArray });
-      console.log('CHAT GPT RESPONSE GOTTEN');
+      try {
+        const temp = JSON.parse(response.choices[0].message.content);
+        // console.log({ temp });
+        finalReponseArray = finalReponseArray.concat(temp);
+        // console.log({ finalReponseArray });
+        console.log('CHAT GPT RESPONSE GOTTEN');
+      } catch (error) {
+        console.log({ error });
+        continue;
+      }
     } catch (error) {
       console.error('Error processing chunk:', error);
       fs.unlink(filePath, (err) => {
