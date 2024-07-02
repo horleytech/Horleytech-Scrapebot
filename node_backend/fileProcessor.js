@@ -76,7 +76,11 @@ event.on('process', async (data, filePath, title) => {
       // Send 'failed' email here
       const sgResponse = await sg.send(
         {
-          to: 'joshuaajagbe96@gmail.com',
+          to: [
+            'joshuaajagbe96@gmail.com',
+            'horleytech@gmail.com',
+            'mike.inaolaji@gmail.com',
+          ],
           subject: 'File Processing Failed',
           html: `
 				<h1>Failed File Processed</h1>
@@ -133,7 +137,11 @@ event.on('process', async (data, filePath, title) => {
   //   Send 'success' email here
   const sgResponse = await sg.send(
     {
-      to: 'joshuaajagbe96@gmail.com',
+      to: [
+        'joshuaajagbe96@gmail.com',
+        'horleytech@gmail.com',
+        'mike.inaolaji@gmail.com',
+      ],
       subject: 'File Processing Successful',
       html: `
 		<h1>File Processed</h1>
