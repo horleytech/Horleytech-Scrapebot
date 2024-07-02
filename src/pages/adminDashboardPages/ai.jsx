@@ -108,6 +108,7 @@ const Ai = () => {
     // handle upload request
     const formData = new FormData();
     formData.append('file', file);
+    formData.append('title', title);
 
     fetch('https://backend.horleytech.com/process', {
       method: 'POST',
@@ -136,20 +137,20 @@ const Ai = () => {
           return;
         }
         // handleAiResponse(data);
-        if (data.length > 0) {
-          console.log(typeof data);
+        // if (data.length > 0) {
+        //   console.log(typeof data);
 
-          const firebaseGroupResponse = await addGroup();
-          console.log({ firebaseGroupResponse });
+        //   const firebaseGroupResponse = await addGroup();
+        //   console.log({ firebaseGroupResponse });
 
-          await addPrices(data);
-        }
-        setResponseMessage('Successfullly Uploaded Data');
+        //   await addPrices(data);
+        // }
+        setResponseMessage(data.message);
         setLoading(false);
         setSuccess(true);
         setFile(null);
         setTitle('');
-        toast('Successfully Analyzed');
+        toast(data.message);
       })
       .catch((error) => {
         console.error('Error:', error);
