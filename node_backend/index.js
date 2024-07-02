@@ -38,6 +38,13 @@ app.post('/process', upload.single('file'), async (req, res) => {
 
   const value = stateCache.get('state');
   if (value === 'pending') {
+    fs.unlink(filePath, (err) => {
+      if (err) {
+        console.error('Error deleting file:', err);
+      } else {
+        console.log('Deleted File');
+      }
+    });
     return res.json({
       status: false,
       message: 'Process pending. Try again later.',
