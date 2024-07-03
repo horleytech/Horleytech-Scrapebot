@@ -25,8 +25,16 @@ import { smartwatchTable as smartwatchJIJI } from '../../constants/sites/jiji/sm
 import { soundTable as soundJIJI } from '../../constants/sites/jiji/soundJIJI';
 import { tabletTable as tabletJIJI } from '../../constants/sites/jiji/tabletJIJI';
 
+// Justfone
+import { iphoneTable as iphoneJustfone } from '../../constants/sites/justfone/iphoneJUSTPHONE';
+import { laptopTable as laptopJustfone } from '../../constants/sites/justfone/laptopJUSTPHONE';
+import { samsungTable as samsungJustfone } from '../../constants/sites/justfone/samsungJUSTPHONE';
+import { smartwatchTable as smartwatchJustfone } from '../../constants/sites/justfone/smartwatchJUSTPHONE';
+import { soundTable as soundJustfone } from '../../constants/sites/justfone/soundJUSTPHONE';
+import { tabletTable as tabletJustfone } from '../../constants/sites/justfone/tabletJUSTPHONE';
+
 export default class ComparePricesHandler {
-  sites = ['Jumia', 'Obiwezy', 'Slot', 'Jiji'];
+  sites = ['Jumia', 'Obiwezy', 'Slot', 'Jiji', 'Justfone'];
   constructor(selectedDeviceName, selectedSite, deviceType) {
     this.selectedDeviceName = selectedDeviceName;
     this.selectedSite = selectedSite;
@@ -449,6 +457,113 @@ export default class ComparePricesHandler {
             }
           } else if (this.deviceType === 'tablet') {
             const filteredData = tabletJIJI.find(
+              (device) => device.Pname === this.selectedDeviceName
+            );
+            if (filteredData) {
+              result.push({
+                type: i,
+                productName: filteredData.Pname,
+                link: filteredData.Link,
+                H1: filteredData.H1,
+                H2: filteredData.H2,
+                H3: filteredData.H3,
+                L1: filteredData.L1,
+                L2: filteredData.L2,
+                L3: filteredData.L3,
+              });
+            }
+          } else {
+            return null;
+          }
+          break;
+        case 'Justfone':
+          if (this.deviceType === 'iphone') {
+            const filteredData = iphoneJustfone.find(
+              (device) => device.Pname === this.selectedDeviceName
+            );
+            if (filteredData) {
+              result.push({
+                type: i,
+                productName: filteredData.Pname,
+                link: filteredData.Link,
+                H1: filteredData.H1,
+                H2: filteredData.H2,
+                H3: filteredData.H3,
+                L1: filteredData.L1,
+                L2: filteredData.L2,
+                L3: filteredData.L3,
+              });
+            }
+          } else if (this.deviceType === 'laptop') {
+            const filteredData = laptopJustfone.find(
+              (device) => device.Pname === this.selectedDeviceName
+            );
+            if (filteredData) {
+              result.push({
+                type: i,
+                productName: filteredData.Pname,
+                link: filteredData.Link,
+                H1: filteredData.H1,
+                H2: filteredData.H2,
+                H3: filteredData.H3,
+                L1: filteredData.L1,
+                L2: filteredData.L2,
+                L3: filteredData.L3,
+              });
+            }
+          } else if (this.deviceType === 'samsung') {
+            const filteredData = samsungJustfone.find(
+              (device) => device.Pname === this.selectedDeviceName
+            );
+            if (filteredData) {
+              result.push({
+                type: i,
+                productName: filteredData.Pname,
+                link: filteredData.Link,
+                H1: filteredData.H1,
+                H2: filteredData.H2,
+                H3: filteredData.H3,
+                L1: filteredData.L1,
+                L2: filteredData.L2,
+                L3: filteredData.L3,
+              });
+            }
+          } else if (this.deviceType === 'smartwatch') {
+            const filteredData = smartwatchJustfone.find(
+              (device) => device.Pname === this.selectedDeviceName
+            );
+            if (filteredData) {
+              result.push({
+                type: i,
+                productName: filteredData.Pname,
+                link: filteredData.Link,
+                H1: filteredData.H1,
+                H2: filteredData.H2,
+                H3: filteredData.H3,
+                L1: filteredData.L1,
+                L2: filteredData.L2,
+                L3: filteredData.L3,
+              });
+            }
+          } else if (this.deviceType === 'sound') {
+            const filteredData = soundJustfone.find(
+              (device) => device.Pname === this.selectedDeviceName
+            );
+            if (filteredData) {
+              result.push({
+                type: i,
+                productName: filteredData.Pname,
+                link: filteredData.Link,
+                H1: filteredData.H1,
+                H2: filteredData.H2,
+                H3: filteredData.H3,
+                L1: filteredData.L1,
+                L2: filteredData.L2,
+                L3: filteredData.L3,
+              });
+            }
+          } else if (this.deviceType === 'tablet') {
+            const filteredData = tabletJustfone.find(
               (device) => device.Pname === this.selectedDeviceName
             );
             if (filteredData) {
