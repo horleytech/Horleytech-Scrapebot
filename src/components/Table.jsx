@@ -331,7 +331,7 @@ const Table = ({ data, site, deviceType }) => {
             <tr className="text-[#1A1C23] font-bold border-b-[#DDDCF9]">
               <td className="pl-6">Model</td>
               <td className="px-3">Storage</td>
-              <td className="px-5">Price</td>
+              <td className="px-5">Prices</td>
               <td className="px-3">Lock Status</td>
               <td className="px-3">Sim Type</td>
               <td className="px-3">
@@ -363,7 +363,37 @@ const Table = ({ data, site, deviceType }) => {
                       {device.storage}
                     </td>
                     <td className="flex gap-8 py-3 px-5 font-medium text-[15px] text-[#1A1C23]">
-                      {device.price}
+                      <Dropdown
+                        label="Highest"
+                        style={drop}
+                        dismissOnClick={false}
+                      >
+                        <DropdownItem>
+                          ₦{device.H1 !== '0' ? device.H1 : '---'}
+                        </DropdownItem>
+                        <DropdownItem>
+                          ₦{device.H2 !== '0' ? device.H2 : '---'}
+                        </DropdownItem>
+                        <DropdownItem>
+                          ₦{device.H3 !== '0' ? device.H3 : '---'}
+                        </DropdownItem>
+                      </Dropdown>
+
+                      <Dropdown
+                        label="Lowest"
+                        style={drop}
+                        dismissOnClick={false}
+                      >
+                        <DropdownItem>
+                          ₦{device.L1 !== '0' ? device.L1 : '---'}
+                        </DropdownItem>
+                        <DropdownItem>
+                          ₦{device.L2 !== '0' ? device.L2 : '---'}
+                        </DropdownItem>
+                        <DropdownItem>
+                          ₦{device.L3 !== '0' ? device.L3 : '---'}
+                        </DropdownItem>
+                      </Dropdown>
                     </td>
                     <td className="py-3 font-medium text-[15px] text-[#1A1C23]">
                       {device.lock_status}
