@@ -61,6 +61,7 @@ event.on('process', async (data, filePath, title) => {
     const content = `Extract Model, Storage (GB), Lock Status, SIM Type, Device Type(iphone, samsung, laptop, watch, sound) and Price from the text below and return the value as a list of json object with each object like 'model':'value', 'storage':'value', 'lock_status':'value', 'sim_type':'value', 'device_type':'value': 'price':'value'. If a line contains more than one price specification, extract each price as different json object.
                   Ensure that data is well represented under each key. Ensure that price is in numbers (e.g. 20k should be represented as 20,000). Please return just a valid json object, no extra markdown character. Don't add these characters "\`\`\`json".
 						Please try to always stick to the pattern without any deviation. Your response should not be in markdown. Send it to me as a direct string.
+            The highest 3 should be H1, H2 and H3 respectively, while the lowest 3 should be L1, L2 and L3 respectively. For any of these that do not exist, fill in '0' as the value.
                   ${chunk}`;
     console.log('Chunking request');
     try {
