@@ -51,17 +51,16 @@ event.on('process', async (data, filePath, title) => {
 
   let finalReponseArray = [];
 
-  let count = 0
+  let count = 0;
 
   for (const chunk of chunks) {
-    // if(count === 1) {
+    // if (count === 1) {
     //   break;
     // }
     // count++;
     const content = `Extract Model, Storage (GB), Lock Status, SIM Type, Device Type(iphone, samsung, laptop, watch, sound) and Price from the text below and return the value as a list of json object with each object like 'model':'value', 'storage':'value', 'lock_status':'value', 'sim_type':'value', 'device_type':'value': 'price':'value'. If a line contains more than one price specification, extract each price as different json object.
                   Ensure that data is well represented under each key. Ensure that price is in numbers (e.g. 20k should be represented as 20,000). Please return just a valid json object, no extra markdown character. Don't add these characters "\`\`\`json".
-						Please try to always stick to the pattern without any deviation. Your response should not be in markdown. Send it to me as a direct string.
-            The highest 3 should be H1, H2 and H3 respectively, while the lowest 3 should be L1, L2 and L3 respectively. For any of these that do not exist, fill in '0' as the value.
+						Please try to always stick to the pattern without any deviation. Your response should not be in markdown. Send it to me as a direct string. Ensure to pass the right data to the right object key. If sim_type does not exist, make it null. Any value that has the word "unlocked" must be in the lock_status key. Any value that contains the word "sim" must be in the sim_type key.
                   ${chunk}`;
     console.log('Chunking request');
     try {
@@ -127,9 +126,12 @@ event.on('process', async (data, filePath, title) => {
       console.error('Error adding group document: ', error);
     });
 
+  const finalResult = groupAndSortPhones(finalReponseArray);
+  // console.log(finalResult);
+
   //   send prices data to firebase: Batch add
   const batch = db.batch();
-  finalReponseArray.forEach((priceDatum, index) => {
+  finalResult.forEach((priceDatum, index) => {
     const docRef = db.collection('prices').doc(generateRandomIds());
     batch.set(docRef, { ...priceDatum, group: title });
   });
@@ -142,9 +144,6 @@ event.on('process', async (data, filePath, title) => {
     .catch((error) => {
       console.log('Batch Prices Write Failed: ', error);
     });
-
-  const finalResult = groupAndSortPhones(finalReponseArray)
-  console.log(finalResult)
 
   fs.unlink(filePath, (err) => {
     if (err) {
