@@ -6,6 +6,7 @@ import NodeCache from 'node-cache';
 import OpenAI from 'openai';
 import sg from '@sendgrid/mail';
 import admin from 'firebase-admin';
+import { groupAndSortPhones } from './dataProcessor.js';
 
 dotenv.config();
 
@@ -50,7 +51,13 @@ event.on('process', async (data, filePath, title) => {
 
   let finalReponseArray = [];
 
+  let count = 0
+
   for (const chunk of chunks) {
+    // if(count === 1) {
+    //   break;
+    // }
+    // count++;
     const content = `Extract Model, Storage (GB), Lock Status, SIM Type, Device Type(iphone, samsung, laptop, watch, sound) and Price from the text below and return the value as a list of json object with each object like 'model':'value', 'storage':'value', 'lock_status':'value', 'sim_type':'value', 'device_type':'value': 'price':'value'. If a line contains more than one price specification, extract each price as different json object.
                   Ensure that data is well represented under each key. Ensure that price is in numbers (e.g. 20k should be represented as 20,000). Please return just a valid json object, no extra markdown character. Don't add these characters "\`\`\`json".
 						Please try to always stick to the pattern without any deviation. Your response should not be in markdown. Send it to me as a direct string.
@@ -134,6 +141,9 @@ event.on('process', async (data, filePath, title) => {
     .catch((error) => {
       console.log('Batch Prices Write Failed: ', error);
     });
+
+  const finalResult = groupAndSortPhones(finalReponseArray)
+  console.log(finalResult)
 
   fs.unlink(filePath, (err) => {
     if (err) {

@@ -113,23 +113,23 @@ export const smartwatchTable = [
     "id": 11,
     "Pname": "Samsung GALAXY WATCH 4",
     "Link": "https://www.jumia.com.ng/catalog/?q=Samsung+GALAXY+WATCH+4",
-    "H1": "0",
-    "H2": "0",
-    "H3": "0",
-    "L1": "0",
-    "L2": "0",
-    "L3": "0"
+    "H1": "254,500",
+    "H2": "291,680",
+    "H3": "291,680",
+    "L1": "180,000",
+    "L2": "180,000",
+    "L3": "242,799"
   },
   {
     "id": 12,
     "Pname": "Samsung GALAXY WATCH 4 CLASSIC",
     "Link": "https://www.jumia.com.ng/catalog/?q=Samsung+Galaxy+Watch4+Classic,46mm,+Bluetooth,",
-    "H1": "270,000",
-    "H2": "425,600",
-    "H3": "0",
-    "L1": "270,000",
-    "L2": "425,600",
-    "L3": "0"
+    "H1": "285,000",
+    "H2": "290,000",
+    "H3": "345,600",
+    "L1": "240,000",
+    "L2": "260,000",
+    "L3": "260,000"
   },
   {
     "id": 13,
@@ -146,10 +146,10 @@ export const smartwatchTable = [
     "id": 14,
     "Pname": "Samsung GALAXY WATCH 5 PRO",
     "Link": "https://www.jumia.com.ng/catalog/?q=Samsung+GALAXY+WATCH+5+PRO",
-    "H1": "0",
+    "H1": "360,000",
     "H2": "0",
     "H3": "0",
-    "L1": "0",
+    "L1": "360,000",
     "L2": "0",
     "L3": "0"
   }
