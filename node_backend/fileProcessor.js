@@ -58,7 +58,7 @@ event.on('process', async (data, filePath, title) => {
     //   break;
     // }
     // count++;
-    const content = `Extract Model, Storage (GB), Lock Status, SIM Type, Device Type(iphone, samsung, laptop, watch, sound) and Price from the text below and return the value as a list of json object with each object having the following keys 'model','storage','lock_status','sim_type’,’device_type’,’price'. 
+    const content = `Extract Model, Storage (GB), Lock Status, SIM Type, Device Type(iphone, samsung, laptop, watch, sound, tablet) and Price from the text below and return the value as a list of json object with each object having the following keys 'model','storage','lock_status','sim_type’,’device_type’,’price'. 
                     ${chunk}
                     Perform the following transformation.
                     1. If a line contains more than one price specification, extract each price as different json object.
@@ -67,13 +67,16 @@ event.on('process', async (data, filePath, title) => {
                     4. Make sure  all product model carries the brand name. e.g. 13 pro max is not a valid model, but iPhone 13 pro max is valid
                     4. Ensure that iphones are represented as iPhone, samsung are represente as Samsung, basically make sure that all product name and models are uniform
                     5. Always return a valid json object, no extra markdown character. Don't add these characters "\`\`\`json".
-                    6. Ensure to always stick to the pattern without any deviation. Your response should not be in markdown. Send it to me as a direct string. Ensure to pass the right data to the right object key. Any value that has the word "unlocked" or “FU”,  must be in the lock_status key. Any value that contains the word "sim" must be in the sim_type key.`;
+                    6. Ensure to always stick to the pattern without any deviation. Your response should not be in markdown. Send it to me as a direct string. Ensure to pass the right data to the right object key. Any value that has the word "unlocked" or “FU”,  must be in the lock_status key. Any value that contains the word "sim" must be in the sim_type key.
+                    7. iPads should be be under tablet device type
+                    8. Ensure that only iphones are under iphone type, only samsung phones are under samsung, only laptops (including macbooks) are under laptop, only watches are under watch, same for sound and tablet
+                    9. For all model names, ensure that you consitently user the same name even if they look different from the provided data`;
     
     console.log('Chunking request');
     try {
       const response = await openai.chat.completions.create({
         messages: [{ role: 'system', content }],
-        model: 'gpt-3.5-turbo',
+        model: 'gpt-4o',
       });
       console.log({ response: response.choices[0].message.content });
       try {
