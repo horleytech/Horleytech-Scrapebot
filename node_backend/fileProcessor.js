@@ -65,7 +65,7 @@ event.on('process', async (data, filePath, title) => {
                     2. Ensure that data is well represented under each key. Ensure that price is in numbers (e.g. 20k should be represented as 20,000). 
                     3. Remove any record that doesnt have value for all the keys, but if sim_type does not exist, make it Null and make lock_status that does not exist with FU. Fully unlocked should be replaced with FU 
                     4. Make sure  all product model carries the brand name. e.g. 13 pro max is not a valid model, but iPhone 13 pro max is valid
-                    5. Look out for the condition of the product and add it to the product name. For example, if the product is specified as BRAND NEW, add BRAND NEW to the product name. e.g. BRAND NEW iPhone 15 pro max. Conditions should either be BRAND NEW OR USED. Note that NEW OPENBOX, USED, UK USED should all fall under USED while BRAND NEW,  NEW SEALED are BRAND NEW.
+                    5. Look out for the condition of the product and add it to the product name. For example, if the product is specified as BRAND NEW, add BRAND NEW to the product name. e.g. BRAND NEW iPhone 15 pro max. Conditions should either be BRAND NEW OR USED. Note that NEW OPENBOX, USED, UK USED, BRAND NEW NO BOX should all fall under USED while BRAND NEW,  NEW SEALED are BRAND NEW.
                     6. If condition is not specifed, it is a USED product
                     7. Ensure that iphones are represented as iPhone, samsung are represente as Samsung, basically make sure that all product name and models are uniform
                     8. Always return a valid json object, no extra markdown character. Don't add these characters "\`\`\`json".
