@@ -52,6 +52,17 @@ const Table = ({ data, site, deviceType }) => {
     setFilteredData(filtered);
   };
 
+  const handleSearchOffline = (event) => {
+    console.log({ data });
+    const value = event.target.value.toLowerCase();
+    console.log({ value });
+    setSearchTerm(value);
+    const filtered = data.filter((item) =>
+      item.Pname.toLowerCase().includes(value)
+    );
+    setFilteredData(filtered);
+  };
+
   const handleMoreButtonClick = (device) => {
     setSelectedDevice(device);
     setOpenModal(true);
@@ -139,12 +150,7 @@ const Table = ({ data, site, deviceType }) => {
       {isOnline ? (
         <>
           <div className="flex items-center justify-end m-1">
-            <form
-            // onSubmit={(e) => {
-            //   e.preventDefault();
-            //   handleSearch('online');
-            // }}
-            >
+            <form>
               <div className="flex items-center w-[313px] h-[40px] bg-[#FBFBFB] rounded-lg">
                 <input
                   type="text"
@@ -379,20 +385,26 @@ const Table = ({ data, site, deviceType }) => {
       ) : (
         <>
           <div className="flex items-center justify-end m-1">
-            <div className="flex items-center w-[313px] h-[40px] bg-[#FBFBFB] rounded-lg">
-              <input
-                type="text"
-                name=""
-                id=""
-                placeholder="Search"
-                className="w-[90%] border-none outline-none bg-transparent px-4 text-[13px] placeholder:text-[#0000008C]"
-              />
-              <img
-                className="cursor-pointer"
-                src={searchIcon}
-                alt="Search icon"
-              />
-            </div>
+            <form>
+              <div className="flex items-center w-[313px] h-[40px] bg-[#FBFBFB] rounded-lg">
+                <input
+                  type="text"
+                  name=""
+                  id=""
+                  placeholder="Search"
+                  className="w-[90%] border-none outline-none bg-transparent px-4 text-[13px] placeholder:text-[#0000008C]"
+                  onChange={handleSearchOffline}
+                  value={searchTerm}
+                />
+                <button type="submit">
+                  <img
+                    className="cursor-pointer"
+                    src={searchIcon}
+                    alt="Search icon"
+                  />
+                </button>
+              </div>
+            </form>
           </div>
           <table className="w-full table rounded-[10px] mb-10">
             <thead className="h-[60px] border-b border-b-[#DDDCF9]">
