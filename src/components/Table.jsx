@@ -65,6 +65,10 @@ const Table = ({ data, site, deviceType }) => {
   };
 
   useEffect(() => {
+    setFilteredData(data);
+  }, [data]);
+
+  useEffect(() => {
     if (selectedDevice) {
       const priceHandler = new ComparePricesHandler(
         selectedDevice.Pname,
