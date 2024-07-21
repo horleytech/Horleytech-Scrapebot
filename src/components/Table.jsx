@@ -37,10 +37,6 @@ const Table = ({ data, site, deviceType }) => {
     downloadCSV(csv, 'data.csv');
   };
 
-  const handleSearch = (type, keyword) => {
-    console.log('SEARCHING:', type, keyword);
-  };
-
   const handleSearchOnline = (event) => {
     console.log({ data });
     const value = event.target.value.toLowerCase();
@@ -58,7 +54,7 @@ const Table = ({ data, site, deviceType }) => {
     console.log({ value });
     setSearchTerm(value);
     const filtered = data.filter((item) =>
-      item.Pname.toLowerCase().includes(value)
+      item.model.toLowerCase().includes(value)
     );
     setFilteredData(filtered);
   };
@@ -425,7 +421,7 @@ const Table = ({ data, site, deviceType }) => {
             </thead>
             {data.length > 0 ? (
               <tbody>
-                {data
+                {filteredData
                   .slice(pagesVisited, pagesVisited + usersPerPage)
                   .map((device, index) => (
                     <tr
