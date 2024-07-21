@@ -73,7 +73,7 @@ event.on('process', async (data, filePath, title) => {
                     10. iPads should be be under tablet device type
                     11. Ensure that only iphones are under iphone type, only samsung phones are under samsung, only laptops (including macbooks) are under laptop, only watches are under watch, same for sound and tablet
                     12. For all model names, ensure that you consitently user the same name even if they look different from the provided data
-                    13. For storage size, always specify the storage unit. e.g. 256GB, 1TB, 128GB.`;
+                    13. For storage size, always specify the storage unit. e.g. 256GB, 1TB, 128GB.  `;
     
     console.log('Chunking request');
     try {
