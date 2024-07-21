@@ -65,8 +65,8 @@ event.on('process', async (data, filePath, title) => {
                     2. Ensure that data is well represented under each key. Ensure that price is in numbers (e.g. 20k should be represented as 20,000). 
                     3. Remove any record that doesnt have value for all the keys, but if sim_type does not exist, make it Null and make lock_status that does not exist with FU. Fully unlocked should be replaced with FU 
 		    4. For laptops lock_status should be RAM and sim_type should be the processor 
-      		    5. Make sure  all processor carries the brand name and generation. e.g. Core i7 is not a valid model, but Intel Core i5 8th Gen is valid
-	    	    6. Make sure  all tablet carries the generation and the size. e.g. iPad Pro is not a valid model, but iPad Pro 3rd Gen 12.9 inches is valid 
+      		    5. Make sure all processor carries the brand name and generation. e.g. Core i7 is not a valid model, but Intel Core i5 8th Gen is valid
+	    	    6. Make sure all tablet carries the generation and the size. e.g. iPad Pro is not a valid model, but iPad Pro 3rd Gen 12.9 inches is valid 
                     7. Make sure all product model carries the brand name. e.g. 13 pro max is not a valid model, but iPhone 13 pro max is valid
                     8. Look out for the condition of the product and add it to the product name. For example, if the product is specified as BRAND NEW, add BRAND NEW to the product name. e.g. BRAND NEW iPhone 15 pro max. Conditions should either be BRAND NEW OR USED. Note that NEW OPENBOX, OPENBOX, USED, UK USED, BRAND NEW NO BOX should all fall under USED while BRAND NEW,  NEW SEALED are BRAND NEW.
                     9. If condition is not specifed, it is a USED product or if the description says "brand new <model name> only" its also used
