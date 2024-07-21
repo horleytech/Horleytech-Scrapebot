@@ -6,6 +6,8 @@ import { collection, addDoc, writeBatch, doc } from 'firebase/firestore';
 import { toast } from 'react-toastify';
 import { db } from '../../services/firebase';
 import { generateRandomString } from '../../services/utils/generateString';
+const localBE = 'http://localhost:8000/process';
+const cloudBE = 'https://backend.horleytech.com/process';
 
 const Ai = () => {
   const [file, setFile] = useState(null);
@@ -110,7 +112,7 @@ const Ai = () => {
     formData.append('file', file);
     formData.append('title', title);
 
-    fetch('https://backend.horleytech.com/process', {
+    fetch(localBE, {
       method: 'POST',
       body: formData,
       headers: {

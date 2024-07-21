@@ -1,16 +1,44 @@
-export const convertToCSV = (data) => {
+export const convertToCSV = (data, exportType) => {
+  console.log({ rawDataBeforeCSV: data });
   const headers = Object.keys(data[0]).join(',');
   console.log({ headers });
+  let headersArray = headers.split(',');
+  if (exportType === 'offline') {
+    console.log('THIS DUDE IS OFFLINE');
+    headersArray = [
+      'model',
+      'device_type',
+      'group',
+      'storage',
+      'lock_status',
+      'sim_type',
+      'H1',
+      'H2',
+      'H3',
+      'L1',
+      'L2',
+      'L3',
+    ];
+  }
   const rows = data
     .map((row) => {
       const values = Object.values(row);
-      const formattedValues = values.map((item) => {
-        if (typeof item === 'string') {
-          return item.replace(/,/g, '');
+      console.log({ headersArray });
+      const rowResult = headersArray.map((header) => {
+        const singleDatum = row[header];
+        if (typeof singleDatum === 'string') {
+          return singleDatum.replace(/,/g, '');
         }
-        return item;
+        return singleDatum;
       });
-      return formattedValues.join(',');
+      return rowResult;
+      // const formattedValues = values.map((item) => {
+      //   if (typeof item === 'string') {
+      //     return item.replace(/,/g, '');
+      //   }
+      //   return item;
+      // });
+      // return formattedValues.join(',');
     })
     .join('\n');
   console.log({ rows });

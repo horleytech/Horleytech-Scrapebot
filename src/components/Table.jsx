@@ -19,6 +19,8 @@ const Table = ({ data, site, deviceType }) => {
   const [pageNumber, setPageNumber] = useState(0);
   const [selectedDevice, setSelectedDevice] = useState(null);
   const [priceData, setPriceData] = useState(null);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [filteredData, setFilteredData] = useState(data);
 
   Table.propTypes = {
     data: PropTypes.array.isRequired,
@@ -30,9 +32,24 @@ const Table = ({ data, site, deviceType }) => {
   const pageCount = Math.ceil(data.length / usersPerPage);
 
   // functions
-  const handleExport = () => {
-    const csv = convertToCSV(data);
+  const handleExport = (type) => {
+    const csv = convertToCSV(data, type);
     downloadCSV(csv, 'data.csv');
+  };
+
+  const handleSearch = (type, keyword) => {
+    console.log('SEARCHING:', type, keyword);
+  };
+
+  const handleSearchOnline = (event) => {
+    console.log({ data });
+    const value = event.target.value.toLowerCase();
+    console.log({ value });
+    setSearchTerm(value);
+    const filtered = data.filter((item) =>
+      item.Pname.toLowerCase().includes(value)
+    );
+    setFilteredData(filtered);
   };
 
   const handleMoreButtonClick = (device) => {
@@ -100,7 +117,7 @@ const Table = ({ data, site, deviceType }) => {
           </div>
         </div>
 
-        <div className="flex items-center">
+        {/* <div className="flex items-center bg-red-600">
           <div className="flex items-center w-[313px] h-[40px] bg-[#FBFBFB] rounded-lg">
             <input
               type="text"
@@ -115,237 +132,57 @@ const Table = ({ data, site, deviceType }) => {
               alt="Search icon"
             />
           </div>
-        </div>
+        </div> */}
       </div>
 
       {/* TABLE */}
       {isOnline ? (
-        <table className="w-full table rounded-[10px] mb-10">
-          <thead className="h-[60px] border-b border-b-[#DDDCF9]">
-            <tr className="text-[#1A1C23] font-bold border-b-[#DDDCF9]">
-              <td className="pl-6">Brand</td>
-              <td className="px-3">Product Name</td>
-              <td className="px-5">Prices</td>
-              <td className="px-3">Details</td>
-              <td className="px-3">
-                <img
-                  src={folderIcon}
-                  className="cursor-pointer"
-                  onClick={handleExport}
+        <>
+          <div className="flex items-center justify-end m-1">
+            <form
+            // onSubmit={(e) => {
+            //   e.preventDefault();
+            //   handleSearch('online');
+            // }}
+            >
+              <div className="flex items-center w-[313px] h-[40px] bg-[#FBFBFB] rounded-lg">
+                <input
+                  type="text"
+                  name=""
+                  id=""
+                  placeholder="Search"
+                  className="w-[90%] border-none outline-none bg-transparent px-4 text-[13px] placeholder:text-[#0000008C]"
+                  onChange={handleSearchOnline}
+                  value={searchTerm}
                 />
-              </td>
-            </tr>
-          </thead>
-          <tbody>
-            {data
-              .slice(pagesVisited, pagesVisited + usersPerPage)
-              .map((device, index) => (
-                <tr
-                  className="h-auto"
-                  key={device.id}
-                  style={{ position: 'relative', zIndex: usersPerPage - index }}
-                >
-                  <td className="pl-6 py-3 font-medium text-[15px] text-[#1A1C23]">
-                    Apple
-                  </td>
-                  <td className="py-3 px-3 font-medium text-[15px] capitalize text-[#1A1C23]">
-                    {device.Pname}
-                  </td>
-                  <td className="flex gap-8 py-3 px-5 font-medium text-[15px] text-[#1A1C23]">
-                    <Dropdown
-                      label="Highest"
-                      style={drop}
-                      dismissOnClick={false}
-                    >
-                      <DropdownItem>
-                        ₦{device.H1 !== '0' ? device.H1 : '---'}
-                      </DropdownItem>
-                      <DropdownItem>
-                        ₦{device.H2 !== '0' ? device.H2 : '---'}
-                      </DropdownItem>
-                      <DropdownItem>
-                        ₦{device.H3 !== '0' ? device.H3 : '---'}
-                      </DropdownItem>
-                    </Dropdown>
-
-                    <Dropdown
-                      label="Lowest"
-                      style={drop}
-                      dismissOnClick={false}
-                    >
-                      <DropdownItem>
-                        ₦{device.L1 !== '0' ? device.L1 : '---'}
-                      </DropdownItem>
-                      <DropdownItem>
-                        ₦{device.L2 !== '0' ? device.L2 : '---'}
-                      </DropdownItem>
-                      <DropdownItem>
-                        ₦{device.L3 !== '0' ? device.L3 : '---'}
-                      </DropdownItem>
-                    </Dropdown>
-                  </td>
-                  <td className="py-3 font-medium text-[15px] text-[#1A1C23]">
-                    <Button
-                      style={drop}
-                      onClick={() => handleMoreButtonClick(device)}
-                    >
-                      More...
-                    </Button>
-                    <Modal
-                      show={openModal && selectedDevice === device}
-                      className="fixed inset-0 z-50 flex w-screen h-full items-center justify-center backdrop-filter backdrop-blur-sm"
-                      onClose={() => setOpenModal(false)}
-                    >
-                      <div className="fixed w-[97.5%] h-[96.5%] flex justify-center items-center">
-                        <div className="w-[400px] bg-white px-8 pt-5 pb-10 rounded-2xl shadow-lg">
-                          <Modal.Header className="px-2 py-4">
-                            More Information
-                          </Modal.Header>
-                          <Modal.Body className="py-4">
-                            <div className="space-y-6">
-                              <p className="text-base font-semibold leading-relaxed text-gray-500 dark:text-gray-400">
-                                Product Name
-                              </p>
-                              <p className="text-base leading-relaxed capitalize text-gray-500 dark:text-gray-400">
-                                {selectedDevice && selectedDevice.Pname}
-                              </p>
-                              <p className="text-base font-semibold leading-relaxed text-gray-500 dark:text-gray-400">
-                                Links
-                              </p>
-                              <p className="text-base leading-relaxed text-[#ffa500]">
-                                <a href={selectedDevice && selectedDevice.Link}>
-                                  {selectedDevice && selectedDevice.Link}
-                                </a>
-                              </p>
-                            </div>
-                          </Modal.Body>
-                        </div>
-                      </div>
-                    </Modal>
-                  </td>
-                  <td>
-                    <button
-                      className="bg-black text-white text-sm p-2 rounded-md font-bold hover:bg-gray-700 hover:opacity-75"
-                      onClick={() => handleCompareButtonClick(device)}
-                    >
-                      Compare Prices
-                    </button>
-                    {/* Compare Prices Modal */}
-                    <Modal
-                      show={openCompareModal}
-                      className="fixed inset-0 z-50 flex w-screen h-full items-center justify-center backdrop-filter backdrop-blur-sm"
-                      onClose={() => setOpenCompareModal(false)}
-                    >
-                      <div className="fixed w-[97.5%] h-[96.5%] flex justify-center items-center">
-                        <div className="w-[90%] bg-white px-8 pt-5 pb-10 rounded-2xl shadow-lg">
-                          <Modal.Header className="px-2 py-4">
-                            Compare Prices
-                          </Modal.Header>
-                          <Modal.Body className="py-4">
-                            <div className="space-y-6">
-                              <table className="w-full table rounded-[10px] mb-10">
-                                <thead className="h-[30px] border-b border-b-[#DDDCF9]">
-                                  <tr className="text-[#1A1C23] font-bold border-b-[#DDDCF9] text-left">
-                                    <th className="pl-2">Site</th>
-                                    <th>Product Name</th>
-                                    <th>Link</th>
-                                    <th>H1</th>
-                                    <th>H2</th>
-                                    <th>H3</th>
-                                    <th>L1</th>
-                                    <th>L2</th>
-                                    <th>L3</th>
-                                  </tr>
-                                </thead>
-
-                                <tbody>
-                                  {priceData &&
-                                    priceData.length > 0 &&
-                                    priceData.map((priceDatum, index) => (
-                                      <tr
-                                        key={index}
-                                        className="font-medium text-[15px] text-[#1A1C23]"
-                                      >
-                                        <td className="py-2 pl-2">
-                                          {priceDatum.type}
-                                        </td>
-                                        <td className="py-2">
-                                          {priceDatum.productName}
-                                        </td>
-                                        <td className="py-2">
-                                          <Link
-                                            to={priceDatum.link}
-                                            className="underline text-blue-600"
-                                            target="_blank"
-                                          >
-                                            Visit Site
-                                          </Link>
-                                        </td>
-                                        <td className="py-2">
-                                          {priceDatum.H1
-                                            ? priceDatum.H1
-                                            : 'nil'}
-                                        </td>
-                                        <td className="py-2">
-                                          {priceDatum.H2
-                                            ? priceDatum.H2
-                                            : 'nil'}
-                                        </td>
-                                        <td className="py-2">
-                                          {priceDatum.H3
-                                            ? priceDatum.H3
-                                            : 'nil'}
-                                        </td>
-                                        <td className="py-2">
-                                          {priceDatum.L1
-                                            ? priceDatum.L1
-                                            : 'nil'}
-                                        </td>
-                                        <td className="py-2">
-                                          {priceDatum.L2
-                                            ? priceDatum.L2
-                                            : 'nil'}
-                                        </td>
-                                        <td className="py-2">
-                                          {priceDatum.L3
-                                            ? priceDatum.L3
-                                            : 'nil'}
-                                        </td>
-                                      </tr>
-                                    ))}
-                                </tbody>
-                              </table>
-                            </div>
-                          </Modal.Body>
-                        </div>
-                      </div>
-                    </Modal>
-                  </td>
-                </tr>
-              ))}
-          </tbody>
-        </table>
-      ) : (
-        <table className="w-full table rounded-[10px] mb-10">
-          <thead className="h-[60px] border-b border-b-[#DDDCF9]">
-            <tr className="text-[#1A1C23] font-bold border-b-[#DDDCF9]">
-              <td className="pl-6">Model</td>
-              <td className="px-3">Storage</td>
-              <td className="px-5">Prices</td>
-              <td className="px-3">Lock Status</td>
-              <td className="px-3">Sim Type</td>
-              <td className="px-3">
-                <img
-                  src={folderIcon}
-                  className="cursor-pointer"
-                  onClick={handleExport}
-                />
-              </td>
-            </tr>
-          </thead>
-          {data.length > 0 ? (
+                <button type="submit">
+                  <img
+                    className="cursor-pointer"
+                    src={searchIcon}
+                    alt="Search icon"
+                  />
+                </button>
+              </div>
+            </form>
+          </div>
+          <table className="w-full table rounded-[10px] mb-10">
+            <thead className="h-[60px] border-b border-b-[#DDDCF9]">
+              <tr className="text-[#1A1C23] font-bold border-b-[#DDDCF9]">
+                <td className="pl-6">Brand</td>
+                <td className="px-3">Product Name</td>
+                <td className="px-5">Prices</td>
+                <td className="px-3">Details</td>
+                <td className="px-3">
+                  <img
+                    src={folderIcon}
+                    className="cursor-pointer"
+                    onClick={() => handleExport('online')}
+                  />
+                </td>
+              </tr>
+            </thead>
             <tbody>
-              {data
+              {filteredData
                 .slice(pagesVisited, pagesVisited + usersPerPage)
                 .map((device, index) => (
                   <tr
@@ -357,10 +194,10 @@ const Table = ({ data, site, deviceType }) => {
                     }}
                   >
                     <td className="pl-6 py-3 font-medium text-[15px] text-[#1A1C23]">
-                      {device.model}
+                      Apple
                     </td>
                     <td className="py-3 px-3 font-medium text-[15px] capitalize text-[#1A1C23]">
-                      {device.storage}
+                      {device.Pname}
                     </td>
                     <td className="flex gap-8 py-3 px-5 font-medium text-[15px] text-[#1A1C23]">
                       <Dropdown
@@ -396,20 +233,252 @@ const Table = ({ data, site, deviceType }) => {
                       </Dropdown>
                     </td>
                     <td className="py-3 font-medium text-[15px] text-[#1A1C23]">
-                      {device.lock_status}
+                      <Button
+                        style={drop}
+                        onClick={() => handleMoreButtonClick(device)}
+                      >
+                        More...
+                      </Button>
+                      <Modal
+                        show={openModal && selectedDevice === device}
+                        className="fixed inset-0 z-50 flex w-screen h-full items-center justify-center backdrop-filter backdrop-blur-sm"
+                        onClose={() => setOpenModal(false)}
+                      >
+                        <div className="fixed w-[97.5%] h-[96.5%] flex justify-center items-center">
+                          <div className="w-[400px] bg-white px-8 pt-5 pb-10 rounded-2xl shadow-lg">
+                            <Modal.Header className="px-2 py-4">
+                              More Information
+                            </Modal.Header>
+                            <Modal.Body className="py-4">
+                              <div className="space-y-6">
+                                <p className="text-base font-semibold leading-relaxed text-gray-500 dark:text-gray-400">
+                                  Product Name
+                                </p>
+                                <p className="text-base leading-relaxed capitalize text-gray-500 dark:text-gray-400">
+                                  {selectedDevice && selectedDevice.Pname}
+                                </p>
+                                <p className="text-base font-semibold leading-relaxed text-gray-500 dark:text-gray-400">
+                                  Links
+                                </p>
+                                <p className="text-base leading-relaxed text-[#ffa500]">
+                                  <a
+                                    href={selectedDevice && selectedDevice.Link}
+                                  >
+                                    {selectedDevice && selectedDevice.Link}
+                                  </a>
+                                </p>
+                              </div>
+                            </Modal.Body>
+                          </div>
+                        </div>
+                      </Modal>
                     </td>
-                    <td className="py-3 font-medium text-[15px] text-[#1A1C23]">
-                      {device.sim_type}
+                    <td>
+                      <button
+                        className="bg-black text-white text-sm p-2 rounded-md font-bold hover:bg-gray-700 hover:opacity-75"
+                        onClick={() => handleCompareButtonClick(device)}
+                      >
+                        Compare Prices
+                      </button>
+                      {/* Compare Prices Modal */}
+                      <Modal
+                        show={openCompareModal}
+                        className="fixed inset-0 z-50 flex w-screen h-full items-center justify-center backdrop-filter backdrop-blur-sm"
+                        onClose={() => setOpenCompareModal(false)}
+                      >
+                        <div className="fixed w-[97.5%] h-[96.5%] flex justify-center items-center">
+                          <div className="w-[90%] bg-white px-8 pt-5 pb-10 rounded-2xl shadow-lg">
+                            <Modal.Header className="px-2 py-4">
+                              Compare Prices
+                            </Modal.Header>
+                            <Modal.Body className="py-4">
+                              <div className="space-y-6">
+                                <table className="w-full table rounded-[10px] mb-10">
+                                  <thead className="h-[30px] border-b border-b-[#DDDCF9]">
+                                    <tr className="text-[#1A1C23] font-bold border-b-[#DDDCF9] text-left">
+                                      <th className="pl-2">Site</th>
+                                      <th>Product Name</th>
+                                      <th>Link</th>
+                                      <th>H1</th>
+                                      <th>H2</th>
+                                      <th>H3</th>
+                                      <th>L1</th>
+                                      <th>L2</th>
+                                      <th>L3</th>
+                                    </tr>
+                                  </thead>
+
+                                  <tbody>
+                                    {priceData &&
+                                      priceData.length > 0 &&
+                                      priceData.map((priceDatum, index) => (
+                                        <tr
+                                          key={index}
+                                          className="font-medium text-[15px] text-[#1A1C23]"
+                                        >
+                                          <td className="py-2 pl-2">
+                                            {priceDatum.type}
+                                          </td>
+                                          <td className="py-2">
+                                            {priceDatum.productName}
+                                          </td>
+                                          <td className="py-2">
+                                            <Link
+                                              to={priceDatum.link}
+                                              className="underline text-blue-600"
+                                              target="_blank"
+                                            >
+                                              Visit Site
+                                            </Link>
+                                          </td>
+                                          <td className="py-2">
+                                            {priceDatum.H1
+                                              ? priceDatum.H1
+                                              : 'nil'}
+                                          </td>
+                                          <td className="py-2">
+                                            {priceDatum.H2
+                                              ? priceDatum.H2
+                                              : 'nil'}
+                                          </td>
+                                          <td className="py-2">
+                                            {priceDatum.H3
+                                              ? priceDatum.H3
+                                              : 'nil'}
+                                          </td>
+                                          <td className="py-2">
+                                            {priceDatum.L1
+                                              ? priceDatum.L1
+                                              : 'nil'}
+                                          </td>
+                                          <td className="py-2">
+                                            {priceDatum.L2
+                                              ? priceDatum.L2
+                                              : 'nil'}
+                                          </td>
+                                          <td className="py-2">
+                                            {priceDatum.L3
+                                              ? priceDatum.L3
+                                              : 'nil'}
+                                          </td>
+                                        </tr>
+                                      ))}
+                                  </tbody>
+                                </table>
+                              </div>
+                            </Modal.Body>
+                          </div>
+                        </div>
+                      </Modal>
                     </td>
                   </tr>
                 ))}
             </tbody>
-          ) : (
-            <tbody>
-              <p>No Offline Data Yet</p>
-            </tbody>
-          )}
-        </table>
+          </table>
+        </>
+      ) : (
+        <>
+          <div className="flex items-center justify-end m-1">
+            <div className="flex items-center w-[313px] h-[40px] bg-[#FBFBFB] rounded-lg">
+              <input
+                type="text"
+                name=""
+                id=""
+                placeholder="Search"
+                className="w-[90%] border-none outline-none bg-transparent px-4 text-[13px] placeholder:text-[#0000008C]"
+              />
+              <img
+                className="cursor-pointer"
+                src={searchIcon}
+                alt="Search icon"
+              />
+            </div>
+          </div>
+          <table className="w-full table rounded-[10px] mb-10">
+            <thead className="h-[60px] border-b border-b-[#DDDCF9]">
+              <tr className="text-[#1A1C23] font-bold border-b-[#DDDCF9]">
+                <td className="pl-6">Model</td>
+                <td className="px-3">Storage</td>
+                <td className="px-5">Prices</td>
+                <td className="px-3">Lock Status</td>
+                <td className="px-3">Sim Type</td>
+                <td className="px-3">
+                  <img
+                    src={folderIcon}
+                    className="cursor-pointer"
+                    onClick={() => handleExport('offline')}
+                  />
+                </td>
+              </tr>
+            </thead>
+            {data.length > 0 ? (
+              <tbody>
+                {data
+                  .slice(pagesVisited, pagesVisited + usersPerPage)
+                  .map((device, index) => (
+                    <tr
+                      className="h-auto"
+                      key={device.id}
+                      style={{
+                        position: 'relative',
+                        zIndex: usersPerPage - index,
+                      }}
+                    >
+                      <td className="pl-6 py-3 font-medium text-[15px] text-[#1A1C23]">
+                        {device.model}
+                      </td>
+                      <td className="py-3 px-3 font-medium text-[15px] capitalize text-[#1A1C23]">
+                        {device.storage}
+                      </td>
+                      <td className="flex gap-8 py-3 px-5 font-medium text-[15px] text-[#1A1C23]">
+                        <Dropdown
+                          label="Highest"
+                          style={drop}
+                          dismissOnClick={false}
+                        >
+                          <DropdownItem>
+                            ₦{device.H1 !== '0' ? device.H1 : '---'}
+                          </DropdownItem>
+                          <DropdownItem>
+                            ₦{device.H2 !== '0' ? device.H2 : '---'}
+                          </DropdownItem>
+                          <DropdownItem>
+                            ₦{device.H3 !== '0' ? device.H3 : '---'}
+                          </DropdownItem>
+                        </Dropdown>
+
+                        <Dropdown
+                          label="Lowest"
+                          style={drop}
+                          dismissOnClick={false}
+                        >
+                          <DropdownItem>
+                            ₦{device.L1 !== '0' ? device.L1 : '---'}
+                          </DropdownItem>
+                          <DropdownItem>
+                            ₦{device.L2 !== '0' ? device.L2 : '---'}
+                          </DropdownItem>
+                          <DropdownItem>
+                            ₦{device.L3 !== '0' ? device.L3 : '---'}
+                          </DropdownItem>
+                        </Dropdown>
+                      </td>
+                      <td className="py-3 font-medium text-[15px] text-[#1A1C23]">
+                        {device.lock_status}
+                      </td>
+                      <td className="py-3 font-medium text-[15px] text-[#1A1C23]">
+                        {device.sim_type}
+                      </td>
+                    </tr>
+                  ))}
+              </tbody>
+            ) : (
+              <tbody>
+                <p>No Offline Data Yet</p>
+              </tbody>
+            )}
+          </table>
+        </>
       )}
 
       {/* pagination */}
