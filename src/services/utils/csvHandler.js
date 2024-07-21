@@ -3,23 +3,7 @@ export const convertToCSV = (data, exportType) => {
   const headers = Object.keys(data[0]).join(',');
   console.log({ headers });
   let headersArray = headers.split(',');
-  if (exportType === 'offline') {
-    console.log('THIS DUDE IS OFFLINE');
-    headersArray = [
-      'model',
-      'device_type',
-      'group',
-      'storage',
-      'lock_status',
-      'sim_type',
-      'H1',
-      'H2',
-      'H3',
-      'L1',
-      'L2',
-      'L3',
-    ];
-  }
+
   const rows = data
     .map((row) => {
       const values = Object.values(row);
