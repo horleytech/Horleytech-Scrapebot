@@ -76,7 +76,9 @@ event.on('process', async (data, filePath, title) => {
                     13. For all model names, ensure that you consitently use the same name even if they look different from the provided data 
                     14. For storage size, always specify the storage unit. e.g. 256GB, 1TB, 128GB.  
                     15. For laptop and tablets, add all the product specifications available for a product to Lock Status
-                    16. Ensure that condition (BRAND NEW or USED) is ALWAYS added to the product name e.g. BRAND NEW iPhone 15 pro max, USED iPhone Xr`;
+                    16. Ensure that condition (BRAND NEW or USED) is ALWAYS added to the product name e.g. BRAND NEW iPhone 15 pro max, USED iPhone Xr
+                    17. For macbooks, always ensure that model year is included under model name. e.g. Used Macbook Pro 2020
+                    18. For tablets and laptops, always ensure that all the availabe specifications are highlighted under lock status`;
     
     console.log('Chunking request');
     try {
