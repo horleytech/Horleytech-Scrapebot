@@ -64,19 +64,17 @@ event.on('process', async (data, filePath, title) => {
                     1. If a line contains more than one price specification, extract each price as different json object.
                     2. Ensure that data is well represented under each key. Ensure that price is in numbers (e.g. 20k should be represented as 20,000). 
                     3. Remove any record that doesnt have value for all the keys, but if sim_type does not exist, make it Null and make lock_status that does not exist with FU. Fully unlocked should be replaced with FU 
-                    4. Make sure  all product model carries the brand name. e.g. 13 pro max is not a valid model, but iPhone 13 pro max is valid
-                    5. Look out for the condition of the product and add it to the product name. For example, if the product is specified as BRAND NEW, add BRAND NEW to the product name. e.g. BRAND NEW iPhone 15 pro max. Conditions should either be BRAND NEW OR USED. Note that NEW OPENBOX, USED, UK USED, BRAND NEW NO BOX should all fall under USED while BRAND NEW,  NEW SEALED are BRAND NEW. 
-                    6. If condition specifed is out of the list specifed above, then group them under BRAND NEW or USED using your discretion
-                    7. If condition is not specifed, it is a USED product or if the description says "brand new <model name> only" its also used
-                    8. Ensure that iphones are represented as iPhone, samsung are represente as Samsung, basically make sure that all product name and models are uniform
-                    9. Always return a valid json object, no extra markdown character. Don't add these characters "\`\`\`json".
-                    10. Ensure to always stick to the pattern without any deviation. Your response should not be in markdown. Send it to me as a direct string. Ensure to pass the right data to the right object key. Any value that has the word "unlocked" or “FU”,  must be in the lock_status key. Any value that contains the word "sim" must be in the sim_type key.
-                    11. iPads should be be under tablet device type
-                    12. Ensure that only iphones are under iphone type, only samsung phones are under samsung, only laptops (including macbooks) are under laptop, only watches are under watch, same for sound and tablet
-                    13. For all model names, ensure that you consitently use the same name even if they look different from the provided data 
-                    14. For storage size, always specify the storage unit. e.g. 256GB, 1TB, 128GB.  
-                    15. For laptop and tablets, add all the product specifications available for a product to Lock Status.
-                    16. Ensure that condition (BRAND NEW or USED) is ALWAYS added to the product name`;
+                    4. Make sure  all product model carries the brand name. e.g. 13 pro max is not a valid model, but iPhone 13 pro max is valid                  
+                    5. Ensure that condition (BRAND NEW or USED) is ALWAYS added to the product name. Use your discretion to decide the condition based on the information provided for the product            
+                    6. If condition is not specifed, it is a USED product or if the description says "brand new <model name> only" its also used
+                    7. Ensure that iphones are represented as iPhone, samsung are represente as Samsung, basically make sure that all product name and models are uniform
+                    8. Always return a valid json object, no extra markdown character. Don't add these characters "\`\`\`json".
+                    9. Ensure to always stick to the pattern without any deviation. Your response should not be in markdown. Send it to me as a direct string. Ensure to pass the right data to the right object key. Any value that has the word "unlocked" or “FU”,  must be in the lock_status key. Any value that contains the word "sim" must be in the sim_type key.
+                    10. iPads should be be under tablet device type
+                    11. Ensure that only iphones are under iphone type, only samsung phones are under samsung, only laptops (including macbooks) are under laptop, only watches are under watch, same for sound and tablet
+                    12. For all model names, ensure that you consitently use the same name even if they look different from the provided data 
+                    13. For storage size, always specify the storage unit. e.g. 256GB, 1TB, 128GB.  
+                    14. For laptop and tablets, add all the product specifications available for a product to Lock Status.`;
     
     console.log('Chunking request');
     try {
