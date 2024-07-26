@@ -75,10 +75,10 @@ event.on('process', async (data, filePath, title) => {
                     12. Ensure that only iphones are under iphone type, only samsung phones are under samsung, only laptops (including macbooks) are under laptop, only watches are under watch, same for sound and tablet
                     13. For all model names, ensure that you consitently use the same name even if they look different from the provided data 
                     14. For storage size, always specify the storage unit. e.g. 256GB, 1TB, 128GB.  
-                    15. For laptop and tablets, add all the product specifications available for a product to Lock Status
-                    16. Ensure that condition (BRAND NEW or USED) is ALWAYS added to the product name e.g. BRAND NEW iPhone 15 pro max, USED iPhone Xr
-                    17. For macbooks, always ensure that model year is included under model name. e.g. Used Macbook Pro 2020
-                    18. For tablets and laptops, always ensure that all the availabe specifications are highlighted under lock status`;
+                    15. For laptop and tablets, add all the product specifications available for a product to Lock Status                    
+                    16. For macbooks, always ensure that model year is included under model name. e.g. Used Macbook Pro 2020
+                    17. For tablets and laptops, always ensure that all the availabe specifications are highlighted under lock status
+		    18. Ensure that condition (BRAND NEW or USED) is ALWAYS added to the product name e.g. BRAND NEW iPhone 15 pro max, USED iPhone Xr`;
     
     console.log('Chunking request');
     try {
