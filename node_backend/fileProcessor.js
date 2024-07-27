@@ -7,6 +7,7 @@ import OpenAI from 'openai';
 import sg from '@sendgrid/mail';
 import admin from 'firebase-admin';
 import { groupAndSortPhones } from './dataProcessor.js';
+import { convertString } from './cleaner.js';
 
 dotenv.config();
 
@@ -100,9 +101,10 @@ event.on('process', async (data, filePath, title) => {
 		    USED Samsung A13, DUAL SIM, 64GB Storage, and price is 130,000. 
       
       		    ENSURE THAT CONDITION (BRAND NEW or USED) IS ALWAYS ADDED TO EVERY EXTRACTED PRODUCT NAME. e.g. BRAND NEW iPhone 15 pro max, USED iPhone Xr. If condition is not specified, the product is USED
-		    device_type can either be iphone, samsung, laptop, watch, sound, tablet (all in lower case)
+		    device_type can either be iphone, samsung, laptop, watch, sound, tablet (all in lower case).
+        Please ensure you return a perfect array of objects. I want to be able to parse it with the javascript JSON.parse() function. So, if the file has incomplete data that can lead to an incomplete object, omit it please and ensure only perfect array of objects is returned. This is extremely important.
     `;
-    
+
     console.log('Chunking request');
     try {
       const response = await openai.chat.completions.create({
@@ -110,6 +112,7 @@ event.on('process', async (data, filePath, title) => {
         model: 'gpt-4o',
       });
       console.log({ response: response.choices[0].message.content });
+      fs.writeFileSync('gpt-result.txt', response.choices[0].message.content);
       try {
         const temp = JSON.parse(response.choices[0].message.content);
         // console.log({ temp });
@@ -118,6 +121,10 @@ event.on('process', async (data, filePath, title) => {
         console.log('CHAT GPT RESPONSE GOTTEN');
       } catch (error) {
         console.log({ error });
+        const cleanedData = convertString(response.choices[0].message.content);
+        console.log({ cleanedData });
+        const temp = JSON.parse(cleanedData);
+        finalReponseArray = finalReponseArray.concat(temp);
         continue;
       }
     } catch (error) {
@@ -173,8 +180,10 @@ event.on('process', async (data, filePath, title) => {
   //   send prices data to firebase: Batch add
   const batch = db.batch();
   finalResult.forEach((priceDatum, index) => {
+    const dataToBeAdded = { ...priceDatum, group: title };
     const docRef = db.collection('prices').doc(generateRandomIds());
-    batch.set(docRef, { ...priceDatum, group: title });
+    console.log({ dataToBeAdded });
+    batch.set(docRef, dataToBeAdded);
   });
 
   batch
