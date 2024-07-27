@@ -78,7 +78,25 @@ event.on('process', async (data, filePath, title) => {
                     15. For laptop and tablets, add all the product specifications available for a product to Lock Status                    
                     16. For macbooks, always ensure that model year is included under model name. e.g. Used Macbook Pro 2020
                     17. For tablets and laptops, always ensure that all the availabe specifications are highlighted under lock status
-		    18. Ensure that condition (BRAND NEW or USED) is ALWAYS added to the product name e.g. BRAND NEW iPhone 15 pro max, USED iPhone Xr`;
+		    18. Ensure that condition (BRAND NEW or USED) is ALWAYS added to the product name e.g. BRAND NEW iPhone 15 pro max, USED iPhone Xr
+      
+      		    PLEASE NOTE THAT DATA MIGHT COME IN THIS FORMAT TOO:
+		    (   USED SAMSUNG PHONE
+
+			A03S 32GB 90K
+			
+			A12
+			SINGLE 32GB 110K
+			DUAL 32GB 115K
+			DUAL 128GB 130K
+			
+			A13 
+			DUAL 32GB 120K 
+			DUAL 64GB 130K
+   		    )	
+	    	    This is how to how to extract the data. These are the products in this sample; USED Samsung A03S, 32GB storage, and price is 90,000. USED Samsung A12, SINGLE SIM, 32GB Storage, and price is 110,000. 
+	  	    USED Samsung A12, DOUBLE SIM, 32GB Storage, and price is 115,000. USED Samsung A12, DUAL SIM, 128GB Storage, and price is 130,000. USED Samsung A13, DUAL SIM, 32GB Storage, and price is 120,000. 
+		    USED Samsung A13, DUAL SIM, 64GB Storage, and price is 130,000. `;
     
     console.log('Chunking request');
     try {
