@@ -96,7 +96,9 @@ event.on('process', async (data, filePath, title) => {
    		    )	
 	    	    This is how to how to extract the data. These are the products in this sample; USED Samsung A03S, 32GB storage, and price is 90,000. USED Samsung A12, SINGLE SIM, 32GB Storage, and price is 110,000. 
 	  	    USED Samsung A12, DOUBLE SIM, 32GB Storage, and price is 115,000. USED Samsung A12, DUAL SIM, 128GB Storage, and price is 130,000. USED Samsung A13, DUAL SIM, 32GB Storage, and price is 120,000. 
-		    USED Samsung A13, DUAL SIM, 64GB Storage, and price is 130,000. `;
+		    USED Samsung A13, DUAL SIM, 64GB Storage, and price is 130,000. 
+      
+      		    ENSURE THAT CONDITION (BRAND NEW or USED) IS ALWAYS ADDED TO EVERY EXTRACTED PRODUCT NAME. e.g. BRAND NEW iPhone 15 pro max, USED iPhone Xr. If condition is not specified, the product is USED`;
     
     console.log('Chunking request');
     try {
