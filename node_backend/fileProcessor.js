@@ -112,7 +112,7 @@ event.on('process', async (data, filePath, title) => {
         model: 'gpt-4o',
       });
       console.log({ response: response.choices[0].message.content });
-      fs.writeFileSync('gpt-result.txt', response.choices[0].message.content);
+      // fs.writeFileSync('gpt-result.txt', response.choices[0].message.content);
       try {
         const temp = JSON.parse(response.choices[0].message.content);
         // console.log({ temp });
