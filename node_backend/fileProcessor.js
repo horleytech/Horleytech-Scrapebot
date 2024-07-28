@@ -125,7 +125,7 @@ event.on('process', async (data, filePath, title) => {
         console.log({ cleanedData });
         const temp = JSON.parse(cleanedData);
         finalReponseArray = finalReponseArray.concat(temp);
-        continue;
+        // continue;
       }
     } catch (error) {
       console.error('Error processing chunk:', error);
