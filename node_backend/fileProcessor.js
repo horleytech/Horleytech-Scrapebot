@@ -100,7 +100,6 @@ event.on('process', async (data, filePath, title) => {
 	  	    USED Samsung A12, DOUBLE SIM, 32GB Storage, and price is 115,000. USED Samsung A12, DUAL SIM, 128GB Storage, and price is 130,000. USED Samsung A13, DUAL SIM, 32GB Storage, and price is 120,000. 
 		    USED Samsung A13, DUAL SIM, 64GB Storage, and price is 130,000.       		    
 		    device_type can either be iphone, samsung, laptop, watch, sound, tablet (all in lower case).
-        Please ensure you return a perfect array of objects. I want to be able to parse it with the javascript JSON.parse() function. So, if the file has incomplete data that can lead to an incomplete object, omit it please and ensure only perfect array of objects is returned. This is extremely important.
 	ENSURE THAT CONDITION (BRAND NEW or USED) IS ALWAYS ADDED TO EVERY EXTRACTED PRODUCT NAME. e.g. BRAND NEW iPhone 15 pro max, USED iPhone Xr, USED Samsung A23. If a condition is not specified, specify that the product is "USED" e.g. (USED Macbook Pro 2023)
     `;
 
@@ -124,7 +123,7 @@ event.on('process', async (data, filePath, title) => {
         console.log({ cleanedData });
         const temp = JSON.parse(cleanedData);
         finalReponseArray = finalReponseArray.concat(temp);
-        // continue;
+        continue;
       }
     } catch (error) {
       console.error('Error processing chunk:', error);
