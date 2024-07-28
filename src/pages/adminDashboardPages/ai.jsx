@@ -112,7 +112,7 @@ const Ai = () => {
     formData.append('file', file);
     formData.append('title', title);
 
-    fetch(localBE, {
+    fetch(cloudBE, {
       method: 'POST',
       body: formData,
       headers: {

@@ -60,7 +60,7 @@ event.on('process', async (data, filePath, title) => {
     // }
     // count++;
     const content = `
-    Extract Model, Storage (GB), Lock Status, SIM Type, Device Type(iphone, samsung, laptop, watch, sound, tablet) and Price from the text below and return the value as a list of json object with each object having the following keys 'model','storage','lock_status','sim_type’,’device_type’,’price'. 
+    		    Extract Model, Storage (GB), Lock Status, SIM Type, Device Type(iphone, samsung, laptop, watch, sound, tablet) and Price from the text below and return the value as a list of json object with each object having the following keys 'model','storage','lock_status','sim_type’,’device_type’,’price'. 
                     ${chunk}
                     Perform the following transformation.
                     1. If a line contains more than one price specification, extract each price as different json object.
@@ -99,9 +99,15 @@ event.on('process', async (data, filePath, title) => {
 	    	    This is how to how to extract the data. These are the products in this sample; USED Samsung A03S, 32GB storage, and price is 90,000. USED Samsung A12, SINGLE SIM, 32GB Storage, and price is 110,000. 
 	  	    USED Samsung A12, DOUBLE SIM, 32GB Storage, and price is 115,000. USED Samsung A12, DUAL SIM, 128GB Storage, and price is 130,000. USED Samsung A13, DUAL SIM, 32GB Storage, and price is 120,000. 
 		    USED Samsung A13, DUAL SIM, 64GB Storage, and price is 130,000.       		    
+      		    ENSURE THAT CONDITION (BRAND NEW or USED) IS ALWAYS ADDED TO EVERY EXTRACTED PRODUCT NAME. e.g. BRAND NEW iPhone 15 pro max, USED iPhone Xr, USED Samsung A23. If a condition is not specified, specify that the product is "USED" e.g. (USED Macbook Pro 2023)
 		    device_type can either be iphone, samsung, laptop, watch, sound, tablet (all in lower case).
+<<<<<<< HEAD
 	ENSURE THAT CONDITION (BRAND NEW or USED) IS ALWAYS ADDED TO EVERY EXTRACTED PRODUCT NAME. e.g. BRAND NEW iPhone 15 pro max, USED iPhone Xr, USED Samsung A23. If a condition is not specified, specify that the product is "USED" e.g. (USED Macbook Pro 2023)
     `;
+=======
+        	    Please ensure you return a perfect array of objects. I want to be able to parse it with the javascript JSON.parse() function. So, if the file has incomplete data that can lead to an incomplete object, omit it please and ensure only perfect array of objects is returned. This is extremely important.
+	     `;
+>>>>>>> 0613f86f37d950b9c839295a5ea22116ce75c701
 
     console.log('Chunking request');
     try {
