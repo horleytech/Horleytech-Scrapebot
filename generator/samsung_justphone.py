@@ -207,6 +207,14 @@ if __name__ == "__main__":
         'Samsung Galaxy A13 5G 128GB',
         'Samsung Galaxy A13 - 6.6" 64gb',
         'samsung galaxy a03 core 32gb',
+        'samsung galaxy fold 5 - 7.6" 1tb',
+        'samsung galaxy fold 5 - 7.6" 512gb',
+        'samsung galaxy fold 5 - 7.6" 256gb',
+        'samsung galaxy fold 4 - 7.6" 512gb',
+        'samsung galaxy fold 4 - 7.6" 256gb',
+        'samsung galaxy fold 3 - 7.6" 512gb',
+        'samsung galaxy fold 3 - 7.6" 256gb',
+        'samsung galaxy fold 2 - 7.6" 256gb',
         
     ]
     Samsung_table = []
@@ -295,6 +303,14 @@ if __name__ == "__main__":
         60: 'Samsung Galaxy A13 5G 128 GB',
         61: 'Samsung Galaxy A13 64 gb',
         62: 'samsung galaxy a03 core 32 gb',
+        63: 'samsung galaxy fold 5 - 7.6" 1tb',
+        64: 'samsung galaxy fold 5 - 7.6" 512gb',
+        65: 'samsung galaxy fold 5 - 7.6" 256gb',
+        66: 'samsung galaxy fold 4 - 7.6" 512gb',
+        67: 'samsung galaxy fold 4 - 7.6" 256gb',
+        68: 'samsung galaxy fold 3 - 7.6" 512gb',
+        69: 'samsung galaxy fold 3 - 7.6" 256gb',
+        70: 'samsung galaxy fold 2 - 7.6" 256gb',
             
 
             # Add other product names here
