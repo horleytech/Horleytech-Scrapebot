@@ -1,12 +1,31 @@
 ﻿import requests
 import json
 from bs4 import BeautifulSoup
-from retry import retry
+# from retry import retry
+import re
 
-@retry(ConnectionError, delay=2, backoff=2, max_delay=10)
+
+def extract_storage(text):
+    # Regex pattern to match storage sizes like '128GB', '256 GB', '1TB', '1 TB', '512GB'
+    pattern = r'(\d+\s*[GT]B)'
+    
+    # Search for the storage size in the text
+    match = re.search(pattern, text, re.IGNORECASE)
+    
+    if match:
+        # Return the matched storage size in a normalized format (remove spaces and ensure consistent casing)
+        return match.group(1).replace(" ", "").upper()
+    else:
+        # Return None if no storage size is found
+        return None
+
+# @retry(ConnectionError, delay=2, backoff=2, max_delay=10)
+
+def tokenize(name):
+    # Lowercase the name and split by spaces and hyphens
+    return set(name.lower().replace('-', ' ').split())
 
 def get_product_info(product_name):
-    # Function to scrape Jumia search results for the given product_name
     base_url = 'https://obiwezy.com/catalogsearch/result/?q='
     search_url = base_url + product_name.replace(' ', '+')
     try:
@@ -23,51 +42,42 @@ def get_product_info(product_name):
                 'first_three_highest': []
             }
 
+        input_tokens = tokenize(product_name)
         product_data = []
+
         for element in product_elements:
             name_element = element.find('h2', class_='product name product-name product-item-name')
             price_element = element.find('span', class_='price')
 
             if name_element and price_element:
-                # Special case for "apple iphone 13 6.1" 128gb"
-                if product_name in ["apple iphone 15 pro 256gb",
-                                    "apple iphone 15 pro 128gb",
-                    ]:
-                    name_words = name_element.text.lower().split()[:5]
-                    input_words = product_name.lower().split()[:5]
-                elif product_name in ['Apple IPhone 14 Pro Max - 128GB',
-                                      "Apple IPhone 14 Pro Max (dual Sim) - 256GB",
-                                      "Apple IPhone 14 Pro Max - 1TB",
+                scraped_name = name_element.text.lower()
+                scraped_tokens = tokenize(scraped_name)
 
-                    ]:
-                    name_words = name_element.text.lower().split()[:7]
-                    input_words = product_name.lower().split()[:7]
-                elif product_name in ['apple iphone 13 - 128gb',
-                                      "apple iphone 13 - 256gb",
-                    ]:
-                    name_words = name_element.text.lower().split()[:4]
-                    input_words = product_name.lower().split()[:4]
-                elif product_name in ["Apple iPhone 12 Pro Max - Unlocked (Used) - 12Bgb",
-                                      'Apple iPhone 12 Pro Max - Unlocked (Used) - 256GB',
-                    ]:
-                    name_words = name_element.text.lower().split()[:9]
-                    input_words = product_name.lower().split()[:9]
+                # Compare the tokens
+                if any(word in scraped_name for word in ["pouch", "case", "charger", "guard", "screen guard", "screenguard"]):
+                    match_score = 0
+                elif extract_storage(product_name) != extract_storage(scraped_name):
+                    match_score = 0
                 else:
-                    name_words = name_element.text.lower().split()[:10]
-                    input_words = product_name.lower().split()[:10]
+                    match_score = len(input_tokens & scraped_tokens) / len(input_tokens)
                     
+                # Define a threshold for what constitutes a "match"
+                if match_score > 0.6:  # Adjust the threshold as needed
+                    price_text = price_element.text.strip()
 
-                # Check if the first four words match
-                if name_words == input_words:
-                    name = name_element.text.strip()
-                    price = price_element.text.strip()
-                    
-                    product_data.append({'name': name,'price': price})
+                    # Handling price ranges
+                    if ' - ' in price_text:
+                        price_range = price_text.split(' - ')
+                        average_price = sum([float(p.replace('₦', '').replace(',', '')) for p in price_range]) / len(price_range)
+                        price = f'₦ {average_price:,.0f}'
+                    else:
+                        price = price_text.replace('₦', '').replace(',', '')
+                        price = f'₦ {float(price):,.0f}'
+
+                    product_data.append({'price': price, 'name': product_name})
 
         # Sort products by price
-        sorted_products = sorted(product_data, key=lambda x: float(''.join(c for c in x['price'] if c.isdigit() or c == '.')))
-
-        # Extract the first three lowest and the first three highest
+        sorted_products = sorted(product_data, key=lambda x: float(x['price'].replace('₦', '').replace(',', '')))
         first_three_lowest = sorted_products[:3]
         first_three_highest = sorted_products[-3:]
 
@@ -80,6 +90,7 @@ def get_product_info(product_name):
         print(f"Error during the request: {e}")
         return None
     
+
 
 # Rest of the code remains the same
 def print_product_info(products, label):
@@ -246,6 +257,6 @@ if __name__ == "__main__":
             print(f"Skipping '{product_name}' due to an error in the request.")
 
 
-    with open('src/constants/sites/obewezy/iphoneOBIWEZY.js', 'w') as js_file:
+    with open('src/constants/sites/obiwezy/iphoneOBIWEZY.js', 'w') as js_file:
         js_file.write("export const iphoneTable = " + json.dumps(iphone_table, indent=2))
    

@@ -3,8 +3,11 @@ import json
 import os
 from bs4 import BeautifulSoup
 
+def tokenize(name):
+    # Lowercase the name and split by spaces and hyphens
+    return set(name.lower().replace('-', ' ').split())
+
 def get_product_info(product_name):
-    # Function to scrape justfones search results for the given product_name
     base_url = 'https://www.justfones.ng/catalogsearch/result/?q='
     search_url = base_url + product_name.replace(' ', '+')
 
@@ -22,44 +25,36 @@ def get_product_info(product_name):
                 'first_three_highest': []
             }
 
+        input_tokens = tokenize(product_name)
         product_data = []
+
         for element in product_elements:
             name_element = element.find('h3', class_='product-item-name')
             price_element = element.find('span', class_='price-wrapper')
-            
 
             if name_element and price_element:
-                # Special case for "apple iphone 13 6.1" 128gb"
-                if product_name in [
-                    'Apple IWATCH SE (1ST GEN)',
-                    'Apple IWATCH ULTRA',
-                    ]:
-                    name_words = name_element.text.lower().split()[:3]
-                    input_words = product_name.lower().split()[:3]
+                scraped_name = name_element.text.lower()
+                scraped_tokens = tokenize(scraped_name)
 
-                elif product_name in [
-                    'Samsung GALAXY WATCH 5 PRO',
-                    'Samsung Galaxy Watch4 Classic,46mm, Bluetooth,',
-                    'Samsung GALAXY WATCH 5 smartwatch',
-                    ]:
-                    name_words = name_element.text.lower().split()[:5]
-                    input_words = product_name.lower().split()[:5]
-                else:
-                    name_words = name_element.text.lower().split()[:4]
-                    input_words = product_name.lower().split()[:4]
-                    
+                # Compare the tokens
+                match_score = len(input_tokens & scraped_tokens) / len(input_tokens)
+                # Define a threshold for what constitutes a "match"
+                if match_score > 0.6:  # Adjust the threshold as needed
+                    price_text = price_element.text.strip()
 
-                # Check if the first four words match
-                if name_words == input_words:
-                    name = name_element.text.strip()
-                    price = price_element.text.strip()
-                    
-                    product_data.append({'name': name,'price': price})
+                    # Handling price ranges
+                    if ' - ' in price_text:
+                        price_range = price_text.split(' - ')
+                        average_price = sum([float(p.replace('₦', '').replace(',', '')) for p in price_range]) / len(price_range)
+                        price = f'₦ {average_price:,.0f}'
+                    else:
+                        price = price_text.replace('₦', '').replace(',', '')
+                        price = f'₦ {float(price):,.0f}'
+
+                    product_data.append({'price': price, 'name': product_name})
 
         # Sort products by price
         sorted_products = sorted(product_data, key=lambda x: float(x['price'].replace('₦', '').replace(',', '')))
-
-        # Extract the first three lowest and the first three highest
         first_three_lowest = sorted_products[:3]
         first_three_highest = sorted_products[-3:]
 

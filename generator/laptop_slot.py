@@ -2,8 +2,11 @@
 import json
 from bs4 import BeautifulSoup
 
+def tokenize(name):
+    # Lowercase the name and split by spaces and hyphens
+    return set(name.lower().replace('-', ' ').split())
+
 def get_product_info(product_name):
-    # Function to scrape Jumia search results for the given product_name
     base_url = 'https://slot.ng/catalogsearch/result/?q='
     search_url = base_url + product_name.replace(' ', '+')
 
@@ -21,44 +24,36 @@ def get_product_info(product_name):
                 'first_three_highest': []
             }
 
+        input_tokens = tokenize(product_name)
         product_data = []
+
         for element in product_elements:
             name_element = element.find('h3', class_='product-name')
             price_element = element.find('span', class_='price')
 
             if name_element and price_element:
-                # Special case for "apple iphone 13 6.1" 128gb"
-                if product_name in [
-                    'Apple Macbook air-15.3 stl/10c gpu/8gb/256gb- M2 Processor',
-                    'Apple MacBook Air-13.3 Gold/8C CPU/7C CPU/8GB/256GB- M1 Processor',
-                    'Hp pavilion x360 14-Ek0054nia (ci7-1255u/16gb/1tb/14 fhd touch/win11h)',
-                    ]:
-                    name_words = name_element.text.lower().split()[:3]
-                    input_words = product_name.lower().split()[:3]
+                scraped_name = name_element.text.lower()
+                scraped_tokens = tokenize(scraped_name)
 
-                elif product_name in [
-                    'Apple MacBook Pro 16 32GB Ram, 1tb Ssd, M1 Max Chip (2021) SPG-GBR',
-                    'Apple MacBook Pro 16 16GB RAM, 512GB SSD, M1 Pro Chip (2021) SPG-GBR 2021',
-                    'Apple Macbook Pro 16 16gb Ram, 512gb SSD, M2 Pro Chip Silver-Gbr',
-                    ]:
-                    name_words = name_element.text.lower().split()[:11]
-                    input_words = product_name.lower().split()[:11]
-                else:
-                    name_words = name_element.text.lower().split()[:4]
-                    input_words = product_name.lower().split()[:4]
-                    
+                # Compare the tokens
+                match_score = len(input_tokens & scraped_tokens) / len(input_tokens)
+                # Define a threshold for what constitutes a "match"
+                if match_score > 0.6:  # Adjust the threshold as needed
+                    price_text = price_element.text.strip()
 
-                # Check if the first four words match
-                if name_words == input_words:
-                    name = name_element.text.strip()
-                    price = price_element.text.strip()
-                   
-                    product_data.append({'name': name,'price': price})
+                    # Handling price ranges
+                    if ' - ' in price_text:
+                        price_range = price_text.split(' - ')
+                        average_price = sum([float(p.replace('₦', '').replace(',', '')) for p in price_range]) / len(price_range)
+                        price = f'₦ {average_price:,.0f}'
+                    else:
+                        price = price_text.replace('₦', '').replace(',', '')
+                        price = f'₦ {float(price):,.0f}'
+
+                    product_data.append({'price': price, 'name': product_name})
 
         # Sort products by price
         sorted_products = sorted(product_data, key=lambda x: float(x['price'].replace('₦', '').replace(',', '')))
-
-        # Extract the first three lowest and the first three highest
         first_three_lowest = sorted_products[:3]
         first_three_highest = sorted_products[-3:]
 

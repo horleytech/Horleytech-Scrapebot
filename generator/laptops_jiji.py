@@ -1,31 +1,22 @@
-﻿import time
+﻿import requests
 import json
-import requests
-from selenium import webdriver
-from selenium.webdriver.common.keys import Keys
+import os
 from bs4 import BeautifulSoup
 
+
+
+def tokenize(name):
+    # Lowercase the name and split by spaces and hyphens
+    return set(name.lower().replace('-', ' ').split())
+
 def get_product_info(product_name):
-    # Function to scrape Jumia search results for the given product_name
-
-    # Use a headless browser (Chrome in this case)
-    # driver = webdriver.Chrome()
-
     base_url = 'https://jiji.ng/search?query='
     search_url = base_url + product_name.replace(' ', '%20')
 
     try:
-        # driver.get(search_url)
-
-        # # Scroll down to load more products dynamically
-        # for _ in range(15):  # Adjust the number of scrolls based on your needs
-        #     driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-        #     time.sleep(2)  # Adjust the sleep time if needed
-
         response = requests.get(search_url)
         response.raise_for_status()
-        soup = BeautifulSoup(response.text, 'html.parser')
-        # soup = BeautifulSoup(driver.page_source, 'html.parser')
+        soup = BeautifulSoup(response.text, 'html.parser')        
 
         product_elements = soup.find_all('div', class_='b-list-advert-base__data__header')
 
@@ -36,104 +27,47 @@ def get_product_info(product_name):
                 'first_three_highest': []
             }
 
+        input_tokens = tokenize(product_name)
         product_data = []
+
         for element in product_elements:
             name_element = element.find('div', class_='b-advert-title-inner qa-advert-title b-advert-title-inner--div')
             price_element = element.find('div', class_='qa-advert-price')
 
             if name_element and price_element:
-                # Special case for "apple iphone 13 6.1" 128gb"
-                if product_name in [
-                    'New Laptop Apple MacBook Pro 2020 8GB Apple M1',
-                    'new laptop Apple MacBook pro 2022 M2 16gb apple m2',
-                    'new laptop Apple MacBook pro 2023 M2 max 14-inch',
-                    'new laptop Apple MacBook pro 2023 M2 16-inch 16gb pro chip',
-                    ]:
-                    name_words = name_element.text.lower().split()[:9]
-                    input_words = product_name.lower().split()[:9]
+                scraped_name = name_element.text.lower()
+                scraped_tokens = tokenize(scraped_name)
 
-                elif product_name in [
-                    'new laptop HP 15-DW1001NIA',
-                    'New Laptop ASUS GAMING-FX506LH-HN0042W',
-                    ]:
-                    name_words = name_element.text.lower().split()[:3]
-                    input_words = product_name.lower().split()[:3]
+                # Compare the tokens
+                match_score = len(input_tokens & scraped_tokens) / len(input_tokens)
+                # Define a threshold for what constitutes a "match"
+                if match_score > 0.6:  # Adjust the threshold as needed
+                    price_text = price_element.text.strip()
 
+                    # Handling price ranges
+                    if ' - ' in price_text:
+                        price_range = price_text.split(' - ')
+                        average_price = sum([float(p.replace('₦', '').replace(',', '')) for p in price_range]) / len(price_range)
+                        price = f'₦ {average_price:,.0f}'
+                    else:
+                        price = price_text.replace('₦', '').replace(',', '')
+                        price = f'₦ {float(price):,.0f}'
 
-                elif product_name in [
-                    'new laptop HP ELITEBOOK 830 G6',
-                    'new laptop HP ELITEBOOK 840 G3',
-                    'new laptop HP ELITEBOOK 840 G5',
-                    'new laptop HP ELITEBOOK 840 G8',
-                    'new laptop HP ELITEBOOK 840 G9',
-                    'new laptop HP ELITEBOOK 850 G8',
-                    'new laptop HP pavilion 15 8gb core i5',
-                    'new laptop HP PROBOOK 440 G8',
-                    'new laptop HP PROBOOK 440 G9',
-                    'new laptop HP PROBOOK 440 G9',
-                    'new laptop HP PROBOOK 450 G8',
-                    'new laptop HP PROBOOK 640 G8',
-                    'new laptop MICROSOFT SURFACE PRO 9',
-                    'new laptop LENOVO IDEAPAD FLEX 5',
-                    'new laptop LENOVO THINKPAD X1 Carbon Gen 9',
-                    'new laptop ACER Predator Helios 300 PH315-55 2023',
-                    'New Laptop ACER Predator Helios 300 PH315-55 Late 2022',
-                    'New Laptop ACER Predator Triton 300 SE PT316-51s-7397',
-                    'new laptop dell ALIENWARE M15 R5',
-
-                    ]:
-                    name_words = name_element.text.lower().split()[:6]
-                    input_words = product_name.lower().split()[:6]
-
-                elif product_name in [
-                    'new laptop Apple MacBook pro 2021 M1 Max Chip',
-                    'new laptop Apple MacBook pro M1 16gb pro Chip 2021',
-                    'new laptop APPLE MACBOOK AIR 2015 8gb',
-                    'new laptop APPLE MACBOOK AIR 2017 8gb',
-                    'new laptop APPLE MACBOOK AIR 2018 8gb',
-                    'new laptop APPLE MACBOOK AIR 2019 8gb',
-                    'new laptop APPLE MACBOOK AIR 2020 8gb',
-                    'new laptop APPLE MACBOOK AIR 2020 M1',
-                    'new laptop APPLE MACBOOK AIR 2022 M2',
-                    'new laptop APPLE MACBOOK AIR 2023 M2',
-                    'new laptop HP ELITEBOOK X360 1030 G2',
-                    'new laptop HP ELITEBOOK X360 1030 G3',
-                    'new laptop HP ELITEBOOK X360 1040 G3',
-                    'new laptop HP ELITEBOOK X360 1040 G6',
-                    'new laptop HP ELITEBOOK 820 G3 8gb',
-                    'new laptop HP ELITEBOOK 830 G8 8gb 512gb',
-                    'New Laptop ACER Predator Triton 500 SE PT516-52s-99EL',
-                    ]:
-                    name_words = name_element.text.lower().split()[:7]
-                    input_words = product_name.lower().split()[:7]
-                else:
-                    name_words = name_element.text.lower().split()[:5]
-                    input_words = product_name.lower().split()[:5]
-
-                # Check if the first four words match
-                if name_words == input_words:
-                    name = name_element.text.strip()
-                    price = price_element.text.strip()
-
-                    product_data.append({'name': name,'price': price})
+                    product_data.append({'price': price, 'name': product_name})
 
         # Sort products by price
         sorted_products = sorted(product_data, key=lambda x: float(x['price'].replace('₦', '').replace(',', '')))
-
-        # Extract the first three lowest and the first three highest
         first_three_lowest = sorted_products[:3]
         first_three_highest = sorted_products[-3:]
-       
+
         return {
             'first_three_lowest': first_three_lowest,
             'first_three_highest': first_three_highest
         }
 
-    except Exception as e:
+    except requests.RequestException as e:
         print(f"Error during the request: {e}")
         return None
-    # finally:
-        # driver.quit()
 
     
 

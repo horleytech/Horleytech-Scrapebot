@@ -2,8 +2,11 @@
 import json
 from bs4 import BeautifulSoup
 
+def tokenize(name):
+    # Lowercase the name and split by spaces and hyphens
+    return set(name.lower().replace('-', ' ').split())
+
 def get_product_info(product_name):
-    # Function to scrape Jumia search results for the given product_name
     base_url = 'https://slot.ng/catalogsearch/result/?q='
     search_url = base_url + product_name.replace(' ', '+')
 
@@ -21,55 +24,36 @@ def get_product_info(product_name):
                 'first_three_highest': []
             }
 
+        input_tokens = tokenize(product_name)
         product_data = []
+
         for element in product_elements:
             name_element = element.find('h3', class_='product-name')
             price_element = element.find('span', class_='price')
 
             if name_element and price_element:
-                # Special case for "apple iphone 13 6.1" 128gb"
-                if product_name in [
-                    'SAMSUNG GALAXY BUDS 2 PRO',
-                    'SAMSUNG TYPE C AKG HANDSFREE',
+                scraped_name = name_element.text.lower()
+                scraped_tokens = tokenize(scraped_name)
 
-                    ]:
-                    name_words = name_element.text.lower().split()[:5]
-                    input_words = product_name.lower().split()[:5]
+                # Compare the tokens
+                match_score = len(input_tokens & scraped_tokens) / len(input_tokens)
+                # Define a threshold for what constitutes a "match"
+                if match_score > 0.6:  # Adjust the threshold as needed
+                    price_text = price_element.text.strip()
 
-                elif product_name in [
-                    'Apple Airpods 2 Case charging',
-                    'Apple Airpods Pro (1st Gen)',
-                    'Apple Airpods Pro (2nd GEN)',
-                    'SAMSUNG galaxy BUDS 2',
-                    'SAMSUNG galaxy BUDS LIVE',
-                    'SAMSUNG galaxy BUDS PRO',
-                    'Samsung Galaxy Buds 2',
-                    ]:
-                    name_words = name_element.text.lower().split()[:4]
-                    input_words = product_name.lower().split()[:4]
+                    # Handling price ranges
+                    if ' - ' in price_text:
+                        price_range = price_text.split(' - ')
+                        average_price = sum([float(p.replace('₦', '').replace(',', '')) for p in price_range]) / len(price_range)
+                        price = f'₦ {average_price:,.0f}'
+                    else:
+                        price = price_text.replace('₦', '').replace(',', '')
+                        price = f'₦ {float(price):,.0f}'
 
-                elif product_name in [
-                    'Samsung Galaxy Buds Live - Mystic Black',
-                    ]:
-                    name_words = name_element.text.lower().split()[:7]
-                    input_words = product_name.lower().split()[:7]
-
-                else:
-                    name_words = name_element.text.lower().split()[:3]
-                    input_words = product_name.lower().split()[:3]
-                    
-
-                # Check if the first four words match
-                if name_words == input_words:
-                    name = name_element.text.strip()
-                    price = price_element.text.strip()
-                   
-                    product_data.append({'name': name,'price': price})
+                    product_data.append({'price': price, 'name': product_name})
 
         # Sort products by price
         sorted_products = sorted(product_data, key=lambda x: float(x['price'].replace('₦', '').replace(',', '')))
-
-        # Extract the first three lowest and the first three highest
         first_three_lowest = sorted_products[:3]
         first_three_highest = sorted_products[-3:]
 

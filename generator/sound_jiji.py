@@ -1,23 +1,22 @@
-﻿import time
+﻿import requests
 import json
-import requests
-from selenium import webdriver
-from selenium.webdriver.common.keys import Keys
+import os
 from bs4 import BeautifulSoup
 
+
+
+def tokenize(name):
+    # Lowercase the name and split by spaces and hyphens
+    return set(name.lower().replace('-', ' ').split())
+
 def get_product_info(product_name):
-    # Function to scrape Jumia search results for the given product_name
-
-    # Use a headless browser (Chrome in this case)
-    # driver = webdriver.Chrome()
-
     base_url = 'https://jiji.ng/search?query='
     search_url = base_url + product_name.replace(' ', '%20')
 
     try:
         response = requests.get(search_url)
         response.raise_for_status()
-        soup = BeautifulSoup(response.text, 'html.parser')
+        soup = BeautifulSoup(response.text, 'html.parser')        
 
         product_elements = soup.find_all('div', class_='b-list-advert-base__data__header')
 
@@ -28,50 +27,36 @@ def get_product_info(product_name):
                 'first_three_highest': []
             }
 
+        input_tokens = tokenize(product_name)
         product_data = []
+
         for element in product_elements:
             name_element = element.find('div', class_='b-advert-title-inner qa-advert-title b-advert-title-inner--div')
             price_element = element.find('div', class_='qa-advert-price')
 
             if name_element and price_element:
-                # Special case for "apple iphone 13 6.1" 128gb"
-                if product_name in [
-                    'SAMSUNG galaxy BUDS',
-                    'SAMSUNG galaxy BUDS+',
-                    'Samsung Galaxy Buds2',
-                    'BEATS FIT PRO',
-                    'BEATS STUDIO BUDS',
-                    'Beats POWERBEATS PRO',
-                    ]:
-                    name_words = name_element.text.lower().split()[:3]
-                    input_words = product_name.lower().split()[:3]
+                scraped_name = name_element.text.lower()
+                scraped_tokens = tokenize(scraped_name)
 
-                elif product_name in [
-                    'Samsung AKG Type C Headphones',
-                    ]:
-                    name_words = name_element.text.lower().split()[:5]
-                    input_words = product_name.lower().split()[:5]
+                # Compare the tokens
+                match_score = len(input_tokens & scraped_tokens) / len(input_tokens)
+                # Define a threshold for what constitutes a "match"
+                if match_score > 0.6:  # Adjust the threshold as needed
+                    price_text = price_element.text.strip()
 
-                elif product_name in [
-                    'Samsung Galaxy Buds Live - Mystic Black',
-                    ]:
-                    name_words = name_element.text.lower().split()[:6]
-                    input_words = product_name.lower().split()[:6]
-                else:
-                    name_words = name_element.text.lower().split()[:4]
-                    input_words = product_name.lower().split()[:4]
+                    # Handling price ranges
+                    if ' - ' in price_text:
+                        price_range = price_text.split(' - ')
+                        average_price = sum([float(p.replace('₦', '').replace(',', '')) for p in price_range]) / len(price_range)
+                        price = f'₦ {average_price:,.0f}'
+                    else:
+                        price = price_text.replace('₦', '').replace(',', '')
+                        price = f'₦ {float(price):,.0f}'
 
-                # Check if the first four words match
-                if name_words == input_words:
-                    name = name_element.text.strip()
-                    price = price_element.text.strip()
-
-                    product_data.append({'name': name,'price': price})
+                    product_data.append({'price': price, 'name': product_name})
 
         # Sort products by price
         sorted_products = sorted(product_data, key=lambda x: float(x['price'].replace('₦', '').replace(',', '')))
-
-        # Extract the first three lowest and the first three highest
         first_three_lowest = sorted_products[:3]
         first_three_highest = sorted_products[-3:]
 
@@ -80,11 +65,9 @@ def get_product_info(product_name):
             'first_three_highest': first_three_highest
         }
 
-    except Exception as e:
+    except requests.RequestException as e:
         print(f"Error during the request: {e}")
         return None
-    # finally:
-    #     driver.quit()
 
     
 
