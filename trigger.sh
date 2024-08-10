@@ -1,4 +1,4 @@
-git pull
+git pull origin main
 source generator/myenv/bin/activate
 python3 generator/iphone_justphone.py     
 python3 generator/laptop_slot.py          
