@@ -1,5 +1,5 @@
-git pull
-source generator/myenv/bin/activate
+# git pull
+# source generator/myenv/bin/activate
 python3 generator/iphone_justphone.py     
 python3 generator/laptop_slot.py          
 python3 generator/samsung_jiji.py         

@@ -47,12 +47,12 @@ export const soundTable = [
     "id": 5,
     "Pname": "SAMSUNG BUDS 2",
     "Link": "https://www.justfones.ng/catalogsearch/result/?q=SAMSUNG+galaxy+BUDS2,",
-    "H1": "0",
-    "H2": "0",
-    "H3": "0",
-    "L1": "0",
-    "L2": "0",
-    "L3": "0"
+    "H1": "1,250,000",
+    "H2": "1,674,000",
+    "H3": "1,853,000",
+    "L1": "120,000",
+    "L2": "180,000",
+    "L3": "899,000"
   },
   {
     "id": 6,
@@ -70,11 +70,11 @@ export const soundTable = [
     "Pname": "SAMSUNG EARBUDS",
     "Link": "https://www.justfones.ng/catalogsearch/result/?q=SAMSUNG+galaxy+BUDS",
     "H1": "120,000",
-    "H2": "0",
-    "H3": "0",
+    "H2": "120,000",
+    "H3": "180,000",
     "L1": "120,000",
-    "L2": "0",
-    "L3": "0"
+    "L2": "120,000",
+    "L3": "180,000"
   },
   {
     "id": 8,
@@ -91,22 +91,22 @@ export const soundTable = [
     "id": 9,
     "Pname": "SAMSUNG EARBUDS PLUS",
     "Link": "https://www.justfones.ng/catalogsearch/result/?q=SAMSUNG+galaxy+EARBUDS+PLUS",
-    "H1": "0",
-    "H2": "0",
+    "H1": "120,000",
+    "H2": "120,000",
     "H3": "0",
-    "L1": "0",
-    "L2": "0",
+    "L1": "120,000",
+    "L2": "120,000",
     "L3": "0"
   },
   {
     "id": 10,
     "Pname": "SAMSUNG EARBUDS PRO",
     "Link": "https://www.justfones.ng/catalogsearch/result/?q=SAMSUNG+galaxy+EARBUDS+PRO",
-    "H1": "0",
-    "H2": "0",
+    "H1": "120,000",
+    "H2": "120,000",
     "H3": "0",
-    "L1": "0",
-    "L2": "0",
+    "L1": "120,000",
+    "L2": "120,000",
     "L3": "0"
   },
   {
@@ -124,12 +124,12 @@ export const soundTable = [
     "id": 12,
     "Pname": "Samsung Galaxy Buds Live \u2013 Mystic Black",
     "Link": "https://www.justfones.ng/catalogsearch/result/?q=Samsung+Galaxy+Buds2,",
-    "H1": "0",
-    "H2": "0",
-    "H3": "0",
-    "L1": "0",
-    "L2": "0",
-    "L3": "0"
+    "H1": "1,250,000",
+    "H2": "1,674,000",
+    "H3": "1,853,000",
+    "L1": "120,000",
+    "L2": "180,000",
+    "L3": "899,000"
   },
   {
     "id": 13,
@@ -146,33 +146,33 @@ export const soundTable = [
     "id": 14,
     "Pname": "Samsung usb c akg earphones",
     "Link": "https://www.justfones.ng/catalogsearch/result/?q=Beats+By+Dre+Beats+Fit+Pro",
-    "H1": "0",
-    "H2": "0",
+    "H1": "290,000",
+    "H2": "399,000",
     "H3": "0",
-    "L1": "0",
-    "L2": "0",
+    "L1": "290,000",
+    "L2": "399,000",
     "L3": "0"
   },
   {
     "id": 15,
     "Pname": "BEATS FIT PRO",
     "Link": "https://www.justfones.ng/catalogsearch/result/?q=Beats+By+Dre+Beats+Studio+Buds",
-    "H1": "0",
-    "H2": "0",
-    "H3": "0",
-    "L1": "0",
-    "L2": "0",
-    "L3": "0"
+    "H1": "180,000",
+    "H2": "370,000",
+    "H3": "399,000",
+    "L1": "180,000",
+    "L2": "370,000",
+    "L3": "399,000"
   },
   {
     "id": 16,
     "Pname": "BEATS STUDIO BUDS",
     "Link": "https://www.justfones.ng/catalogsearch/result/?q=Beats+By+Dre+Beats+Powerbeats+Pro+Wireless+Earbud",
-    "H1": "0",
-    "H2": "0",
+    "H1": "290,000",
+    "H2": "399,000",
     "H3": "0",
-    "L1": "0",
-    "L2": "0",
+    "L1": "290,000",
+    "L2": "399,000",
     "L3": "0"
   }
 ]
