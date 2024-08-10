@@ -26,6 +26,6 @@ python3 generator/samsung_ob.py
 python3 generator/smartwatch_justphone.py 
 python3 generator/sound_justphone.py      
 python3 generator/tablet_justphone.py
-git add .
+git add src/constants/sites/
 git commit -m "Added scrapped data"
 git push 
