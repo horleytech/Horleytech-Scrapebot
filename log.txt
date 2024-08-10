@@ -1,0 +1,107 @@
+nohup: ignoring input
+Already up to date.
+./trigger.sh: 2: source: not found
+Traceback (most recent call last):
+  File "/root/Horleytech-Scrapebot/generator/iphone_justphone.py", line 4, in <module>
+    from bs4 import BeautifulSoup
+ModuleNotFoundError: No module named 'bs4'
+Traceback (most recent call last):
+  File "/root/Horleytech-Scrapebot/generator/laptop_slot.py", line 3, in <module>
+    from bs4 import BeautifulSoup
+ModuleNotFoundError: No module named 'bs4'
+Traceback (most recent call last):
+  File "/root/Horleytech-Scrapebot/generator/samsung_jiji.py", line 4, in <module>
+    from bs4 import BeautifulSoup
+ModuleNotFoundError: No module named 'bs4'
+Traceback (most recent call last):
+  File "/root/Horleytech-Scrapebot/generator/samsung_slot.py", line 3, in <module>
+    from bs4 import BeautifulSoup
+ModuleNotFoundError: No module named 'bs4'
+Traceback (most recent call last):
+  File "/root/Horleytech-Scrapebot/generator/smartwatch_slot.py", line 3, in <module>
+    from bs4 import BeautifulSoup
+ModuleNotFoundError: No module named 'bs4'
+Traceback (most recent call last):
+  File "/root/Horleytech-Scrapebot/generator/sound_slot.py", line 3, in <module>
+    from bs4 import BeautifulSoup
+ModuleNotFoundError: No module named 'bs4'
+Traceback (most recent call last):
+  File "/root/Horleytech-Scrapebot/generator/tablet_slot.py", line 3, in <module>
+    from bs4 import BeautifulSoup
+ModuleNotFoundError: No module named 'bs4'
+Traceback (most recent call last):
+  File "/root/Horleytech-Scrapebot/generator/iphone_ob.py", line 3, in <module>
+    from bs4 import BeautifulSoup
+ModuleNotFoundError: No module named 'bs4'
+Traceback (most recent call last):
+  File "/root/Horleytech-Scrapebot/generator/laptops_jiji.py", line 4, in <module>
+    from bs4 import BeautifulSoup
+ModuleNotFoundError: No module named 'bs4'
+Traceback (most recent call last):
+  File "/root/Horleytech-Scrapebot/generator/samsung_ju.py", line 3, in <module>
+    from bs4 import BeautifulSoup
+ModuleNotFoundError: No module named 'bs4'
+Traceback (most recent call last):
+  File "/root/Horleytech-Scrapebot/generator/smartwatch_jiji.py", line 4, in <module>
+    from bs4 import BeautifulSoup
+ModuleNotFoundError: No module named 'bs4'
+Traceback (most recent call last):
+  File "/root/Horleytech-Scrapebot/generator/sound_jiji.py", line 4, in <module>
+    from bs4 import BeautifulSoup
+ModuleNotFoundError: No module named 'bs4'
+Traceback (most recent call last):
+  File "/root/Horleytech-Scrapebot/generator/tablet_jiji.py", line 4, in <module>
+    from bs4 import BeautifulSoup
+ModuleNotFoundError: No module named 'bs4'
+Traceback (most recent call last):
+  File "/root/Horleytech-Scrapebot/generator/iphone_jiji.py", line 3, in <module>
+    from bs4 import BeautifulSoup
+ModuleNotFoundError: No module named 'bs4'
+Traceback (most recent call last):
+  File "/root/Horleytech-Scrapebot/generator/iphone_slot.py", line 3, in <module>
+    from bs4 import BeautifulSoup
+ModuleNotFoundError: No module named 'bs4'
+Traceback (most recent call last):
+  File "/root/Horleytech-Scrapebot/generator/laptops_ju.py", line 3, in <module>
+    from bs4 import BeautifulSoup
+ModuleNotFoundError: No module named 'bs4'
+Traceback (most recent call last):
+  File "/root/Horleytech-Scrapebot/generator/samsung_justphone.py", line 3, in <module>
+    from bs4 import BeautifulSoup
+ModuleNotFoundError: No module named 'bs4'
+Traceback (most recent call last):
+  File "/root/Horleytech-Scrapebot/generator/smartwatch_ju.py", line 3, in <module>
+    from bs4 import BeautifulSoup
+ModuleNotFoundError: No module named 'bs4'
+Traceback (most recent call last):
+  File "/root/Horleytech-Scrapebot/generator/sound_ju.py", line 3, in <module>
+    from bs4 import BeautifulSoup
+ModuleNotFoundError: No module named 'bs4'
+Traceback (most recent call last):
+  File "/root/Horleytech-Scrapebot/generator/tablet_ju.py", line 3, in <module>
+    from bs4 import BeautifulSoup
+ModuleNotFoundError: No module named 'bs4'
+Traceback (most recent call last):
+  File "/root/Horleytech-Scrapebot/generator/iphone_ju.py", line 3, in <module>
+    from bs4 import BeautifulSoup
+ModuleNotFoundError: No module named 'bs4'
+Traceback (most recent call last):
+  File "/root/Horleytech-Scrapebot/generator/laptop_justphone.py", line 4, in <module>
+    from bs4 import BeautifulSoup
+ModuleNotFoundError: No module named 'bs4'
+Traceback (most recent call last):
+  File "/root/Horleytech-Scrapebot/generator/samsung_ob.py", line 3, in <module>
+    from bs4 import BeautifulSoup
+ModuleNotFoundError: No module named 'bs4'
+Traceback (most recent call last):
+  File "/root/Horleytech-Scrapebot/generator/smartwatch_justphone.py", line 4, in <module>
+    from bs4 import BeautifulSoup
+ModuleNotFoundError: No module named 'bs4'
+Traceback (most recent call last):
+  File "/root/Horleytech-Scrapebot/generator/sound_justphone.py", line 4, in <module>
+    from bs4 import BeautifulSoup
+ModuleNotFoundError: No module named 'bs4'
+Traceback (most recent call last):
+  File "/root/Horleytech-Scrapebot/generator/tablet_justphone.py", line 4, in <module>
+    from bs4 import BeautifulSoup
+ModuleNotFoundError: No module named 'bs4'
