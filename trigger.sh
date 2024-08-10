@@ -29,3 +29,4 @@ python3 generator/tablet_justphone.py
 git add src/constants/sites/
 git commit -m "Added scrapped data"
 git push 
+echo "Scrapping complete"
