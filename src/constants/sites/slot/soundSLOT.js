@@ -48,10 +48,10 @@ export const soundTable = [
     "Pname": "SAMSUNG BUDS 2",
     "Link": "https://slot.ng/catalogsearch/result/?q=SAMSUNG+galaxy+BUDS+2",
     "H1": "250,000",
-    "H2": "0",
+    "H2": "270,000",
     "H3": "0",
     "L1": "250,000",
-    "L2": "0",
+    "L2": "270,000",
     "L3": "0"
   },
   {
@@ -72,19 +72,19 @@ export const soundTable = [
     "H1": "2,974,000",
     "H2": "3,069,000",
     "H3": "3,331,000",
-    "L1": "3,000",
-    "L2": "3,500",
-    "L3": "4,000"
+    "L1": "3,500",
+    "L2": "4,000",
+    "L3": "125,340"
   },
   {
     "id": 8,
     "Pname": "SAMSUNG EARBUDS LIVE",
     "Link": "https://slot.ng/catalogsearch/result/?q=SAMSUNG+galaxy+BUDS+LIVE",
     "H1": "250,000",
-    "H2": "0",
+    "H2": "270,000",
     "H3": "0",
     "L1": "250,000",
-    "L2": "0",
+    "L2": "270,000",
     "L3": "0"
   },
   {
@@ -94,19 +94,19 @@ export const soundTable = [
     "H1": "2,974,000",
     "H2": "3,069,000",
     "H3": "3,331,000",
-    "L1": "3,000",
-    "L2": "3,500",
-    "L3": "4,000"
+    "L1": "3,500",
+    "L2": "4,000",
+    "L3": "125,340"
   },
   {
     "id": 10,
     "Pname": "SAMSUNG EARBUDS PRO",
     "Link": "https://slot.ng/catalogsearch/result/?q=SAMSUNG+galaxy+BUDS+PRO",
     "H1": "250,000",
-    "H2": "0",
+    "H2": "270,000",
     "H3": "0",
     "L1": "250,000",
-    "L2": "0",
+    "L2": "270,000",
     "L3": "0"
   },
   {
@@ -125,10 +125,10 @@ export const soundTable = [
     "Pname": "Samsung Galaxy Buds Live \u2013 Mystic Black",
     "Link": "https://slot.ng/catalogsearch/result/?q=Samsung+Galaxy+Buds+2",
     "H1": "250,000",
-    "H2": "0",
+    "H2": "270,000",
     "H3": "0",
     "L1": "250,000",
-    "L2": "0",
+    "L2": "270,000",
     "L3": "0"
   },
   {

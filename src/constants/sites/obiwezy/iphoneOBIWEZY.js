@@ -55,17 +55,6 @@ export const iphoneTable = [
     "L3": "0"
   },
   {
-    "id": 6,
-    "Pname": "apple iphone 15 128 gb",
-    "Link": "https://obiwezy.com/catalogsearch/result/?q=apple+iphone+15+-+128gb",
-    "H1": "0",
-    "H2": "0",
-    "H3": "0",
-    "L1": "0",
-    "L2": "0",
-    "L3": "0"
-  },
-  {
     "id": 7,
     "Pname": "apple iphone 15 256 gb",
     "Link": "https://obiwezy.com/catalogsearch/result/?q=apple+iphone+15+-+256gb",

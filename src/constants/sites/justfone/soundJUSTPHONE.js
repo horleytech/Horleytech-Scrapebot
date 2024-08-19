@@ -69,9 +69,9 @@ export const soundTable = [
     "id": 7,
     "Pname": "SAMSUNG EARBUDS",
     "Link": "https://www.justfones.ng/catalogsearch/result/?q=SAMSUNG+galaxy+BUDS",
-    "H1": "120,000",
-    "H2": "120,000",
-    "H3": "180,000",
+    "H1": "180,000",
+    "H2": "299,000",
+    "H3": "350,000",
     "L1": "120,000",
     "L2": "120,000",
     "L3": "180,000"
@@ -104,10 +104,10 @@ export const soundTable = [
     "Link": "https://www.justfones.ng/catalogsearch/result/?q=SAMSUNG+galaxy+EARBUDS+PRO",
     "H1": "120,000",
     "H2": "120,000",
-    "H3": "0",
+    "H3": "350,000",
     "L1": "120,000",
     "L2": "120,000",
-    "L3": "0"
+    "L3": "350,000"
   },
   {
     "id": 11,
@@ -146,10 +146,10 @@ export const soundTable = [
     "id": 14,
     "Pname": "Samsung usb c akg earphones",
     "Link": "https://www.justfones.ng/catalogsearch/result/?q=Beats+By+Dre+Beats+Fit+Pro",
-    "H1": "290,000",
+    "H1": "250,000",
     "H2": "399,000",
     "H3": "0",
-    "L1": "290,000",
+    "L1": "250,000",
     "L2": "399,000",
     "L3": "0"
   },
@@ -168,10 +168,10 @@ export const soundTable = [
     "id": 16,
     "Pname": "BEATS STUDIO BUDS",
     "Link": "https://www.justfones.ng/catalogsearch/result/?q=Beats+By+Dre+Beats+Powerbeats+Pro+Wireless+Earbud",
-    "H1": "290,000",
+    "H1": "250,000",
     "H2": "399,000",
     "H3": "0",
-    "L1": "290,000",
+    "L1": "250,000",
     "L2": "399,000",
     "L3": "0"
   }

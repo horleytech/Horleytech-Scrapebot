@@ -115,10 +115,10 @@ export const smartwatchTable = [
     "Link": "https://slot.ng/catalogsearch/result/?q=Samsung+GALAXY+WATCH+4",
     "H1": "12,500",
     "H2": "35,000",
-    "H3": "0",
+    "H3": "820,000",
     "L1": "12,500",
     "L2": "35,000",
-    "L3": "0"
+    "L3": "820,000"
   },
   {
     "id": 12,
@@ -135,11 +135,11 @@ export const smartwatchTable = [
     "id": 13,
     "Pname": "Samsung GALAXY WATCH 5",
     "Link": "https://slot.ng/catalogsearch/result/?q=Samsung+GALAXY+WATCH+5",
-    "H1": "3,069,000",
-    "H2": "0",
+    "H1": "820,000",
+    "H2": "3,069,000",
     "H3": "0",
-    "L1": "3,069,000",
-    "L2": "0",
+    "L1": "820,000",
+    "L2": "3,069,000",
     "L3": "0"
   },
   {

@@ -36,12 +36,12 @@ export const samsungTable = [
     "id": 4,
     "Pname": "samsung galaxy z fold4 512 gb",
     "Link": "https://www.jumia.com.ng/catalog/?q=samsung+galaxy+z+fold+4+-+7.6\"+512gb",
-    "H1": "3,345,000",
-    "H2": "3,360,000",
+    "H1": "1,288,000",
+    "H2": "3,345,000",
     "H3": "3,360,000",
-    "L1": "765,000",
-    "L2": "1,000,000",
-    "L3": "1,100,000"
+    "L1": "1,000,000",
+    "L2": "1,200,000",
+    "L3": "1,200,000"
   },
   {
     "id": 5,
@@ -72,9 +72,9 @@ export const samsungTable = [
     "H1": "900,000",
     "H2": "900,000",
     "H3": "900,000",
-    "L1": "850,000",
-    "L2": "850,000",
-    "L3": "850,000"
+    "L1": "849,500",
+    "L2": "849,500",
+    "L3": "849,500"
   },
   {
     "id": 8,
@@ -83,7 +83,7 @@ export const samsungTable = [
     "H1": "3,220,000",
     "H2": "3,220,000",
     "H3": "3,220,000",
-    "L1": "850,000",
+    "L1": "849,500",
     "L2": "850,000",
     "L3": "850,000"
   },
@@ -91,19 +91,19 @@ export const samsungTable = [
     "id": 9,
     "Pname": "samsung galaxy s23 ultra 512 gb",
     "Link": "https://www.jumia.com.ng/catalog/?q=samsung+galaxy+s23+ultra+512gb",
-    "H1": "1,410,000",
-    "H2": "1,410,000",
-    "H3": "1,490,000",
-    "L1": "1,127,000",
-    "L2": "1,127,000",
-    "L3": "1,250,000"
+    "H1": "1,490,000",
+    "H2": "2,171,800",
+    "H3": "2,171,800",
+    "L1": "1,250,000",
+    "L2": "1,300,000",
+    "L3": "1,300,000"
   },
   {
     "id": 10,
     "Pname": "samsung galaxy s23 ultra 256 gb",
     "Link": "https://www.jumia.com.ng/catalog/?q=samsung+galaxy+s23+ultra+256gb",
     "H1": "1,200,000",
-    "H2": "1,200,000",
+    "H2": "1,349,800",
     "H3": "1,350,000",
     "L1": "1,200,000",
     "L2": "1,200,000",
@@ -135,11 +135,11 @@ export const samsungTable = [
     "id": 13,
     "Pname": "samsung galaxy s22 ultra 128 gb",
     "Link": "https://www.jumia.com.ng/catalog/?q=samsung+galaxy+s22+ultra+128gb",
-    "H1": "790,000",
+    "H1": "800,000",
     "H2": "805,000",
     "H3": "1,099,999",
-    "L1": "760,000",
-    "L2": "760,000",
+    "L1": "759,700",
+    "L2": "759,700",
     "L3": "760,000"
   },
   {
@@ -158,8 +158,8 @@ export const samsungTable = [
     "Pname": "samsung galaxy s22+ 5G 128 gb",
     "Link": "https://www.jumia.com.ng/catalog/?q=samsung+galaxy+s22++5G+128gb",
     "H1": "780,000",
-    "H2": "780,000",
-    "H3": "790,000",
+    "H2": "800,000",
+    "H3": "850,000",
     "L1": "550,000",
     "L2": "550,000",
     "L3": "550,000"
@@ -179,9 +179,9 @@ export const samsungTable = [
     "id": 17,
     "Pname": "samsung galaxy s21 ultra 128 gb",
     "Link": "https://www.jumia.com.ng/catalog/?q=samsung+galaxy+s21+ultra+128gb",
-    "H1": "765,000",
-    "H2": "853,300",
-    "H3": "909,950",
+    "H1": "690,000",
+    "H2": "690,000",
+    "H3": "690,000",
     "L1": "420,000",
     "L2": "420,000",
     "L3": "420,000"
@@ -190,7 +190,7 @@ export const samsungTable = [
     "id": 18,
     "Pname": "samsung galaxy s21+ 256 gb",
     "Link": "https://www.jumia.com.ng/catalog/?q=samsung+galaxy+s21+plus+256gb",
-    "H1": "570,000",
+    "H1": "801,400",
     "H2": "801,400",
     "H3": "801,400",
     "L1": "445,000",
@@ -226,8 +226,8 @@ export const samsungTable = [
     "H1": "520,000",
     "H2": "559,999",
     "H3": "684,500",
-    "L1": "420,000",
-    "L2": "420,000",
+    "L1": "419,000",
+    "L2": "419,000",
     "L3": "420,000"
   },
   {
@@ -245,8 +245,8 @@ export const samsungTable = [
     "id": 23,
     "Pname": "samsung galaxy s20+ 128 gb",
     "Link": "https://www.jumia.com.ng/catalog/?q=samsung+galaxy+s20+plus+128gb",
-    "H1": "460,000",
-    "H2": "515,200",
+    "H1": "442,750",
+    "H2": "460,000",
     "H3": "584,300",
     "L1": "350,000",
     "L2": "365,000",
@@ -269,7 +269,7 @@ export const samsungTable = [
     "Link": "https://www.jumia.com.ng/catalog/?q=Samsung+Galaxy+S10+6.1\"+128gb",
     "H1": "320,000",
     "H2": "320,000",
-    "H3": "335,000",
+    "H3": "324,500",
     "L1": "275,000",
     "L2": "275,000",
     "L3": "275,000"
@@ -281,9 +281,9 @@ export const samsungTable = [
     "H1": "390,000",
     "H2": "390,000",
     "H3": "420,000",
-    "L1": "279,300",
-    "L2": "325,000",
-    "L3": "335,000"
+    "L1": "324,500",
+    "L2": "324,500",
+    "L3": "324,500"
   },
   {
     "id": 27,
@@ -292,9 +292,9 @@ export const samsungTable = [
     "H1": "220,000",
     "H2": "220,000",
     "H3": "220,000",
-    "L1": "185,000",
-    "L2": "185,000",
-    "L3": "185,000"
+    "L1": "195,000",
+    "L2": "195,000",
+    "L3": "195,000"
   },
   {
     "id": 28,
@@ -311,12 +311,12 @@ export const samsungTable = [
     "id": 29,
     "Pname": "samsung galaxy s8 64 gb",
     "Link": "https://www.jumia.com.ng/catalog/?q=samsung+galaxy+s8+5.8\"+64gb",
-    "H1": "175,000",
+    "H1": "190,000",
     "H2": "210,000",
     "H3": "250,000",
-    "L1": "175,000",
-    "L2": "175,000",
-    "L3": "175,000"
+    "L1": "190,000",
+    "L2": "190,000",
+    "L3": "190,000"
   },
   {
     "id": 30,
@@ -457,8 +457,8 @@ export const samsungTable = [
     "H1": "285,000",
     "H2": "285,000",
     "H3": "290,000",
-    "L1": "208,000",
-    "L2": "220,000",
+    "L1": "220,000",
+    "L2": "224,000",
     "L3": "224,000"
   },
   {
@@ -566,10 +566,10 @@ export const samsungTable = [
     "Link": "https://www.jumia.com.ng/catalog/?q=samsung+galaxy+a04s+-+6.5\"+64gb",
     "H1": "156,999",
     "H2": "159,999",
-    "H3": "164,999",
+    "H3": "159,999",
     "L1": "156,999",
     "L2": "159,999",
-    "L3": "164,999"
+    "L3": "159,999"
   },
   {
     "id": 53,
@@ -608,12 +608,12 @@ export const samsungTable = [
     "id": 56,
     "Pname": "Samsung Galaxy A53 5G 128 gb",
     "Link": "https://www.jumia.com.ng/catalog/?q=Samsung+Galaxy+A53+5G+6.5\"+128gb",
-    "H1": "479,900",
-    "H2": "0",
-    "H3": "0",
-    "L1": "479,900",
-    "L2": "0",
-    "L3": "0"
+    "H1": "474,400",
+    "H2": "474,600",
+    "H3": "479,900",
+    "L1": "474,400",
+    "L2": "474,600",
+    "L3": "479,900"
   },
   {
     "id": 57,
@@ -641,10 +641,10 @@ export const samsungTable = [
     "id": 59,
     "Pname": "Samsung GALAXY A23 128 gb",
     "Link": "https://www.jumia.com.ng/catalog/?q=Samsung+GALAXY+A23-6.6\"+128gb",
-    "H1": "250,000",
+    "H1": "240,000",
     "H2": "0",
     "H3": "0",
-    "L1": "250,000",
+    "L1": "240,000",
     "L2": "0",
     "L3": "0"
   },

@@ -66,28 +66,6 @@ export const tabletTable = [
     "L3": "0"
   },
   {
-    "id": 7,
-    "Pname": "IPAD AIR 5TH GEN",
-    "Link": "https://jiji.ng/search?query=new+apple+IPAD+AIR+256+gb+5th+GEN",
-    "H1": "1,190,000",
-    "H2": "1,200,000",
-    "H3": "1,300,000",
-    "L1": "760,000",
-    "L2": "800,000",
-    "L3": "960,000"
-  },
-  {
-    "id": 8,
-    "Pname": "IPAD MINI 4TH GEN",
-    "Link": "https://jiji.ng/search?query=new+apple+IPAD+AIR+256+gb+4th+GEN",
-    "H1": "535,000",
-    "H2": "800,000",
-    "H3": "0",
-    "L1": "535,000",
-    "L2": "800,000",
-    "L3": "0"
-  },
-  {
     "id": 9,
     "Pname": "IPAD MINI 6",
     "Link": "https://jiji.ng/search?query=new+apple+IPAD+MINI+6",
@@ -103,20 +81,20 @@ export const tabletTable = [
     "Pname": "IPAD PRO 3RD GEN",
     "Link": "https://jiji.ng/search?query=new+apple+IPAD+PRO+3RD+GEN",
     "H1": "145,000",
-    "H2": "0",
+    "H2": "240,000",
     "H3": "0",
     "L1": "145,000",
-    "L2": "0",
+    "L2": "240,000",
     "L3": "0"
   },
   {
     "id": 11,
     "Pname": "IPAD PRO 4TH GEN",
     "Link": "https://jiji.ng/search?query=new+apple+IPAD+PRO+4TH+GEN",
-    "H1": "0",
+    "H1": "450,000",
     "H2": "0",
     "H3": "0",
-    "L1": "0",
+    "L1": "450,000",
     "L2": "0",
     "L3": "0"
   },
@@ -125,10 +103,10 @@ export const tabletTable = [
     "Pname": "IPAD PRO 5TH GEN",
     "Link": "https://jiji.ng/search?query=new+apple+IPAD+PRO+5TH+GEN",
     "H1": "395,000",
-    "H2": "590,000",
+    "H2": "0",
     "H3": "0",
     "L1": "395,000",
-    "L2": "590,000",
+    "L2": "0",
     "L3": "0"
   },
   {
@@ -168,11 +146,11 @@ export const tabletTable = [
     "id": 16,
     "Pname": "SAMSUNG TAB S6 LITE",
     "Link": "https://jiji.ng/search?query=new+SAMSUNG+TAB+S6+LITE",
-    "H1": "50,000",
-    "H2": "0",
+    "H1": "60,000",
+    "H2": "70,000",
     "H3": "0",
-    "L1": "50,000",
-    "L2": "0",
+    "L1": "60,000",
+    "L2": "70,000",
     "L3": "0"
   },
   {
@@ -212,10 +190,10 @@ export const tabletTable = [
     "id": 20,
     "Pname": "SAMSUNG TAB S8 ULTRA",
     "Link": "https://jiji.ng/search?query=new+SAMSUNG+TAB+S8+ULTRA",
-    "H1": "250,000",
+    "H1": "0",
     "H2": "0",
     "H3": "0",
-    "L1": "250,000",
+    "L1": "0",
     "L2": "0",
     "L3": "0"
   },
