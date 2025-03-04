@@ -4,8 +4,8 @@ import dotenv from 'dotenv';
 import NodeCache from 'node-cache';
 
 import OpenAI from 'openai';
-import sg from '@sendgrid/mail';
 import admin from 'firebase-admin';
+import nodemailer from 'nodemailer';
 import { groupAndSortPhones } from './dataProcessor.js';
 import { convertString } from './cleaner.js';
 
@@ -19,7 +19,15 @@ const CHUNK_SIZE = 20_000;
 const CACHE_TIMEOUT = 7_200;
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-sg.setApiKey(process.env.SENDGRID_API_KEY);
+
+// Initialize Nodemailer transporter using Gmail SMTP
+const transporter = nodemailer.createTransport({
+  service: 'gmail',
+  auth: {
+    user: process.env.GMAIL_USER,      // your Gmail address
+    pass: process.env.GMAIL_PASS,      // your app password
+  },
+});
 
 // Initializing firebase-admin
 admin.initializeApp({
@@ -27,14 +35,6 @@ admin.initializeApp({
 });
 
 const db = admin.firestore();
-
-const emailPayload = {
-  to: '',
-  subject: '',
-  text: '',
-  html: '',
-  from: '',
-};
 
 function generateRandomIds() {
   return `Horley${Math.floor(1000000 + Math.random() * 9000000)}`;
@@ -52,13 +52,7 @@ event.on('process', async (data, filePath, title) => {
 
   let finalReponseArray = [];
 
-  let count = 0;
-
   for (const chunk of chunks) {
-    // if (count === 1) {
-    //   break;
-    // }
-    // count++;
     const content = `
     		    Extract Model, Storage (GB), Lock Status (Merge the Lock Statuses into two main categories: LOCKED (including descriptions like "LOCKED," "CHIP UNLOCKED," "LOCKED ESIM," "WIFI ONLY," "ESIM LOCKED WIFI ONLY," or similar terms indicating a restriction; use discretion for variations indicating a locked status) and FACTORY UNLOCKED (including descriptions like "ESIM FACTORY UNLOCKED," "FACTORY UNLOCKED PHYSICAL SIM," "It has 'FU' on it," "FACTORY UNLOCKED ESIM," "UNLOCKED," "FACTORY UNLOCK," "It has 'WARRANTY' on it," or similar terms indicating no restrictions; use discretion for variations indicating a factory unlocked status); retain the original Lock Status description if it cannot be categorized under these two headings), SIM Type, Device Type(iphone, samsung, laptop, watch, sound, tablet) and Price from the text below, Merge the data entries based on the same Model, Storage (GB), Lock Status, and SIM Type and return the value as a list of json object with each object having the following keys 'model','storage','lock_status','sim_type’,’device_type’,’price'. 
                     ${chunk}
@@ -107,10 +101,7 @@ event.on('process', async (data, filePath, title) => {
 			FastCharge⚡
 			20k
    		      )	
-	    	    This is how to how to extract the data. These are the products in this sample; USED Samsung A03S, 32GB storage, and price is 90,000. USED Samsung A12, SINGLE SIM, 32GB Storage, and price is 110,000. 
-	  	    USED Samsung A12, DOUBLE SIM, 32GB Storage, and price is 115,000. USED Samsung A12, DUAL SIM, 128GB Storage, and price is 130,000. USED Samsung A13, DUAL SIM, 32GB Storage, and price is 120,000. 
-		    USED Samsung A13, DUAL SIM, 64GB Storage, and price is 130,000. NOTE THAT ALL THE RULES ON "LINE 5" ALSO APPLY after you have understood the data structure. Also watch out for other similar or different data structures, learn, understand and work with them as described in "LINE 5" AND "LINE 6".
-      		    ENSURE THAT CONDITION (BRAND NEW or USED) IS ALWAYS ADDED TO EVERY EXTRACTED PRODUCT NAME. e.g. BRAND NEW iPhone 15 pro max, USED iPhone Xr, USED Samsung A23. If a condition is not specified, specify that the product is "USED" e.g. (USED Macbook Pro 2023)
+	    		    ENSURE THAT CONDITION (BRAND NEW or USED) IS ALWAYS ADDED TO EVERY EXTRACTED PRODUCT NAME. e.g. BRAND NEW iPhone 15 pro max, USED iPhone Xr, USED Samsung A23. If a condition is not specified, specify that the product is "USED" e.g. (USED Macbook Pro 2023)
                     7. Don't forget f condition is not specifed, it is a USED product or if the description says "brand new <model name> only" its also used
                     8. Ensure that iphones are represented as iPhone, samsung are represente as Samsung, basically make sure that all product name and models are uniform
                     9. Always return a valid json object, no extra markdown character. Don't add these characters "\\\json".
@@ -124,7 +115,7 @@ event.on('process', async (data, filePath, title) => {
                     17. For tablets and laptops, always ensure that all the availabe specifications are highlighted under lock status
 		    18. Don't forget to ensure that condition (BRAND NEW or USED) is ALWAYS added to the product name e.g. BRAND NEW iPhone 15 pro max, USED iPhone Xr   		    
 		    19. device_type can either be iphone, samsung, laptop, watch, sound, tablet (all in lower case).
-        	    20. Please ensure you return a perfect array of objects. I want to be able to parse it with the javascript JSON.parse() function. So, if the file has incomplete data that can lead to an incomplete object, omit it please and ensure only perfect array of objects is returned. This is extremely important.
+        		    20. Please ensure you return a perfect array of objects. I want to be able to parse it with the javascript JSON.parse() function. So, if the file has incomplete data that can lead to an incomplete object, omit it please and ensure only perfect array of objects is returned. This is extremely important.
 	     `;
 
     console.log('Chunking request');
@@ -134,12 +125,9 @@ event.on('process', async (data, filePath, title) => {
         model: 'gpt-4o',
       });
       console.log({ response: response.choices[0].message.content });
-      // fs.writeFileSync('gpt-result.txt', response.choices[0].message.content);
       try {
         const temp = JSON.parse(response.choices[0].message.content);
-        // console.log({ temp });
         finalReponseArray = finalReponseArray.concat(temp);
-        // console.log({ finalReponseArray });
         console.log('CHAT GPT RESPONSE GOTTEN');
       } catch (error) {
         console.log({ error });
@@ -158,31 +146,29 @@ event.on('process', async (data, filePath, title) => {
           console.log('Deleted File');
         }
       });
-      // Send 'failed' email here
-      const sgResponse = await sg.send(
-        {
-          to: [
-            'joshuaajagbe96@gmail.com',
-            'horleytech@gmail.com',
-            'mike.inaolaji@gmail.com',
-          ],
+      // Send 'failed' email using Nodemailer
+      try {
+        const mailOptions = {
+          from: process.env.MAILER_FROM_OPTION,
+          to: 'horleytech@gmail.com',
           subject: 'File Processing Failed',
           html: `
 				<h1>Failed File Processed</h1>
 				<p>Sorry, your file could not be processed at the moment. 😥</p>
 				<p>Please try again later.</p>
-		`,
-          from: process.env.MAILER_FROM_OPTION,
-        },
-        false
-      );
-      console.log({ sgResponse });
+		  `,
+        };
+        const emailResponse = await transporter.sendMail(mailOptions);
+        console.log({ emailResponse });
+      } catch (mailError) {
+        console.error('Error sending failure email:', mailError);
+      }
       stateCache.set('state', 'completed', CACHE_TIMEOUT);
       return;
     }
   }
 
-  //   send group title to firebase
+  // Send group title to firebase
   const groupPayload = {
     name: title,
   };
@@ -197,11 +183,10 @@ event.on('process', async (data, filePath, title) => {
     });
 
   const finalResult = groupAndSortPhones(finalReponseArray);
-  // console.log(finalResult);
 
-  //   send prices data to firebase: Batch add
+  // Send prices data to firebase: Batch add
   const batch = db.batch();
-  finalResult.forEach((priceDatum, index) => {
+  finalResult.forEach((priceDatum) => {
     const dataToBeAdded = { ...priceDatum, group: title };
     const docRef = db.collection('prices').doc(generateRandomIds());
     console.log({ dataToBeAdded });
@@ -225,14 +210,11 @@ event.on('process', async (data, filePath, title) => {
     }
   });
 
-  //   Send 'success' email here
-  const sgResponse = await sg.send(
-    {
-      to: [
-        'joshuaajagbe96@gmail.com',
-        'horleytech@gmail.com',
-        'mike.inaolaji@gmail.com',
-      ],
+  // Send 'success' email using Nodemailer
+  try {
+    const mailOptions = {
+      from: process.env.MAILER_FROM_OPTION,
+      to: 'horleytech@gmail.com',
       subject: 'File Processing Successful',
       html: `
 		<h1>File Processed</h1>
@@ -240,11 +222,13 @@ event.on('process', async (data, filePath, title) => {
 		<p>Kindly check our website to visualize the data.</p>
 		<p>Cheers 🥂</p>
 		`,
-      from: process.env.MAILER_FROM_OPTION,
-    },
-    false
-  );
+      text: 'File Processed. Please check the website for details.',
+    };
+    const emailResponse = await transporter.sendMail(mailOptions);
+    console.log({ emailResponse });
+  } catch (mailError) {
+    console.error('Error sending success email:', mailError);
+  }
 
   stateCache.set('state', 'completed', CACHE_TIMEOUT);
-  console.log({ sgResponse });
 });
