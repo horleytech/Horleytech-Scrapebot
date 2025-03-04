@@ -36,6 +36,9 @@ app.post('/process', upload.single('file'), async (req, res) => {
     return res.status(400).send('No file uploaded.');
   }
 
+  // Compute the filePath immediately so it can be used later
+  const filePath = path.join(__dirname, '../', req.file.path);
+  
   const value = stateCache.get('state');
   if (value === 'pending') {
     fs.unlink(filePath, (err) => {
@@ -51,8 +54,6 @@ app.post('/process', upload.single('file'), async (req, res) => {
     });
   }
 
-  // Read the content of the file
-  const filePath = path.join(__dirname, '../', req.file.path);
   console.log({ reqFilePath: req.file.path });
   console.log({ __dirname, __filename, filePath });
 
@@ -74,6 +75,7 @@ app.post('/process', upload.single('file'), async (req, res) => {
   });
 });
 
-app.listen(PORT, () => {
+// Bind to all network interfaces by specifying '0.0.0.0'
+app.listen(PORT, '0.0.0.0', () => {
   console.log(`Server running on port ${PORT}`);
 });
