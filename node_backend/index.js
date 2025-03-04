@@ -10,7 +10,8 @@ import cors from 'cors';
 import { fileURLToPath } from 'url';
 import { event, stateCache } from './fileProcessor.js';
 
-dotenv.config();
+// Load .env from the parent directory (~/Horleytech-Scrapebot/.env)
+dotenv.config({ path: '../.env' });
 
 // Get __dirname equivalent
 const __filename = fileURLToPath(import.meta.url);
@@ -38,7 +39,7 @@ app.post('/process', upload.single('file'), async (req, res) => {
 
   // Compute the filePath immediately so it can be used later
   const filePath = path.join(__dirname, '../', req.file.path);
-  
+
   const value = stateCache.get('state');
   if (value === 'pending') {
     fs.unlink(filePath, (err) => {
@@ -55,7 +56,7 @@ app.post('/process', upload.single('file'), async (req, res) => {
   }
 
   console.log({ reqFilePath: req.file.path });
-  console.log({ __dirname, __filename, filePath });
+  console.log({ __dirname, filePath });
 
   fs.readFile(filePath, 'utf8', async (err, data) => {
     if (err) {
@@ -75,7 +76,7 @@ app.post('/process', upload.single('file'), async (req, res) => {
   });
 });
 
-// Bind to all network interfaces by specifying '0.0.0.0'
+// Bind to all interfaces
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Server running on port ${PORT}`);
 });
