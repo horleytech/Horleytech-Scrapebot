@@ -1,3 +1,5 @@
+console.log("OPENAI_API_KEY:", process.env.OPENAI_API_KEY);
+
 import fs from 'fs';
 import EventEmitter from 'events';
 import dotenv from 'dotenv';
