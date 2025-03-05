@@ -9,7 +9,8 @@ import nodemailer from 'nodemailer';
 import { groupAndSortPhones } from './dataProcessor.js';
 import { convertString } from './cleaner.js';
 
-dotenv.config();
+dotenv.config({ path: './.env' });
+
 
 export const stateCache = new NodeCache();
 
