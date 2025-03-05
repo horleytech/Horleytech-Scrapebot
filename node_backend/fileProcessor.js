@@ -1,5 +1,3 @@
-console.log("OPENAI_API_KEY:", process.env.OPENAI_API_KEY);
-
 import fs from 'fs';
 import EventEmitter from 'events';
 import dotenv from 'dotenv';
@@ -11,16 +9,20 @@ import nodemailer from 'nodemailer';
 import { groupAndSortPhones } from './dataProcessor.js';
 import { convertString } from './cleaner.js';
 
+import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
-// Get the current file directory
+// Get the current file's directory
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Load .env from the parent directory
+// Explicitly load the .env file from the project root (one level up)
 dotenv.config({ path: path.join(__dirname, '../.env') });
 
+// Debug: Log the OPENAI_API_KEY to verify it's loaded
+console.log("DEBUG - OPENAI_API_KEY:", process.env.OPENAI_API_KEY);
+console.log("DEBUG - Working Directory:", process.cwd());
 
 export const stateCache = new NodeCache();
 
