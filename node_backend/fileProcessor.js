@@ -20,11 +20,15 @@ console.log("MAILER_FROM_OPTION:", process.env.MAILER_FROM_OPTION);
 
 // ===== START: Firebase Initialization =====
 import { initializeApp, cert } from 'firebase-admin/app';
+
 if (!process.env.FIREBASE_CONFIG) {
   console.error("FIREBASE_CONFIG is not set in the environment.");
   process.exit(1);
 }
-const firebaseConfig = JSON.parse(process.env.FIREBASE_CONFIG);
+
+const firebaseConfigString = process.env.FIREBASE_CONFIG.replace(/\\n/g, '\n');
+const firebaseConfig = JSON.parse(firebaseConfigString);
+
 initializeApp({
   credential: cert(firebaseConfig),
   // If you have a database URL, uncomment the next line:
