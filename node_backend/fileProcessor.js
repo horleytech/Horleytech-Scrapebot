@@ -26,14 +26,27 @@ if (!process.env.FIREBASE_CONFIG) {
   process.exit(1);
 }
 
-const firebaseConfigString = process.env.FIREBASE_CONFIG.replace(/\\n/g, '\n');
-const firebaseConfig = JSON.parse(firebaseConfigString);
+const rawFirebaseConfig = process.env.FIREBASE_CONFIG;
+console.log("Raw FIREBASE_CONFIG:", rawFirebaseConfig);
+
+// Replace escaped newlines with actual newline characters
+const firebaseConfigString = rawFirebaseConfig.replace(/\\n/g, '\n');
+console.log("Processed FIREBASE_CONFIG:", firebaseConfigString);
+
+let firebaseConfig;
+try {
+  firebaseConfig = JSON.parse(firebaseConfigString);
+} catch (error) {
+  console.error("JSON parse error:", error);
+  process.exit(1);
+}
 
 initializeApp({
   credential: cert(firebaseConfig),
   // If you have a database URL, uncomment the next line:
   // databaseURL: process.env.FIREBASE_DATABASE_URL,
 });
+
 // ===== END: Firebase Initialization =====
 
 export const stateCache = new NodeCache();
