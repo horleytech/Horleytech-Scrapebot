@@ -11,17 +11,17 @@ import { convertString } from './cleaner.js';
 
 dotenv.config();
 
-// Add these lines to initialize Firebase Admin SDK
+// ===== START: Firebase Initialization =====
 import { initializeApp, cert } from 'firebase-admin/app';
 const firebaseConfig = JSON.parse(process.env.FIREBASE_CONFIG);
 initializeApp({
   credential: cert(firebaseConfig),
-  // If you have a database URL, you can uncomment the following line:
+  // If you have a database URL, uncomment the next line:
   // databaseURL: process.env.FIREBASE_DATABASE_URL,
 });
+// ===== END: Firebase Initialization =====
 
 export const stateCache = new NodeCache();
-
 export const event = new EventEmitter();
 
 const CHUNK_SIZE = 20_000;
@@ -67,10 +67,6 @@ event.on('process', async (data, filePath, title) => {
   let count = 0;
 
   for (const chunk of chunks) {
-    // if (count === 1) {
-    //   break;
-    // }
-    // count++;
     const content = `
     		    Extract Model, Storage (GB), Lock Status, SIM Type, Device Type(iphone, samsung, laptop, watch, sound, tablet) and Price from the text below and return the value as a list of json object with each object having the following keys 'model','storage','lock_status','sim_type’,’device_type’,’price'. 
                     ${chunk}
@@ -126,9 +122,7 @@ event.on('process', async (data, filePath, title) => {
       // fs.writeFileSync('gpt-result.txt', response.choices[0].message.content);
       try {
         const temp = JSON.parse(response.choices[0].message.content);
-        // console.log({ temp });
         finalReponseArray = finalReponseArray.concat(temp);
-        // console.log({ finalReponseArray });
         console.log('CHAT GPT RESPONSE GOTTEN');
       } catch (error) {
         console.log({ error });
@@ -147,7 +141,7 @@ event.on('process', async (data, filePath, title) => {
           console.log('Deleted File');
         }
       });
-           // Send 'failed' email using Nodemailer
+      // Send 'failed' email using Nodemailer
       try {
         const mailOptions = {
           from: process.env.MAILER_FROM_OPTION,
@@ -168,7 +162,7 @@ event.on('process', async (data, filePath, title) => {
       return;
     }
   }
-  //   send group title to firebase
+  // Send group title to Firebase
   const groupPayload = {
     name: title,
   };
@@ -183,9 +177,8 @@ event.on('process', async (data, filePath, title) => {
     });
 
   const finalResult = groupAndSortPhones(finalReponseArray);
-  // console.log(finalResult);
 
-  //   send prices data to firebase: Batch add
+  // Send prices data to Firebase: Batch add
   const batch = db.batch();
   finalResult.forEach((priceDatum, index) => {
     const dataToBeAdded = { ...priceDatum, group: title };
@@ -211,7 +204,7 @@ event.on('process', async (data, filePath, title) => {
     }
   });
 
-   // Send 'success' email using Nodemailer
+  // Send 'success' email using Nodemailer
   try {
     const mailOptions = {
       from: process.env.MAILER_FROM_OPTION,
