@@ -11,6 +11,15 @@ import { convertString } from './cleaner.js';
 
 dotenv.config();
 
+// Add these lines to initialize Firebase Admin SDK
+import { initializeApp, cert } from 'firebase-admin/app';
+const firebaseConfig = JSON.parse(process.env.FIREBASE_CONFIG);
+initializeApp({
+  credential: cert(firebaseConfig),
+  // If you have a database URL, you can uncomment the following line:
+  // databaseURL: process.env.FIREBASE_DATABASE_URL,
+});
+
 export const stateCache = new NodeCache();
 
 export const event = new EventEmitter();
