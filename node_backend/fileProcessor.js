@@ -2,9 +2,9 @@ import fs from 'fs';
 import EventEmitter from 'events';
 import dotenv from 'dotenv';
 import NodeCache from 'node-cache';
+import nodemailer from 'nodemailer';
 
 import OpenAI from 'openai';
-import sg from '@sendgrid/mail';
 import admin from 'firebase-admin';
 import { groupAndSortPhones } from './dataProcessor.js';
 import { convertString } from './cleaner.js';
@@ -12,18 +12,34 @@ import { convertString } from './cleaner.js';
 dotenv.config();
 
 export const stateCache = new NodeCache();
-
 export const event = new EventEmitter();
 
 const CHUNK_SIZE = 20_000;
 const CACHE_TIMEOUT = 7_200;
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-sg.setApiKey(process.env.SENDGRID_API_KEY);
+
+// Replace SendGrid with Nodemailer using Gmail credentials from .env
+const transporter = nodemailer.createTransport({
+  service: 'gmail',
+  auth: {
+    user: process.env.GMAIL_USER,
+    pass: process.env.GMAIL_PASS,
+  },
+});
 
 // Initializing firebase-admin
 admin.initializeApp({
-  credential: admin.credential.cert(JSON.parse(process.env.FIREBASE_CONFIG)),
+  credential: admin.credential.cert(
+    // Ensure newlines in the private key are handled correctly
+    (() => {
+      const config = JSON.parse(process.env.FIREBASE_CONFIG);
+      if (config.private_key) {
+        config.private_key = config.private_key.replace(/\\n/g, '\n');
+      }
+      return config;
+    })()
+  ),
 });
 
 const db = admin.firestore();
@@ -55,12 +71,8 @@ event.on('process', async (data, filePath, title) => {
   let count = 0;
 
   for (const chunk of chunks) {
-    // if (count === 1) {
-    //   break;
-    // }
-    // count++;
     const content = `
-    		    Extract Model, Storage (GB), Lock Status, SIM Type, Device Type(iphone, samsung, laptop, watch, sound, tablet) and Price from the text below and return the value as a list of json object with each object having the following keys 'model','storage','lock_status','sim_type’,’device_type’,’price'. 
+    		    Extract Model, Storage (GB), Lock Status, SIM Type, Device Type(iphone, samsung, laptop, watch, sound, tablet) and Price from the text below and return the value as a list of json object with each object having the following keys 'model','storage','lock_status','sim_type','device_type','price'. 
                     ${chunk}
                     Perform the following transformation.
                     1. If a line contains more than one price specification, extract each price as different json object.
@@ -90,7 +102,6 @@ event.on('process', async (data, filePath, title) => {
 			A12
 			SINGLE 32GB 110K
 			DUAL 32GB 115K
-			DUAL 128GB 130K
 			
 			A13 
 			DUAL 32GB 120K 
@@ -111,12 +122,9 @@ event.on('process', async (data, filePath, title) => {
         model: 'gpt-4o',
       });
       console.log({ response: response.choices[0].message.content });
-      // fs.writeFileSync('gpt-result.txt', response.choices[0].message.content);
       try {
         const temp = JSON.parse(response.choices[0].message.content);
-        // console.log({ temp });
         finalReponseArray = finalReponseArray.concat(temp);
-        // console.log({ finalReponseArray });
         console.log('CHAT GPT RESPONSE GOTTEN');
       } catch (error) {
         console.log({ error });
@@ -135,9 +143,9 @@ event.on('process', async (data, filePath, title) => {
           console.log('Deleted File');
         }
       });
-      // Send 'failed' email here
-      const sgResponse = await sg.send(
-        {
+      // Send 'failed' email here using Nodemailer
+      try {
+        const mailerResponse = await transporter.sendMail({
           to: [
             'joshuaajagbe96@gmail.com',
             'horleytech@gmail.com',
@@ -149,17 +157,18 @@ event.on('process', async (data, filePath, title) => {
 				<p>Sorry, your file could not be processed at the moment. 😥</p>
 				<p>Please try again later.</p>
 		`,
-          from: process.env.MAILER_FROM_OPTION,
-        },
-        false
-      );
-      console.log({ sgResponse });
+          from: process.env.GMAIL_USER,
+        });
+        console.log({ mailerResponse });
+      } catch (mailError) {
+        console.error('Error sending failure email:', mailError);
+      }
       stateCache.set('state', 'completed', CACHE_TIMEOUT);
       return;
     }
   }
 
-  //   send group title to firebase
+  // Send group title to firebase
   const groupPayload = {
     name: title,
   };
@@ -174,9 +183,8 @@ event.on('process', async (data, filePath, title) => {
     });
 
   const finalResult = groupAndSortPhones(finalReponseArray);
-  // console.log(finalResult);
 
-  //   send prices data to firebase: Batch add
+  // Send prices data to firebase: Batch add
   const batch = db.batch();
   finalResult.forEach((priceDatum, index) => {
     const dataToBeAdded = { ...priceDatum, group: title };
@@ -202,9 +210,9 @@ event.on('process', async (data, filePath, title) => {
     }
   });
 
-  //   Send 'success' email here
-  const sgResponse = await sg.send(
-    {
+  // Send 'success' email using Nodemailer
+  try {
+    const mailerResponse = await transporter.sendMail({
       to: [
         'joshuaajagbe96@gmail.com',
         'horleytech@gmail.com',
@@ -217,11 +225,12 @@ event.on('process', async (data, filePath, title) => {
 		<p>Kindly check our website to visualize the data.</p>
 		<p>Cheers 🥂</p>
 		`,
-      from: process.env.MAILER_FROM_OPTION,
-    },
-    false
-  );
+      from: process.env.GMAIL_USER,
+    });
+    console.log({ mailerResponse });
+  } catch (mailError) {
+    console.error('Error sending success email:', mailError);
+  }
 
   stateCache.set('state', 'completed', CACHE_TIMEOUT);
-  console.log({ sgResponse });
 });
