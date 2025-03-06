@@ -31,23 +31,26 @@ console.log("Raw FIREBASE_CONFIG:", rawFirebaseConfig);
 
 let firebaseConfig;
 try {
-  // First, parse the JSON as is (with escaped newline sequences)
+  // Parse the JSON as is; it contains the escaped newlines.
   firebaseConfig = JSON.parse(rawFirebaseConfig);
 } catch (error) {
   console.error("JSON parse error:", error);
   process.exit(1);
 }
 
-// Then, replace escaped newlines with actual newline characters in the private_key
+// Replace escaped newline sequences with actual newline characters and trim whitespace
 if (firebaseConfig.private_key) {
-  firebaseConfig.private_key = firebaseConfig.private_key.replace(/\\n/g, '\n');
+  firebaseConfig.private_key = firebaseConfig.private_key.replace(/\\n/g, '\n').trim();
 }
+
 console.log("Final firebaseConfig:", firebaseConfig);
 
 initializeApp({
   credential: cert(firebaseConfig),
-  // databaseURL: process.env.FIREBASE_DATABASE_URL, // if needed
+  // Uncomment the next line if you have a database URL:
+  // databaseURL: process.env.FIREBASE_DATABASE_URL,
 });
+
 
 
 // ===== END: Firebase Initialization =====
