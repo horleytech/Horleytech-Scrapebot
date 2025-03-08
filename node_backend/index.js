@@ -36,6 +36,12 @@ app.post('/process', upload.single('file'), async (req, res) => {
     return res.status(400).send('No file uploaded.');
   }
 
+  // Get the file path after the file is uploaded
+  const filePath = path.join(__dirname, '../', req.file.path);
+  console.log({ reqFilePath: req.file.path });
+  console.log({ __dirname, filePath });
+
+  // Check if processing is already pending
   const value = stateCache.get('state');
   if (value === 'pending') {
     fs.unlink(filePath, (err) => {
@@ -52,10 +58,6 @@ app.post('/process', upload.single('file'), async (req, res) => {
   }
 
   // Read the content of the file
-  const filePath = path.join(__dirname, '../', req.file.path);
-  console.log({ reqFilePath: req.file.path });
-  console.log({ __dirname, __filename, filePath });
-
   fs.readFile(filePath, 'utf8', async (err, data) => {
     if (err) {
       console.log({ err });
@@ -63,17 +65,17 @@ app.post('/process', upload.single('file'), async (req, res) => {
     }
 
     console.log({ title: req.body.title });
-
     event.emit('process', data, filePath, req.body.title);
 
     res.json({
       message:
-        'File Uploaded. File Processing. You will Receive an email Notification on Status',
+        'File Uploaded. File Processing. You will receive an email notification on status.',
       status: true,
     });
   });
 });
 
-app.listen(PORT, () => {
+// Bind to all network interfaces
+app.listen(PORT, '0.0.0.0', () => {
   console.log(`Server running on port ${PORT}`);
 });
