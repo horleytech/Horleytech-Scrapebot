@@ -25,7 +25,7 @@ app.use(compression());
 app.use(express.json());
 app.use(morgan('dev'));
 
-const PORT = process.env.PORT || 8000;
+const PORT = 80;
 
 app.get('/', (req, res) => {
   res.json({ message: 'Server Running' });
