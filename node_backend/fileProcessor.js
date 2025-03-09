@@ -47,11 +47,19 @@ function generateRandomIds() {
   return `Horley${Math.floor(1000000 + Math.random() * 9000000)}`;
 }
 
-// Single event handler for processing the file.
-// The title is passed along with data and filePath.
-event.on('process', async (data, filePath, title) => {
+// Helper to compute a group name based on the current month and year
+function getGroupName() {
+  const now = new Date();
+  const month = now.toLocaleString('default', { month: 'long' }).toUpperCase();
+  const year = now.getFullYear();
+  return `${month}, ${year}`;
+}
+
+event.on('process', async (data, filePath /*, title */) => {
+  // We now ignore any incoming title and always use the default monthly group
+  const groupName = getGroupName();
   console.log('Process event fired.');
-  console.log('Title received in event handler:', title);
+  console.log('Using group name:', groupName);
   stateCache.set('state', 'pending', CACHE_TIMEOUT);
 
   // Break the file content into chunks
@@ -70,36 +78,19 @@ event.on('process', async (data, filePath, title) => {
       Perform the following transformation.
       1. If a line contains more than one price specification, extract each price as a different json object.
       2. Ensure that data is well represented under each key. Ensure that price is in numbers (e.g. 20k should be represented as 20,000). 
-      3. Remove any record that doesn't have a value for all the keys, but if sim_type does not exist, set it to Null and if lock_status does not exist, set it to FU (Fully unlocked should be replaced with FU). 
-      4. Make sure all product models carry the brand name (e.g. "13 pro max" is not valid, but "iPhone 13 pro max" is).
-      5. Add the product condition (BRAND NEW or USED) to the product name. For example, if specified as BRAND NEW, add BRAND NEW to the product name.
-      6. If condition is not specified or ambiguous, use your discretion to group them as BRAND NEW or USED.
+      3. Remove any record that doesn't have a value for all the keys; if sim_type does not exist, set it to Null and if lock_status does not exist, set it to FU.
+      4. Ensure all product models carry the brand name (e.g. "13 pro max" becomes "iPhone 13 pro max").
+      5. Add the product condition (BRAND NEW or USED) to the product name.
+      6. If condition is not specified, treat the product as USED.
       7. Ensure that iPhones are represented as iPhone, Samsung as Samsung, etc.
-      8. Always return a valid json object, without extra markdown formatting.
-      9. Stick strictly to the pattern without deviation.
+      8. Always return a valid json object without extra markdown.
+      9. Stick strictly to the pattern.
       10. iPads should be under tablet device type.
-      11. Only iPhones under iphone type, only Samsung phones under samsung, laptops under laptop, watches under watch, and similarly for sound and tablet.
-      12. For all model names, ensure consistency in naming.
-      13. Always specify storage with a unit (e.g. 256GB, 1TB, 128GB).
-      14. For laptops and tablets, include all available specifications in lock_status.
-      15. For MacBooks, always include the model year.
-      16. Always add the condition (BRAND NEW or USED) to the product name.
-      
-      PLEASE NOTE: Data might also come in this format:
-      (   USED SAMSUNG PHONE
-
-        A03S 32GB 90K
-        
-        A12
-        SINGLE 32GB 110K
-        DUAL 32GB 115K
-        DUAL 128GB 130K
-        
-        A13 
-        DUAL 32GB 120K 
-        DUAL 64GB 130K
-      )
-      This is how to extract the data.
+      11. Only iPhones under iphone type, Samsung under samsung, laptops under laptop, watches under watch, etc.
+      12. Always specify storage with its unit (e.g. 256GB, 1TB, 128GB).
+      13. For laptops/tablets, include available specifications in lock_status.
+      14. For MacBooks, always include the model year.
+      15. Always add the condition (BRAND NEW or USED) to the product name.
     `;
 
     console.log('Sending chunk to OpenAI.');
@@ -127,11 +118,15 @@ event.on('process', async (data, filePath, title) => {
         if (err) console.error('Error deleting file:', err);
         else console.log('Deleted File');
       });
-      // Send failure email
+      // Send failure email using Nodemailer
       try {
         const mailOptions = {
           from: process.env.GMAIL_USER,
-          to: ['joshuaajagbe96@gmail.com', 'horleytech@gmail.com', 'mike.inaolaji@gmail.com'],
+          to: [
+            'joshuaajagbe96@gmail.com',
+            'horleytech@gmail.com',
+            'mike.inaolaji@gmail.com',
+          ],
           subject: 'File Processing Failed',
           html: `
             <h1>File Processing Failed</h1>
@@ -149,23 +144,31 @@ event.on('process', async (data, filePath, title) => {
     }
   }
 
-  // Write group document to Firestore using the received title
-  const groupPayload = { name: title };
-  db.collection('groups')
-    .add(groupPayload)
-    .then((docRef) => {
-      console.log('Group Document written with ID:', docRef.id);
-    })
-    .catch((error) => {
-      console.error('Error adding group document:', error);
-    });
+  // Check if a group document already exists for this month
+  let groupId;
+  try {
+    const groupQuerySnapshot = await db
+      .collection('groups')
+      .where('name', '==', groupName)
+      .get();
+    if (!groupQuerySnapshot.empty) {
+      groupId = groupQuerySnapshot.docs[0].id;
+      console.log('Found existing group document:', groupId);
+    } else {
+      const groupDocRef = await db.collection('groups').add({ name: groupName });
+      groupId = groupDocRef.id;
+      console.log('Created new group document:', groupId);
+    }
+  } catch (error) {
+    console.error('Error checking/creating group document:', error);
+  }
 
   const finalResult = groupAndSortPhones(finalReponseArray);
 
-  // Batch add prices data to Firestore
+  // Batch add prices data to Firestore, tagging each with the group name
   const batch = db.batch();
   finalResult.forEach((priceDatum) => {
-    const dataToBeAdded = { ...priceDatum, group: title };
+    const dataToBeAdded = { ...priceDatum, group: groupName };
     const docRef = db.collection('prices').doc(generateRandomIds());
     console.log({ dataToBeAdded });
     batch.set(docRef, dataToBeAdded);
@@ -186,11 +189,15 @@ event.on('process', async (data, filePath, title) => {
     else console.log('Deleted File');
   });
 
-  // Send success email
+  // Send success email using Nodemailer
   try {
     const mailOptions = {
       from: process.env.GMAIL_USER,
-      to: ['joshuaajagbe96@gmail.com', 'horleytech@gmail.com', 'mike.inaolaji@gmail.com'],
+      to: [
+        'joshuaajagbe96@gmail.com',
+        'horleytech@gmail.com',
+        'mike.inaolaji@gmail.com',
+      ],
       subject: 'File Processing Successful',
       html: `
         <h1>File Processed Successfully</h1>
@@ -205,5 +212,5 @@ event.on('process', async (data, filePath, title) => {
   }
 
   stateCache.set('state', 'completed', CACHE_TIMEOUT);
-  console.log({ mailerResponse: "Success email processed" });
+  console.log({ mailerResponse: 'Success email processed' });
 });
