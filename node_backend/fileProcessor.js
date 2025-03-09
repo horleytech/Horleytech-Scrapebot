@@ -47,8 +47,10 @@ function generateRandomIds() {
   return `Horley${Math.floor(1000000 + Math.random() * 9000000)}`;
 }
 
+// Single event handler for processing the file.
 event.on('process', async (data, filePath, title) => {
-  console.log('Events Fired  🔥');
+  console.log('Events Fired 🔥');
+  console.log('Title received:', title); // Verify that the title is received
   stateCache.set('state', 'pending', CACHE_TIMEOUT);
 
   // Break the file content into chunks
@@ -59,6 +61,7 @@ event.on('process', async (data, filePath, title) => {
 
   let finalReponseArray = [];
 
+  // Process each chunk using OpenAI
   for (const chunk of chunks) {
     const content = `
       Extract Model, Storage (GB), Lock Status, SIM Type, Device Type(iphone, samsung, laptop, watch, sound, tablet) and Price from the text below and return the value as a list of json object with each object having the following keys 'model','storage','lock_status','sim_type','device_type','price'. 
@@ -68,11 +71,11 @@ event.on('process', async (data, filePath, title) => {
       2. Ensure that data is well represented under each key. Ensure that price is in numbers (e.g. 20k should be represented as 20,000). 
       3. Remove any record that doesnt have value for all the keys, but if sim_type does not exist, make it Null and make lock_status that does not exist with FU. Fully unlocked should be replaced with FU 
       4. Make sure all product models carry the brand name. e.g. 13 pro max is not a valid model, but iPhone 13 pro max is valid
-      5. Look out for the condition of the product and add it to the product name. For example, if the product is specified as BRAND NEW, add BRAND NEW to the product name. e.g. BRAND NEW iPhone 15 pro max. Conditions should either be BRAND NEW OR USED. Note that NEW OPENBOX, USED, UK USED, BRAND NEW NO BOX should all fall under USED while BRAND NEW, NEW SEALED are BRAND NEW.                     
+      5. Look out for the condition of the product and add it to the product name. For example, if the product is specified as BRAND NEW, add BRAND NEW to the product name. e.g. BRAND NEW iPhone 15 pro max. Conditions should either be BRAND NEW OR USED. 
       6. If condition specified is out of the list specified above, then group them under BRAND NEW or USED using your discretion.
       7. If condition is not specified, it is a USED product or if the description says "brand new <model name> only" its also used.
       8. Ensure that iPhones are represented as iPhone, Samsung as Samsung—make sure all product names and models are uniform.
-      9. Always return a valid json object, no extra markdown characters. Don't add these characters "\`\`\`json".
+      9. Always return a valid json object, no extra markdown characters.
       10. Stick to the pattern without deviation. Your response should not be in markdown. Send it as a direct string.
       11. iPads should be under tablet device type.
       12. Ensure that only iPhones are under iphone type, only Samsung phones under samsung, only laptops (including MacBooks) under laptop, only watches under watch, same for sound and tablet.
@@ -97,14 +100,7 @@ event.on('process', async (data, filePath, title) => {
         DUAL 32GB 120K 
         DUAL 64GB 130K
       )	
-      This is how to extract the data. For example, from the sample:
-      USED Samsung A03S, 32GB storage, price is 90,000.
-      USED Samsung A12, SINGLE SIM, 32GB Storage, price is 110,000.
-      USED Samsung A12, DOUBLE SIM, 32GB Storage, price is 115,000.
-      USED Samsung A12, DUAL SIM, 128GB Storage, price is 130,000.
-      USED Samsung A13, DUAL SIM, 32GB Storage, price is 120,000.
-      USED Samsung A13, DUAL SIM, 64GB Storage, price is 130,000.
-      Ensure that condition (BRAND NEW or USED) is added to every extracted product name.
+      This is how to extract the data.
     `;
 
     console.log('Chunking request');
@@ -135,11 +131,11 @@ event.on('process', async (data, filePath, title) => {
           console.log('Deleted File');
         }
       });
-      // Send 'failed' email using Nodemailer
+      // Send failure email
       try {
         const mailOptions = {
           from: process.env.GMAIL_USER,
-          to: ['joshuaajagbe96@gmail.com', 'horleytech@gmail.com', 'mike.inaolaji@gmail.com'],
+          to: ['horleytech@gmail.com'],
           subject: 'File Processing Failed',
           html: `
             <h1>Failed File Processed</h1>
@@ -157,13 +153,8 @@ event.on('process', async (data, filePath, title) => {
     }
   }
 
-  // Send group title to Firebase
- event.on('process', async (data, filePath, title) => {
-  console.log('Title received:', title);
-  const groupPayload = {
-    name: title,
-  };
-
+  // Write the group to Firestore using the received title
+  const groupPayload = { name: title };
   db.collection('groups')
     .add(groupPayload)
     .then((docRef) => {
@@ -175,7 +166,7 @@ event.on('process', async (data, filePath, title) => {
 
   const finalResult = groupAndSortPhones(finalReponseArray);
 
-  // Batch add prices data to Firebase
+  // Batch add prices data to Firestore
   const batch = db.batch();
   finalResult.forEach((priceDatum) => {
     const dataToBeAdded = { ...priceDatum, group: title };
@@ -193,6 +184,7 @@ event.on('process', async (data, filePath, title) => {
       console.log('Batch Prices Write Failed: ', error);
     });
 
+  // Delete the uploaded file
   fs.unlink(filePath, (err) => {
     if (err) {
       console.error('Error deleting file:', err);
@@ -201,11 +193,11 @@ event.on('process', async (data, filePath, title) => {
     }
   });
 
-  // Send 'success' email using Nodemailer
+  // Send success email
   try {
     const mailOptions = {
       from: process.env.GMAIL_USER,
-      to: ['joshuaajagbe96@gmail.com', 'horleytech@gmail.com', 'mike.inaolaji@gmail.com'],
+      to: ['horleytech@gmail.com'],
       subject: 'File Processing Successful',
       html: `
         <h1>File Processed</h1>
