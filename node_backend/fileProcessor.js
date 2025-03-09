@@ -158,7 +158,8 @@ event.on('process', async (data, filePath, title) => {
   }
 
   // Send group title to Firebase
-  console.log('Title received for group:', title);
+ event.on('process', async (data, filePath, title) => {
+  console.log('Title received:', title);
   const groupPayload = { name: title };
 
   db.collection('groups')
