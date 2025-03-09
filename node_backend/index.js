@@ -37,8 +37,8 @@ app.post('/process', upload.single('file'), async (req, res) => {
     return res.status(400).send('No file uploaded.');
   }
 
-  // Define filePath immediately after confirming the file exists
-  const filePath = path.join(__dirname, '../', req.file.path);
+  // Define filePath using __dirname directly
+  const filePath = path.join(__dirname, req.file.path);
   console.log(`File path resolved as: ${filePath}`);
 
   const value = stateCache.get('state');
