@@ -1,2 +1,2 @@
-// export const BASE_URL = 'http://127.0.0.1:3333/api/v1'
-export const BASE_URL = 'https://ekedc.prodevs.io/api/v1'
+x// export const BASE_URL = 'http://174.138.42.167'
+export const BASE_URL = 'https://backend.horleytech.com'
