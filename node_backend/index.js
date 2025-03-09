@@ -33,13 +33,8 @@ app.get('/', (req, res) => {
 
 app.post('/process', upload.single('file'), async (req, res) => {
   if (!req.file) {
-    console.error("No file uploaded. req.file:", req.file);
     return res.status(400).send('No file uploaded.');
   }
-
-  // Define filePath using __dirname directly
-  const filePath = path.join(__dirname, req.file.path);
-  console.log(`File path resolved as: ${filePath}`);
 
   const value = stateCache.get('state');
   if (value === 'pending') {
@@ -56,27 +51,24 @@ app.post('/process', upload.single('file'), async (req, res) => {
     });
   }
 
-  // Check if file exists
-  if (!fs.existsSync(filePath)) {
-    console.error(`File does not exist at path: ${filePath}`);
-    return res.status(500).send('Error reading file: file not found.');
-  }
-
   // Read the content of the file
+  const filePath = path.join(__dirname, '../', req.file.path);
+  console.log({ reqFilePath: req.file.path });
+  console.log({ __dirname, __filename, filePath });
+
   fs.readFile(filePath, 'utf8', async (err, data) => {
     if (err) {
-      console.error('Error reading file:', err);
+      console.log({ err });
       return res.status(500).send('Error reading file.');
     }
 
-    console.log('File read successfully. Title:', req.body.title);
+    console.log({ title: req.body.title });
 
-    // Emit processing event
     event.emit('process', data, filePath, req.body.title);
 
     res.json({
       message:
-        'File Uploaded. File Processing. You will receive an email notification on status.',
+        'File Uploaded. File Processing. You will Receive an email Notification on Status',
       status: true,
     });
   });
