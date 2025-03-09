@@ -3,7 +3,6 @@ import path from 'path';
 import express from 'express';
 import dotenv from 'dotenv';
 import multer from 'multer';
-
 import morgan from 'morgan';
 import compression from 'compression';
 import cors from 'cors';
@@ -17,7 +16,6 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const upload = multer({ dest: './uploads' });
-
 const app = express();
 
 app.use(cors());
@@ -37,18 +35,19 @@ app.post('/process', upload.single('file'), async (req, res) => {
     return res.status(400).send('No file uploaded.');
   }
 
-  // Define filePath using __dirname directly
+  // Resolve the full file path
   const filePath = path.join(__dirname, req.file.path);
   console.log(`File path resolved as: ${filePath}`);
+  
+  // Debug log for the title value received from the client
+  console.log('File read successfully. Title from FormData:', req.body.title);
 
+  // Check if processing is already pending
   const value = stateCache.get('state');
   if (value === 'pending') {
     fs.unlink(filePath, (err) => {
-      if (err) {
-        console.error('Error deleting file:', err);
-      } else {
-        console.log('Deleted File');
-      }
+      if (err) console.error('Error deleting file:', err);
+      else console.log('Deleted File');
     });
     return res.json({
       status: false,
@@ -56,7 +55,7 @@ app.post('/process', upload.single('file'), async (req, res) => {
     });
   }
 
-  // Check if file exists
+  // Ensure the file exists
   if (!fs.existsSync(filePath)) {
     console.error(`File does not exist at path: ${filePath}`);
     return res.status(500).send('Error reading file: file not found.');
@@ -69,14 +68,11 @@ app.post('/process', upload.single('file'), async (req, res) => {
       return res.status(500).send('Error reading file.');
     }
 
-    console.log('File read successfully. Title:', req.body.title);
-
-    // Emit processing event
+    // Emit processing event including the title from the form
     event.emit('process', data, filePath, req.body.title);
 
     res.json({
-      message:
-        'File Uploaded. File Processing. You will receive an email notification on status.',
+      message: 'File Uploaded. File processing started. You will receive an email notification on status.',
       status: true,
     });
   });
