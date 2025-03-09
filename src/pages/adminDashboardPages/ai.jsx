@@ -101,6 +101,7 @@ const Ai = () => {
 
   const handleSubmit = async (event) => {
     event.preventDefault();
+    console.log("handleSubmit triggered"); // DEBUG: Check if function is called
     if (!file) {
       toast.error('Please Attach txt file 😢');
       return;
