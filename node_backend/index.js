@@ -36,6 +36,9 @@ app.post('/process', upload.single('file'), async (req, res) => {
     return res.status(400).send('No file uploaded.');
   }
 
+  // Define filePath immediately after confirming the file exists
+  const filePath = path.join(__dirname, '../', req.file.path);
+
   const value = stateCache.get('state');
   if (value === 'pending') {
     fs.unlink(filePath, (err) => {
@@ -52,10 +55,6 @@ app.post('/process', upload.single('file'), async (req, res) => {
   }
 
   // Read the content of the file
-  const filePath = path.join(__dirname, '../', req.file.path);
-  console.log({ reqFilePath: req.file.path });
-  console.log({ __dirname, __filename, filePath });
-
   fs.readFile(filePath, 'utf8', async (err, data) => {
     if (err) {
       console.log({ err });
