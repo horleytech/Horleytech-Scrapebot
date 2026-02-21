@@ -2,21 +2,17 @@ import React, { useState, useEffect } from 'react';
 import { Outlet, useLocation, Navigate, Link } from 'react-router-dom';
 import AdminDashboardLayout from '../../components/layouts/DashboardLayout';
 import { collection, getDocs } from 'firebase/firestore';
-import { db } from '../../services/firebase/index.js'; // Adjust path if needed
-import { useSelector } from 'react-redux'; // ADDED: To check online/offline status
+import { db } from '../../services/firebase/index.js';
+import { useSelector } from 'react-redux';
 
 const AdminDashboard = () => {
   const location = useLocation();
-  
-  // 🚀 REDUX STATE: Check if we are in Online (Jumia/Slot) or Offline (WhatsApp) mode
   const isOnline = useSelector((state) => state.mode.isOnline);
 
-  // --- WHATSAPP GLOBAL SEARCH STATE ---
   const [searchQuery, setSearchQuery] = useState('');
   const [allProducts, setAllProducts] = useState([]);
   const [loadingSearch, setLoadingSearch] = useState(false);
 
-  // --- FETCH ALL WHATSAPP VENDORS ON LOAD ---
   useEffect(() => {
     const fetchGlobalInventory = async () => {
       setLoadingSearch(true);
@@ -43,20 +39,17 @@ const AdminDashboard = () => {
       }
     };
 
-    // Only fetch Firebase WhatsApp data if we are in Offline mode to save reads
     if (!isOnline) {
       fetchGlobalInventory();
     }
   }, [isOnline]);
 
-  // Default Redirect for normal tabs
   if (location.pathname === '/dashboard') {
     return <Navigate to="iphones" />;
   }
 
-  // --- FILTER LOGIC FOR WHATSAPP DATA ---
   const searchResults = allProducts.filter(product => {
-    if (!searchQuery) return true; // Show all WhatsApp items if search is empty
+    if (!searchQuery) return true;
     const term = searchQuery.toLowerCase();
     return (
       product['Device Type']?.toLowerCase().includes(term) ||
@@ -67,16 +60,11 @@ const AdminDashboard = () => {
 
  return (
     <AdminDashboardLayout>
-      {/* IF ONLINE: Render normal Jumia tabs via Outlet.
-        IF OFFLINE: Check the URL. If on main '/dashboard', show Global Search. 
-        Otherwise, show the Offline sub-pages (Upload / Auto Listen) via Outlet! 
-      */}
       {isOnline ? (
         <Outlet />
       ) : (
         (location.pathname === '/dashboard' || location.pathname === '/dashboard/') ? (
           <div>
-            {/* THE GLOBAL SEARCH BAR */}
             <div className="mb-6">
               <input
                 type="text"
@@ -87,7 +75,6 @@ const AdminDashboard = () => {
               />
             </div>
 
-            {/* THE NEW WHATSAPP RESULTS TABLE */}
             <div className="bg-white shadow rounded-[10px] overflow-x-auto mb-10">
               <div className="p-4 bg-gray-50 border-b border-[#DDDCF9] flex justify-between items-center">
                 <h2 className="text-[18px] font-bold text-[#1A1C23]">
@@ -132,12 +119,11 @@ const AdminDashboard = () => {
             </div>
           </div>
         ) : (
-          /* THIS IS THE MISSING PIECE! This renders your UploadData and AutoListen pages */
           <Outlet />
         )
       )}
     </AdminDashboardLayout>
   );
-}; // THIS CLOSING BRACKET WAS MISSING!
+};
 
-export default AdminDashboard; // THIS EXPORT WAS MISSING!
+export default AdminDashboard;
