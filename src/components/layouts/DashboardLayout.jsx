@@ -8,11 +8,16 @@ import { Bars3Icon, XMarkIcon } from '@heroicons/react/24/outline';
 import { TbLogin2 } from 'react-icons/tb';
 import { IoMdNotifications } from 'react-icons/io';
 import { Link, useLocation } from 'react-router-dom';
+
+// ONLINE ICONS
 import { DiApple, DiSmashingMagazine } from 'react-icons/di';
 import { FaLaptop, FaTabletAlt } from 'react-icons/fa';
 import { IoWatch } from 'react-icons/io5';
-import { BsEarbuds } from 'react-icons/bs';
-import { BsFillCpuFill } from 'react-icons/bs';
+import { BsEarbuds, BsFillCpuFill } from 'react-icons/bs';
+
+// OFFLINE ICONS (The new WhatsApp tools)
+import { FaGlobe, FaFileUpload, FaRobot } from 'react-icons/fa';
+
 import { useDispatch, useSelector } from 'react-redux';
 import { toggleMode } from '../../services/reducers/mode/modeReducer';
 
@@ -25,14 +30,13 @@ export const OnlineOfflineSwitch = () => {
   };
 
   return (
-    <div className="flex items-center  w-40">
+    <div className="flex items-center w-40">
       <div
         className={`w-full h-8 bg-[#EBEBEB] rounded-full flex items-center cursor-pointer font-bold ${
           !mode.isOnline && 'justify-end'
         }`}
         onClick={toggleSwitch}
       >
-        {/* online */}
         <div
           className={`${
             !mode.isOnline
@@ -42,8 +46,6 @@ export const OnlineOfflineSwitch = () => {
         >
           Online
         </div>
-
-        {/* Offline */}
         <div
           className={` ${
             mode.isOnline
@@ -58,24 +60,21 @@ export const OnlineOfflineSwitch = () => {
   );
 };
 
-const adminNavigation = [
-  { name: 'Iphones', href: 'iphones', icon: DiApple, current: true },
-  {
-    name: 'Samsung',
-    href: 'samsung',
-    icon: DiSmashingMagazine,
-    current: false,
-  },
-  { name: 'Laptops', href: 'laptops', icon: FaLaptop, current: false },
-  { name: 'Tablet', href: 'tablet', icon: FaTabletAlt, current: false },
-  { name: 'Smartwatch', href: 'smartwatch', icon: IoWatch, current: false },
-  { name: 'Sounds', href: 'sounds', icon: BsEarbuds, current: false },
-  {
-    name: 'AI TXT Analyzer',
-    href: 'ai',
-    icon: BsFillCpuFill,
-    current: false,
-  },
+// --- THE TWO DIFFERENT SIDEBARS ---
+const onlineNavigation = [
+  { name: 'Iphones', href: 'iphones', icon: DiApple },
+  { name: 'Samsung', href: 'samsung', icon: DiSmashingMagazine },
+  { name: 'Laptops', href: 'laptops', icon: FaLaptop },
+  { name: 'Tablet', href: 'tablet', icon: FaTabletAlt },
+  { name: 'Smartwatch', href: 'smartwatch', icon: IoWatch },
+  { name: 'Sounds', href: 'sounds', icon: BsEarbuds },
+  { name: 'AI TXT Analyzer', href: 'ai', icon: BsFillCpuFill },
+];
+
+const offlineNavigation = [
+  { name: 'Global Inventory', href: '', icon: FaGlobe },
+  { name: 'Manual Upload', href: 'upload', icon: FaFileUpload },
+  { name: 'Auto Listen', href: 'auto', icon: FaRobot },
 ];
 
 function classNames(...classes) {
@@ -84,25 +83,20 @@ function classNames(...classes) {
 
 export default function MenteeDashboardLayout({ children }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  let role = 'ADMIN';
-
-  const getNavOptions = () => {
-    if (role === 'ADMIN') {
-      return adminNavigation;
-    }
-  };
-
   const location = useLocation();
+  
+  // REDUX: Check if we are online or offline
+  const isOnline = useSelector((state) => state.mode.isOnline);
+
+  // Dynamically choose the sidebar links!
+  const currentNavigation = isOnline ? onlineNavigation : offlineNavigation;
 
   return (
     <>
       <div>
         <Transition.Root show={sidebarOpen} as={Fragment}>
-          <Dialog
-            as="div"
-            className="relative z-50 lg:hidden"
-            onClose={setSidebarOpen}
-          >
+          <Dialog as="div" className="relative z-50 lg:hidden" onClose={setSidebarOpen}>
+            {/* Mobile Sidebar overlay */}
             <Transition.Child
               as={Fragment}
               enter="transition-opacity ease-linear duration-300"
@@ -126,85 +120,56 @@ export default function MenteeDashboardLayout({ children }) {
                 leaveTo="-translate-x-full"
               >
                 <Dialog.Panel className="relative flex flex-1 w-full max-w-xs mr-16">
-                  <Transition.Child
-                    as={Fragment}
-                    enter="ease-in-out duration-300"
-                    enterFrom="opacity-0"
-                    enterTo="opacity-100"
-                    leave="ease-in-out duration-300"
-                    leaveFrom="opacity-100"
-                    leaveTo="opacity-0"
-                  >
-                    <div className="absolute top-0 flex justify-center w-16 pt-5 left-full">
-                      <button
-                        type="button"
-                        className="-m-2.5 p-2.5"
-                        onClick={() => setSidebarOpen(false)}
-                      >
-                        <span className="sr-only">Close sidebar</span>
-                        <XMarkIcon
-                          className="w-6 h-6 text-white"
-                          aria-hidden="true"
-                        />
-                      </button>
-                    </div>
-                  </Transition.Child>
-                  {/* Sidebar component, Starts Here*/}
-
+                  {/* Close button */}
+                  <div className="absolute top-0 flex justify-center w-16 pt-5 left-full">
+                    <button type="button" className="-m-2.5 p-2.5" onClick={() => setSidebarOpen(false)}>
+                      <span className="sr-only">Close sidebar</span>
+                      <XMarkIcon className="w-6 h-6 text-white" aria-hidden="true" />
+                    </button>
+                  </div>
+                  
+                  {/* MOBILE SIDEBAR */}
                   <div className="flex flex-col px-6 pb-4 overflow-y-auto bg-white grow gap-y-5">
                     <div className="flex items-center justify-center p-10 h-16 shrink-0">
-                      <img
-                        className="w-auto h-auto mx-20"
-                        src={Logo}
-                        alt="HorleyTech"
-                        width="64"
-                        height="64"
-                      />
+                      <img className="w-auto h-auto mx-20" src={Logo} alt="HorleyTech" width="64" height="64" />
                     </div>
                     <nav className="flex flex-col flex-1">
                       <ul role="list" className="flex flex-col flex-1 gap-y-7">
                         <li>
                           <ul role="list" className="-mx-2 space-y-1">
-                            {getNavOptions().map((item, index) => (
-                              <li key={index}>
-                                <Link
-                                  to={item.href}
-                                  href={item.route}
-                                  className={classNames(
-                                    location.pathname.includes(
-                                      `/dashboard/${item.href}`
-                                    )
-                                      ? 'bg-[#1A1C23] text-white font-bold'
-                                      : 'text-[#1A1C23] hover:text-white hover:bg-[#1A1C23]',
-                                    'group flex gap-x-3 rounded-md p-2 text-sm leading-6 transition-all duration-700'
-                                  )}
-                                >
-                                  <item.icon
+                            {currentNavigation.map((item, index) => {
+                               // Fix exact matching for the empty href ('') so it highlights correctly
+                               const isActive = item.href === '' 
+                                  ? location.pathname === '/dashboard' || location.pathname === '/dashboard/'
+                                  : location.pathname.includes(`/dashboard/${item.href}`);
+
+                               return (
+                                <li key={index}>
+                                  <Link
+                                    to={item.href}
                                     className={classNames(
-                                      location.pathname.includes(
-                                        `/dashboard/${item.href}`
-                                      )
-                                        ? 'text-white'
-                                        : 'text-[#1A1C23] group-hover:text-white',
-                                      'h-6 w-6 shrink-0'
+                                      isActive ? 'bg-[#1A1C23] text-white font-bold' : 'text-[#1A1C23] hover:text-white hover:bg-[#1A1C23]',
+                                      'group flex gap-x-3 rounded-md p-2 text-sm leading-6 transition-all duration-700'
                                     )}
-                                    aria-hidden="true"
-                                  />
-                                  {item.name}
-                                </Link>
-                              </li>
-                            ))}
+                                    onClick={() => setSidebarOpen(false)} // Close on click
+                                  >
+                                    <item.icon
+                                      className={classNames(
+                                        isActive ? 'text-white' : 'text-[#1A1C23] group-hover:text-white',
+                                        'h-6 w-6 shrink-0'
+                                      )}
+                                      aria-hidden="true"
+                                    />
+                                    {item.name}
+                                  </Link>
+                                </li>
+                               );
+                            })}
                           </ul>
                         </li>
                         <li className="mt-auto">
-                          <Link
-                            to="/"
-                            className="flex p-2 -mx-2 text-sm leading-6 text-gray-700 rounded-md group gap-x-3 hover:bg-gray-50 hover:text-black"
-                          >
-                            <TbLogin2
-                              className="w-6 h-6 shrink-0 text-lightBlue group-hover:text-black"
-                              aria-hidden="true"
-                            />
+                          <Link to="/" className="flex p-2 -mx-2 text-sm leading-6 text-gray-700 rounded-md group gap-x-3 hover:bg-gray-50 hover:text-black">
+                            <TbLogin2 className="w-6 h-6 shrink-0 text-lightBlue group-hover:text-black" aria-hidden="true" />
                             Logout
                           </Link>
                         </li>
@@ -218,62 +183,47 @@ export default function MenteeDashboardLayout({ children }) {
         </Transition.Root>
 
         <div className="flex flex-row w-screen h-screen overflow-hidden">
-          {/* Static sidebar for desktop */}
+          {/* DESKTOP SIDEBAR */}
           <div className="hidden lg:h-screen lg:inset-y-0 lg:z-50 lg:flex lg:w-[15rem] lg:flex-col">
-            {/* Sidebar component, swap this element with another sidebar if you like */}
             <div className="flex flex-col px-6 pb-4 overflow-y-auto bg-white border-r border-gray-200 grow gap-y-5">
-              <div className="flex items-center justify-center h-16 mx-auto shrink-0">
-                <img
-                  className="w-auto h-8"
-                  src={Logo}
-                  alt="HorleyTech"
-                  width="64"
-                  height="64"
-                />
+              <div className="flex items-center justify-center h-16 mx-auto shrink-0 mt-4">
+                <img className="w-auto h-8" src={Logo} alt="HorleyTech" width="64" height="64" />
               </div>
-              <nav className="flex flex-col flex-1">
+              <nav className="flex flex-col flex-1 mt-4">
                 <ul role="list" className="flex flex-col flex-1 gap-y-7">
                   <li>
                     <ul role="list" className="-mx-2 space-y-3">
-                      {getNavOptions().map((item, index) => (
-                        <li key={index}>
-                          <Link
-                            to={item.href}
-                            className={classNames(
-                              location.pathname.includes(
-                                `/dashboard/${item.href}`
-                              )
-                                ? 'bg-[#1A1C23] text-white font-bold'
-                                : 'text-[#1A1C23] hover:text-white hover:bg-[#1A1C23]',
-                              'group flex gap-x-3 rounded-md p-2 text-sm leading-6 transition-all duration-700'
-                            )}
-                          >
-                            <item.icon
+                      {currentNavigation.map((item, index) => {
+                        const isActive = item.href === '' 
+                          ? location.pathname === '/dashboard' || location.pathname === '/dashboard/'
+                          : location.pathname.includes(`/dashboard/${item.href}`);
+
+                        return (
+                          <li key={index}>
+                            <Link
+                              to={item.href}
                               className={classNames(
-                                location.pathname.includes(
-                                  `/dashboard/${item.href}`
-                                )
-                                  ? 'text-white'
-                                  : 'text-[#1A1C23] group-hover:text-white',
-                                'h-6 w-6 shrink-0'
+                                isActive ? 'bg-[#1A1C23] text-white font-bold' : 'text-[#1A1C23] hover:text-white hover:bg-[#1A1C23]',
+                                'group flex gap-x-3 rounded-md p-2 text-sm leading-6 transition-all duration-700'
                               )}
-                              aria-hidden="true"
-                            />
-                            {item.name}
-                          </Link>
-                        </li>
-                      ))}
+                            >
+                              <item.icon
+                                className={classNames(
+                                  isActive ? 'text-white' : 'text-[#1A1C23] group-hover:text-white',
+                                  'h-6 w-6 shrink-0'
+                                )}
+                                aria-hidden="true"
+                              />
+                              {item.name}
+                            </Link>
+                          </li>
+                        )
+                      })}
                     </ul>
                   </li>
                   <li className="mt-auto">
-                    <Link
-                      to="/"
-                      className="flex p-2 -mx-2 text-sm leading-6 text-gray-700 rounded-md group gap-x-3 hover:bg-gray-50 hover:text-black"
-                    >
-                      <TbLogin2
-                        className="w-6 h-6 shrink-0 text-lightBlue group-hover:text-black"
-                        aria-hidden="true"
-                      />
+                    <Link to="/" className="flex p-2 -mx-2 text-sm leading-6 text-gray-700 rounded-md group gap-x-3 hover:bg-gray-50 hover:text-black">
+                      <TbLogin2 className="w-6 h-6 shrink-0 text-lightBlue group-hover:text-black" aria-hidden="true" />
                       Logout
                     </Link>
                   </li>
@@ -282,54 +232,32 @@ export default function MenteeDashboardLayout({ children }) {
             </div>
           </div>
 
+          {/* MAIN CONTENT AREA */}
           <div className="lg:w-[calc(100vw-15rem)] w-full">
             <div className="relative z-40 flex items-center w-full h-16 px-4 bg-white border-b border-gray-200 shadow-sm shrink-0 gap-x-4 sm:gap-x-6 sm:px-6 lg:px-8">
-              <button
-                type="button"
-                className="-m-2.5 p-2.5 text-gray-700 lg:hidden"
-                onClick={() => setSidebarOpen(true)}
-              >
+              <button type="button" className="-m-2.5 p-2.5 text-gray-700 lg:hidden" onClick={() => setSidebarOpen(true)}>
                 <span className="sr-only">Open sidebar</span>
                 <Bars3Icon className="w-6 h-6" aria-hidden="true" />
               </button>
 
-              {/* Separator */}
-              <div
-                className="w-px h-6 bg-gray-200 lg:hidden"
-                aria-hidden="true"
-              />
+              <div className="w-px h-6 bg-gray-200 lg:hidden" aria-hidden="true" />
 
-              {/* NAV PART */}
               <div className="flex self-stretch justify-end flex-1 gap-x-4 lg:gap-x-6">
+                
+                {/* 🚀 THE SWITCH CONTROLS EVERYTHING NOW */}
                 <OnlineOfflineSwitch />
+                
                 <div className="flex items-center gap-x-4 lg:gap-x-6">
-                  <button
-                    type="button"
-                    className="-m-2.5 p-2.5 text-gray-400 hover:text-gray-500"
-                  >
+                  <button type="button" className="-m-2.5 p-2.5 text-gray-400 hover:text-gray-500">
                     <span className="sr-only">View notifications</span>
-                    <IoMdNotifications
-                      className="w-6 h-6 text-black"
-                      aria-hidden="true"
-                    />
+                    <IoMdNotifications className="w-6 h-6 text-black" aria-hidden="true" />
                   </button>
 
-                  {/* Separator */}
-                  <div
-                    className="hidden lg:block lg:h-6 lg:w-px lg:bg-gray-200"
-                    aria-hidden="true"
-                  />
+                  <div className="hidden lg:block lg:h-6 lg:w-px lg:bg-gray-200" aria-hidden="true" />
 
-                  {/* Profile dropdown */}
                   <Menu as="div" className="relative">
                     <Menu.Button className="-m-1.5 flex items-center p-1.5">
-                      <img
-                        className="w-8 h-8 p-2 rounded-full bg-[#ffa500]"
-                        src={UserProfile}
-                        alt=""
-                        width={100}
-                        height={100}
-                      />
+                      <img className="w-8 h-8 p-2 rounded-full bg-[#ffa500]" src={UserProfile} alt="" />
                     </Menu.Button>
                   </Menu>
                 </div>
