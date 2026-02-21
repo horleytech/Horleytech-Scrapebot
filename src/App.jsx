@@ -1,13 +1,11 @@
-// import React from "react";
-// import { SpeedInsights } from "@vercel/speed-insights/next";
 import { Routes, Route } from 'react-router-dom';
 import TechLogin from './pages/authPages/login';
 import Dashboard from './pages/adminDashboard/Dashboard';
 
-// NEW: Import the VendorPage
+// NEW: Secure Vendor Route
 import VendorPage from './pages/VendorPage';
 
-// GADGET DASHBOARD IMPORTS
+// GADGET DASHBOARD IMPORTS (Restored for Online Mode)
 import Iphones from './pages/adminDashboardPages/iphones';
 import Samsung from './pages/adminDashboardPages/samsung';
 import Laptops from './pages/adminDashboardPages/laptops';
@@ -25,6 +23,7 @@ function App() {
         {/* 🚀 THE NEW SECURE VENDOR ROUTE */}
         <Route path="/vendor/:vendorId" element={<VendorPage />} />
 
+        {/* RESTORED DASHBOARD TABS */}
         <Route path="/dashboard" element={<Dashboard />}>
           <Route index path="iphones" element={<Iphones />} />
           <Route path="samsung" element={<Samsung />} />
