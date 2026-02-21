@@ -138,3 +138,6 @@ const AdminDashboard = () => {
       )}
     </AdminDashboardLayout>
   );
+}; // THIS CLOSING BRACKET WAS MISSING!
+
+export default AdminDashboard; // THIS EXPORT WAS MISSING!
