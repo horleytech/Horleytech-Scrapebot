@@ -65,77 +65,76 @@ const AdminDashboard = () => {
     );
   });
 
-  return (
+ return (
     <AdminDashboardLayout>
-      {/* IF ONLINE: Render the normal iPhone/Samsung tabs that load Jumia/Slot data.
-        IF OFFLINE: Show our new WhatsApp Global Inventory & Search System!
+      {/* IF ONLINE: Render normal Jumia tabs via Outlet.
+        IF OFFLINE: Check the URL. If on main '/dashboard', show Global Search. 
+        Otherwise, show the Offline sub-pages (Upload / Auto Listen) via Outlet! 
       */}
       {isOnline ? (
-        
         <Outlet />
-        
       ) : (
-        
-        <div>
-          {/* THE GLOBAL SEARCH BAR */}
-          <div className="mb-6">
-            <input
-              type="text"
-              placeholder="🔍 WhatsApp Inventory: Type a phone model, vendor, or category..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full p-4 border border-gray-300 rounded-[10px] focus:outline-none focus:ring-2 focus:ring-[#1A1C23] text-[15px] shadow-sm"
-            />
-          </div>
-
-          {/* THE NEW WHATSAPP RESULTS TABLE */}
-          <div className="bg-white shadow rounded-[10px] overflow-x-auto mb-10">
-            <div className="p-4 bg-gray-50 border-b border-[#DDDCF9] flex justify-between items-center">
-              <h2 className="text-[18px] font-bold text-[#1A1C23]">
-                WhatsApp Global Inventory ({searchResults.length} items)
-              </h2>
+        (location.pathname === '/dashboard' || location.pathname === '/dashboard/') ? (
+          <div>
+            {/* THE GLOBAL SEARCH BAR */}
+            <div className="mb-6">
+              <input
+                type="text"
+                placeholder="🔍 WhatsApp Inventory: Type a phone model, vendor, or category..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full p-4 border border-gray-300 rounded-[10px] focus:outline-none focus:ring-2 focus:ring-[#1A1C23] text-[15px] shadow-sm"
+              />
             </div>
-            
-            <table className="w-full table rounded-[10px]">
-              <thead className="h-[60px] border-b border-b-[#DDDCF9] bg-white">
-                <tr className="text-[#1A1C23] font-bold text-left">
-                  <th className="p-3 pl-6 border-b border-[#DDDCF9]">Vendor</th>
-                  <th className="p-3 border-b border-[#DDDCF9]">Device Type</th>
-                  <th className="p-3 border-b border-[#DDDCF9]">Condition</th>
-                  <th className="p-3 border-b border-[#DDDCF9]">Storage</th>
-                  <th className="p-3 border-b border-[#DDDCF9]">Price</th>
-                </tr>
-              </thead>
-              <tbody>
-                {searchResults.length > 0 ? (
-                  searchResults.map((product, index) => (
-                    <tr key={index} className="hover:bg-gray-50 border-b border-gray-100 text-[15px] font-medium text-[#1A1C23]">
-                      <td className="p-3 pl-6 font-bold text-blue-600">
-                        {/* Clicking takes you to the VendorPage.jsx we created earlier */}
-                        <Link to={product.vendorLink} className="hover:underline">
-                          {product.vendorName}
-                        </Link>
-                      </td>
-                      <td className="p-3">{product['Device Type']}</td>
-                      <td className="p-3">{product.Condition}</td>
-                      <td className="p-3">{product['Storage Capacity/Configuration']}</td>
-                      <td className="p-3 font-semibold text-green-700">{product['Regular price']}</td>
-                    </tr>
-                  ))
-                ) : (
-                  <tr>
-                    <td colSpan="5" className="p-6 text-center text-gray-500 font-medium text-[15px]">
-                      {loadingSearch ? "Loading global inventory..." : "No WhatsApp products found."}
-                    </td>
+
+            {/* THE NEW WHATSAPP RESULTS TABLE */}
+            <div className="bg-white shadow rounded-[10px] overflow-x-auto mb-10">
+              <div className="p-4 bg-gray-50 border-b border-[#DDDCF9] flex justify-between items-center">
+                <h2 className="text-[18px] font-bold text-[#1A1C23]">
+                  WhatsApp Global Inventory ({searchResults.length} items)
+                </h2>
+              </div>
+              
+              <table className="w-full table rounded-[10px]">
+                <thead className="h-[60px] border-b border-b-[#DDDCF9] bg-white">
+                  <tr className="text-[#1A1C23] font-bold text-left">
+                    <th className="p-3 pl-6 border-b border-[#DDDCF9]">Vendor</th>
+                    <th className="p-3 border-b border-[#DDDCF9]">Device Type</th>
+                    <th className="p-3 border-b border-[#DDDCF9]">Condition</th>
+                    <th className="p-3 border-b border-[#DDDCF9]">Storage</th>
+                    <th className="p-3 border-b border-[#DDDCF9]">Price</th>
                   </tr>
-                )}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {searchResults.length > 0 ? (
+                    searchResults.map((product, index) => (
+                      <tr key={index} className="hover:bg-gray-50 border-b border-gray-100 text-[15px] font-medium text-[#1A1C23]">
+                        <td className="p-3 pl-6 font-bold text-blue-600">
+                          <Link to={product.vendorLink} className="hover:underline">
+                            {product.vendorName}
+                          </Link>
+                        </td>
+                        <td className="p-3">{product['Device Type']}</td>
+                        <td className="p-3">{product.Condition}</td>
+                        <td className="p-3">{product['Storage Capacity/Configuration']}</td>
+                        <td className="p-3 font-semibold text-green-700">{product['Regular price']}</td>
+                      </tr>
+                    ))
+                  ) : (
+                    <tr>
+                      <td colSpan="5" className="p-6 text-center text-gray-500 font-medium text-[15px]">
+                        {loadingSearch ? "Loading global inventory..." : "No WhatsApp products found."}
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
-        </div>
+        ) : (
+          /* THIS IS THE MISSING PIECE! This renders your UploadData and AutoListen pages */
+          <Outlet />
+        )
       )}
     </AdminDashboardLayout>
   );
-};
-
-export default AdminDashboard;
