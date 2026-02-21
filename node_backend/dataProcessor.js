@@ -1,48 +1,42 @@
-export const groupAndSortPhones = (phones) => {
-  const grouped = {};
+import { db } from '../src/services/firebase/index.js'; // Adjust path to your firebase config
+import { doc, setDoc, getDoc } from 'firebase/firestore';
 
-  phones.forEach((phone) => {
-    const key = `${phone.device_type}_${phone.model}_${phone.storage || null}_${
-      phone.lock_status || null
-    }_${phone.sim_type || null}`;
-    if (!grouped[key]) {
-      grouped[key] = [];
+export const saveVendorsToFirebase = async (vendorsData) => {
+  console.log("🔥 Initiating Firebase Database Update...");
+
+  for (const vendor of vendorsData) {
+    try {
+      // 1. Point to the specific Vendor's document inside 'horleyTech_Inventories'
+      const vendorRef = doc(db, "horleyTech_Inventories", vendor.vendorId);
+      
+      // 2. Check if the vendor already exists in Firebase
+      const vendorSnap = await getDoc(vendorRef);
+
+      if (vendorSnap.exists()) {
+        // If they exist, merge the NEW products with their OLD products
+        const existingData = vendorSnap.data();
+        const updatedProducts = [...existingData.products, ...vendor.products];
+
+        await setDoc(vendorRef, {
+          ...existingData,
+          lastUpdated: vendor.lastUpdated,
+          products: updatedProducts 
+        }, { merge: true }); // Merge keeps existing fields safe
+        
+      } else {
+        // If it is a new vendor, create their profile from scratch
+        await setDoc(vendorRef, {
+          vendorId: vendor.vendorId,
+          lastUpdated: vendor.lastUpdated,
+          shareableLink: vendor.shareableLink,
+          products: vendor.products
+        });
+      }
+      
+      console.log(`☁️ Successfully saved ${vendor.vendorId} to Firebase.`);
+    } catch (error) {
+      console.error(`❌ Failed to save ${vendor.vendorId} to Firebase:`, error);
     }
-    grouped[key].push(phone.price);
-  });
-
-  const result = [];
-
-  Object.keys(grouped).forEach((key) => {
-    const prices = grouped[key];
-    prices.sort((a, b) => b - a);
-
-    const [device_type, model, storage, lock_status, sim_type] = key.split('_');
-    const H1 = prices[0] || '0';
-    const H2 = prices[1] || '0';
-    const H3 = prices[2] || '0';
-
-    prices.sort((a, b) => a - b);
-    const L1 = prices[0] || '0';
-    const L2 = prices[1] || '0';
-    const L3 = prices[2] || '0';
-
-    result.push({
-      device_type,
-      model,
-      storage,
-      lock_status,
-      sim_type,
-      H1,
-      H2,
-      H3,
-      L1,
-      L2,
-      L3,
-    });
-  });
-
-  return result;
+  }
+  console.log("🎉 All data successfully securely stored by Vendor in Firebase!");
 };
-
-//   console.log(groupAndSortPhones(phones));
