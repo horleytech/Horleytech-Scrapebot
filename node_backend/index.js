@@ -72,21 +72,21 @@ app.post('/process', upload.single('file'), async (req, res) => {
 });
 
 // ==========================================================
-// 🚀 2. "AUTO LISTEN" WEBHOOK (Adapted for AutoResponder App)
+// 🚀 2. "AUTO LISTEN" WEBHOOK (Custom Header Auth)
 // ==========================================================
 app.post('/api/webhook/whatsapp', async (req, res) => {
-    // 1. SECURITY: We pull the secret from the URL itself!
-    const secret = req.query?.secret;
+    // 1. SECURE AUTHENTICATION: Look for 'x-api-key' in the custom headers
+    // Express automatically converts header names to lowercase
+    const incomingApiKey = req.headers['x-api-key'];
 
-    if (secret !== process.env.WEBHOOK_SECRET) {
-        console.warn(`🚨 Unauthorized webhook attempt blocked.`);
-        return res.status(401).json({ error: "Unauthorized." });
+    if (incomingApiKey !== process.env.WEBHOOK_SECRET) {
+        console.warn(`🚨 Unauthorized webhook attempt blocked. Invalid x-api-key.`);
+        return res.status(401).json({ error: "Unauthorized. Invalid API Key." });
     }
 
-    // 2. EXTRACT DATA: We check multiple places to catch the app's default payload
-    // The AutoResponder app natively sends 'sender' (or 'title') and 'message' (or 'senderMessage')
-    const sender = req.body?.sender || req.body?.title || req.query?.sender;
-    const message = req.body?.message || req.body?.senderMessage || req.query?.message;
+    // 2. EXTRACT DATA: Catch the AutoResponder app's default payload
+    const sender = req.body?.sender || req.body?.title;
+    const message = req.body?.message || req.body?.senderMessage;
 
     if (!sender || !message) {
         return res.status(400).json({ error: "Missing sender or message." });
