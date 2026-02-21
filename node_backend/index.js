@@ -1,27 +1,101 @@
+import fs from 'fs';
+import path from 'path';
+import express from 'express';
+import dotenv from 'dotenv';
+import multer from 'multer';
+import morgan from 'morgan';
+import compression from 'compression';
+import cors from 'cors';
+import { fileURLToPath } from 'url';
 import OpenAI from 'openai';
+
+// Import our new Phase 1 functions
+import { processChatFile } from './fileProcessor.js';
 import { saveVendorsToFirebase } from './dataProcessor.js';
 
-// Initialize OpenAI for real-time extraction
+dotenv.config();
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+const upload = multer({ dest: './uploads' });
+const app = express();
+
+app.use(cors());
+app.use(compression());
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+app.use(morgan('dev'));
+
+const PORT = process.env.PORT || 8000;
+
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
+app.get('/', (req, res) => {
+  res.json({ message: 'Server Running' });
+});
+
 // ==========================================================
-// 🚀 THE "AUTO LISTEN" WEBHOOK (REAL-TIME EXTRACTION)
+// 🚀 1. MANUAL UPLOAD ROUTE (Restored & Upgraded)
+// ==========================================================
+app.post('/process', upload.single('file'), async (req, res) => {
+  if (!req.file) {
+    console.error("No file uploaded.");
+    return res.status(400).send('No file uploaded.');
+  }
+
+  const filePath = path.join(__dirname, req.file.path);
+  console.log(`File path resolved as: ${filePath}`);
+
+  // Respond to the frontend immediately so the loading spinner doesn't hang forever
+  res.json({
+    message: 'File Uploaded. AI processing started. Check dashboard shortly for updates.',
+    status: true,
+  });
+
+  // Run the new AI Extractor in the background
+  try {
+    const vendorsData = await processChatFile(filePath);
+    if (vendorsData && vendorsData.length > 0) {
+        await saveVendorsToFirebase(vendorsData);
+    }
+    // Delete the file from the server after successful processing
+    fs.unlink(filePath, (err) => {
+      if (err) console.error('Error deleting file:', err);
+      else console.log('🗑️ Deleted temporary upload file');
+    });
+  } catch (err) {
+    console.error('❌ Error processing manual upload:', err);
+  }
+});
+
+// ==========================================================
+// 🚀 2. "AUTO LISTEN" WEBHOOK (Adapted for AutoResponder App)
 // ==========================================================
 app.post('/api/webhook/whatsapp', async (req, res) => {
-    // Note: Configure your AutoResponder app to send a JSON payload with 'sender' and 'message'
-    const sender = req.body?.sender;
-    const message = req.body?.message || req.body?.senderMessage; // Fallback to your old AutoResponder key
+    // 1. SECURITY: We pull the secret from the URL itself!
+    const secret = req.query?.secret;
 
-    if (!sender || !message) {
-        return res.status(400).json({ error: "Missing sender or message in request body." });
+    if (secret !== process.env.WEBHOOK_SECRET) {
+        console.warn(`🚨 Unauthorized webhook attempt blocked.`);
+        return res.status(401).json({ error: "Unauthorized." });
     }
 
-    console.log(`📡 [AUTO LISTEN] New message received from ${sender}`);
+    // 2. EXTRACT DATA: We check multiple places to catch the app's default payload
+    // The AutoResponder app natively sends 'sender' (or 'title') and 'message' (or 'senderMessage')
+    const sender = req.body?.sender || req.body?.title || req.query?.sender;
+    const message = req.body?.message || req.body?.senderMessage || req.query?.message;
 
-    // Immediately send a 200 OK back to the Android app so it doesn't timeout!
-    res.status(200).json({ status: "Message received, processing in background..." });
+    if (!sender || !message) {
+        return res.status(400).json({ error: "Missing sender or message." });
+    }
+
+    console.log(`📡 [AUTO LISTEN] Secure message received from ${sender}`);
+
+    // Immediately send 200 OK so the Android app doesn't crash
+    res.status(200).json({ status: "Secure message received, processing..." });
 
     try {
         const systemPrompt = `
@@ -41,7 +115,6 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
         Only return the valid JSON array. Do not include markdown formatting.
         `;
 
-        // 1. Send the single message to AI
         const aiResponse = await openai.chat.completions.create({
             model: 'gpt-4o',
             messages: [
@@ -55,11 +128,9 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
         const cleanJson = rawJson.replace(/^```json/g, '').replace(/```$/g, '').trim();
         const extractedProducts = JSON.parse(cleanJson);
 
-        // 2. If the AI found products, save them to Firebase!
         if (extractedProducts.length > 0) {
             console.log(`✅ AI Extracted ${extractedProducts.length} items from ${sender}`);
             
-            // Format the data exactly like our Phase 1 Firebase structure expects
             const vendorData = [{
                 vendorId: sender,
                 lastUpdated: new Date().toISOString(),
@@ -67,12 +138,10 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
                 products: extractedProducts
             }];
 
-            // Call the exact same Firebase function we updated in Step 1!
             await saveVendorsToFirebase(vendorData);
             console.log(`🗂️ Background save complete for ${sender}.`);
-            
         } else {
-            console.log(`🤷‍♂️ No products found in message from ${sender}. Ignored.`);
+            console.log(`🤷‍♂️ No products found in message from ${sender}.`);
         }
 
     } catch (error) {
@@ -81,5 +150,5 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+  console.log(`🚀 Server running on port ${PORT}`);
 });
