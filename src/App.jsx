@@ -4,6 +4,9 @@ import { Routes, Route } from 'react-router-dom';
 import TechLogin from './pages/authPages/login';
 import Dashboard from './pages/adminDashboard/Dashboard';
 
+// NEW: Import the VendorPage
+import VendorPage from './pages/VendorPage';
+
 // GADGET DASHBOARD IMPORTS
 import Iphones from './pages/adminDashboardPages/iphones';
 import Samsung from './pages/adminDashboardPages/samsung';
@@ -18,6 +21,9 @@ function App() {
     <>
       <Routes>
         <Route path="/" element={<TechLogin />} />
+
+        {/* 🚀 THE NEW SECURE VENDOR ROUTE */}
+        <Route path="/vendor/:vendorId" element={<VendorPage />} />
 
         <Route path="/dashboard" element={<Dashboard />}>
           <Route index path="iphones" element={<Iphones />} />
