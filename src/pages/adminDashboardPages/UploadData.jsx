@@ -3,6 +3,7 @@ import React, { useState } from 'react';
 const UploadData = () => {
   const [file, setFile] = useState(null);
   const [loading, setLoading] = useState(false);
+  // Initialized the status state which was missing in the conflict snippet
   const [status, setStatus] = useState({ type: '', message: '' });
 
   const handleUpload = async (event) => {
@@ -20,7 +21,7 @@ const UploadData = () => {
     formData.append('file', file);
 
     try {
-      // THE FIX: Uses the Vercel Proxy to bypass the "Failed to Fetch" error
+      // THE FIX: Uses the Vercel Proxy source path to bypass security blocks
       const response = await fetch('/process', {
         method: 'POST',
         body: formData,
@@ -42,15 +43,18 @@ const UploadData = () => {
         message: '✅ File uploaded and AI processing started successfully! Check the directory shortly.',
       });
       setFile(null);
+      
+      // Resets the file input field visually
       const input = document.getElementById('txt-upload-input');
       if (input) input.value = '';
       
     } catch (error) {
       console.error(error);
-      setStatus({ 
-        type: 'error', 
-        message: '❌ Failed to fetch. Ensure backend is running and the Vercel proxy is active.' 
-      });
+      const networkError = error?.message === 'Failed to fetch'
+        ? '❌ Failed to fetch. Ensure backend is running and the Vercel proxy is active.'
+        : error.message || 'Something went wrong during upload.';
+
+      setStatus({ type: 'error', message: networkError });
     } finally {
       setLoading(false);
     }
@@ -94,9 +98,7 @@ const UploadData = () => {
                 AI Processing File...
               </>
             ) : (
-              <>
-                ☁️ Upload & Analyze
-              </>
+              <>☁️ Upload & Analyze</>
             )}
           </button>
 

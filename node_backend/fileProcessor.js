@@ -36,7 +36,7 @@ const extractFromBatch = async (batchText, batchNumber, totalBatches) => {
   
   Format the output as a JSON array of objects with EXACTLY these keys:
   - "vendorId": The exact Name or Phone Number of the person who sent the message. (Critical: Do not use the date/time, just the sender's identifier).
-  - "Category": MUST be one of: 'iPhone', 'Samsung', 'Laptops', 'Smartphones', 'Smartwatch', 'Sound/Audio', 'Games', 'Tablets', 'Tecno', 'Infinix', 'Xiaomi', 'Oppo', 'Vivo'. If it does NOT fit these exactly, use 'Others'.
+  - "Category": MUST be one of: 'iPhone', 'Samsung', 'Laptops', 'Smartphones', 'Smartwatch', 'Sound/Audio', 'Games', 'Tablets', 'Tecno', 'Infinix', 'Xiaomi', 'Oppo', 'Vivo', 'Accessories', 'Others'. If it does NOT fit these exactly, use 'Others'.
   - "Device Type": e.g., 'iPhone 15 Pro Max', 'PS5'.
   - "Condition": e.g., 'Brand New', 'UK Used'.
   - "SIM Type/Model/Processor": e.g., 'Physical SIM', 'ESIM', 'M1 Chip', 'No Pad'.

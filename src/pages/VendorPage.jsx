@@ -48,8 +48,13 @@ const VendorPage = () => {
     fetchVendorData();
   }, [vendorId]);
 
+  // DYNAMIC FILTERS: These extract unique values directly from the data
   const uniqueGroups = vendorData?.products 
     ? ['All', ...new Set(vendorData.products.map(p => p.groupName || 'Direct Message'))] 
+    : ['All'];
+
+  const uniqueCategories = vendorData?.products 
+    ? ['All', ...new Set(vendorData.products.map(p => p.Category).filter(Boolean))] 
     : ['All'];
 
   const filteredProducts = () => {
@@ -65,7 +70,8 @@ const VendorPage = () => {
         if (dateFilter === 'This Month') passesDate = diffDays <= 30;
       }
 
-      let passesCategory = categoryFilter === 'All' || product.Category?.toLowerCase().includes(categoryFilter.toLowerCase());
+      // Exact match for the dynamic category filter
+      let passesCategory = categoryFilter === 'All' || product.Category === categoryFilter;
       let passesGroup = groupFilter === 'All' || (product.groupName || 'Direct Message') === groupFilter;
 
       return passesDate && passesCategory && passesGroup;
@@ -74,7 +80,7 @@ const VendorPage = () => {
 
   const displayData = filteredProducts();
 
-  // Export Exactly what is on the screen!
+  // Export EXACTLY what is currently filtered on the screen
   const handleExport = () => {
     const rows = displayData.map((product) => ({
       Group: product.groupName || 'Direct Message',
@@ -98,7 +104,7 @@ const VendorPage = () => {
       <div className="flex flex-col md:flex-row justify-between items-start md:items-end mb-6 gap-4">
         <div>
           <h1 className="text-3xl font-bold text-[#1A1C23]">{vendorData.vendorName}'s Inventory</h1>
-          <p className="text-gray-500 mt-1">Total Items: {vendorData.products.length}</p>
+          <p className="text-gray-500 mt-1">Showing {displayData.length} of {vendorData.products.length} Items</p>
         </div>
         <button 
           onClick={handleExport}
@@ -108,6 +114,7 @@ const VendorPage = () => {
         </button>
       </div>
 
+      {/* Dynamic Filters */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6 bg-gray-50 p-5 rounded-[10px] border border-gray-200">
         <div>
           <label className="block text-sm font-bold text-gray-700 mb-2">WhatsApp Group</label>
@@ -126,11 +133,7 @@ const VendorPage = () => {
         <div>
           <label className="block text-sm font-bold text-gray-700 mb-2">Category</label>
           <select value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)} className="w-full p-2.5 border rounded-[8px]">
-            <option value="All">All Categories</option>
-            <option value="iPhone">iPhone</option>
-            <option value="Samsung">Samsung</option>
-            <option value="Laptops">Laptops</option>
-            <option value="Games">Games</option>
+            {uniqueCategories.map((cat) => <option key={cat} value={cat}>{cat}</option>)}
           </select>
         </div>
       </div>
