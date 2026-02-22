@@ -44,9 +44,7 @@ const AdminDashboard = () => {
     }
   }, [isOnline]);
 
-  if (location.pathname === '/dashboard') {
-    return <Navigate to="iphones" />;
-  }
+  // ---> THE REDIRECT BUG HAS BEEN REMOVED FROM HERE <---
 
   const searchResults = allProducts.filter(product => {
     if (!searchQuery) return true;
@@ -55,7 +53,7 @@ const AdminDashboard = () => {
       product['Device Type']?.toLowerCase().includes(term) ||
       product.Category?.toLowerCase().includes(term) ||
       product.vendorName?.toLowerCase().includes(term) ||
-      product.groupName?.toLowerCase().includes(term) // Search by Group Name!
+      product.groupName?.toLowerCase().includes(term)
     );
   });
 
