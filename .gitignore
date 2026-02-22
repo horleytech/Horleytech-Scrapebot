@@ -5,4 +5,4 @@ generator/myenv/
 .DS_Store
 ssl
 uploads
-pnpm-lock.yaml
+pnpm-lock.yamldist/
