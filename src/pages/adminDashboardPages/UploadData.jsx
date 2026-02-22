@@ -6,34 +6,51 @@ const UploadData = () => {
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState({ type: '', message: '' });
 
-  const handleUpload = async (e) => {
-    e.preventDefault();
+  const handleUpload = async (event) => {
+    event.preventDefault();
+
     if (!file) {
-      setStatus({ type: 'error', message: 'Please select a .txt file first.' });
+      setStatus({ type: 'error', message: 'Please select a WhatsApp .txt export before uploading.' });
       return;
     }
 
     const formData = new FormData();
     formData.append('file', file);
 
-    try {
-      setLoading(true);
-      setStatus({ type: '', message: '' });
+    setLoading(true);
+    setStatus({ type: '', message: '' });
 
-      const response = await fetch('http://localhost:8000/process', {
+    try {
+      const response = await fetch('http://174.138.42.167:8000/process', {
         method: 'POST',
         body: formData,
       });
-      const result = await response.json();
 
-      if (!response.ok) throw new Error(result.message || 'Upload failed.');
+      let payload = {};
+      try {
+        payload = await response.json();
+      } catch {
+        payload = {};
+      }
 
-      setStatus({ type: 'success', message: result.message || 'Upload successful.' });
+      if (!response.ok) {
+        throw new Error(payload.message || 'Upload failed. Please try again.');
+      }
+
+      setStatus({
+        type: 'success',
+        message: payload.message || 'File uploaded and processed successfully.',
+      });
       setFile(null);
       const input = document.getElementById('txt-upload-input');
       if (input) input.value = '';
     } catch (error) {
-      setStatus({ type: 'error', message: error.message || 'Network error.' });
+      const networkError =
+        error?.message === 'Failed to fetch'
+          ? 'Failed to fetch. Please confirm the backend server is reachable and try again.'
+          : error.message || 'Something went wrong during upload.';
+
+      setStatus({ type: 'error', message: networkError });
     } finally {
       setLoading(false);
     }
@@ -43,14 +60,14 @@ const UploadData = () => {
     <div className="max-w-3xl mx-auto">
       <div className="mb-6">
         <h1 className="text-[24px] font-bold text-[#1A1C23]">TXT Analyzer</h1>
-        <p className="text-gray-500 mt-1">Upload WhatsApp chat exports (.txt) for AI extraction.</p>
+        <p className="text-gray-500 mt-1">Upload WhatsApp chat exports (.txt) directly for AI parsing.</p>
       </div>
 
       <div className="bg-white p-8 rounded-[10px] shadow-sm border border-gray-100">
         <form onSubmit={handleUpload} className="space-y-5">
           <div className="border border-gray-200 rounded-[10px] p-5 bg-gray-50">
             <label htmlFor="txt-upload-input" className="block text-sm font-semibold text-gray-700 mb-2">
-              Choose .txt file
+              Select WhatsApp .txt file
             </label>
             <input
               id="txt-upload-input"
@@ -59,7 +76,9 @@ const UploadData = () => {
               onChange={(e) => setFile(e.target.files?.[0] || null)}
               className="w-full p-2 border border-gray-300 rounded-md bg-white"
             />
-            <p className="text-sm mt-2 text-gray-600">{file ? `Selected: ${file.name}` : 'No file selected yet.'}</p>
+            <p className="text-sm mt-2 text-gray-600">
+              {file ? `Selected: ${file.name}` : 'No file selected yet.'}
+            </p>
           </div>
 
           <button
@@ -69,8 +88,17 @@ const UploadData = () => {
               loading || !file ? 'bg-gray-400 cursor-not-allowed' : 'bg-[#1A1C23] hover:bg-gray-800'
             }`}
           >
-            <FaCloudUploadAlt />
-            {loading ? 'AI Processing...' : 'Upload TXT & Analyze'}
+            {loading ? (
+              <>
+                <span className="h-4 w-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                AI Processing File...
+              </>
+            ) : (
+              <>
+                <FaCloudUploadAlt />
+                Upload & Analyze
+              </>
+            )}
           </button>
 
           {status.message && (
