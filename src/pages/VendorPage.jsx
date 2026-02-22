@@ -3,6 +3,27 @@ import { useParams, Link } from 'react-router-dom';
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from '../services/firebase/index.js'; 
 
+// CSV Helpers
+const toCsv = (rows) => {
+  if (!rows.length) return '';
+  const headers = Object.keys(rows[0]);
+  const csvRows = rows.map((row) =>
+    headers.map((header) => `"${String(row[header] ?? '').replaceAll('"', '""')}"`).join(',')
+  );
+  return `${headers.join(',')}\n${csvRows.join('\n')}`;
+};
+
+const downloadCsv = (filename, rows) => {
+  const csv = toCsv(rows);
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.setAttribute('download', filename);
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+};
+
 const VendorPage = () => {
   const { vendorId } = useParams();
   const [vendorData, setVendorData] = useState(null);
@@ -17,10 +38,7 @@ const VendorPage = () => {
       try {
         const docRef = doc(db, 'horleyTech_OfflineInventories', vendorId);
         const docSnap = await getDoc(docRef);
-
-        if (docSnap.exists()) {
-          setVendorData(docSnap.data());
-        }
+        if (docSnap.exists()) setVendorData(docSnap.data());
       } catch (err) {
         console.error("Error fetching vendor:", err);
       } finally {
@@ -56,6 +74,20 @@ const VendorPage = () => {
 
   const displayData = filteredProducts();
 
+  // Export Exactly what is on the screen!
+  const handleExport = () => {
+    const rows = displayData.map((product) => ({
+      Group: product.groupName || 'Direct Message',
+      Category: product.Category || '',
+      DeviceType: product['Device Type'] || '',
+      Condition: product.Condition || '',
+      Storage: product['Storage Capacity/Configuration'] || '',
+      Price: product['Regular price'] || '',
+      DatePosted: product.DatePosted || ''
+    }));
+    downloadCsv(`${vendorData?.vendorName || 'Vendor'}-inventory.csv`, rows);
+  };
+
   if (loading) return <div className="p-10 text-center">Loading vendor data...</div>;
   if (!vendorData) return <div className="p-10 text-center font-bold text-red-500">Vendor has no inventory. Please upload data.</div>;
 
@@ -63,11 +95,17 @@ const VendorPage = () => {
     <div className="p-6 max-w-7xl mx-auto">
       <Link to="/dashboard" className="text-blue-500 hover:underline mb-4 inline-block">&larr; Back to Directory</Link>
       
-      <div className="flex justify-between items-end mb-6">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-end mb-6 gap-4">
         <div>
           <h1 className="text-3xl font-bold text-[#1A1C23]">{vendorData.vendorName}'s Inventory</h1>
           <p className="text-gray-500 mt-1">Total Items: {vendorData.products.length}</p>
         </div>
+        <button 
+          onClick={handleExport}
+          className="bg-green-600 text-white px-5 py-2.5 rounded-[10px] shadow-sm hover:bg-green-700 font-medium transition-colors"
+        >
+          Export CSV
+        </button>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6 bg-gray-50 p-5 rounded-[10px] border border-gray-200">
@@ -91,6 +129,8 @@ const VendorPage = () => {
             <option value="All">All Categories</option>
             <option value="iPhone">iPhone</option>
             <option value="Samsung">Samsung</option>
+            <option value="Laptops">Laptops</option>
+            <option value="Games">Games</option>
           </select>
         </div>
       </div>
