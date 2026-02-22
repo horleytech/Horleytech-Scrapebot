@@ -1,159 +1,165 @@
-import React, { useState, useEffect } from 'react';
-import { useParams, Link } from 'react-router-dom';
-import { doc, getDoc } from 'firebase/firestore';
-import { db } from '../services/firebase/index.js'; 
+import fs from 'fs';
+import path from 'path';
+import express from 'express';
+import dotenv from 'dotenv';
+import multer from 'multer';
+import morgan from 'morgan';
+import compression from 'compression';
+import cors from 'cors';
+import { fileURLToPath } from 'url';
+import OpenAI from 'openai';
+import { processChatFile } from './fileProcessor.js';
+import { saveVendorsToFirebase } from './dataProcessor.js';
 
-const toCsv = (rows) => {
-  if (!rows.length) return '';
-  const headers = Object.keys(rows[0]);
-  const csvRows = rows.map((row) =>
-    headers.map((header) => `"${String(row[header] ?? '').replaceAll('"', '""')}"`).join(',')
-  );
-  return `${headers.join(',')}\n${csvRows.join('\n')}`;
-};
+dotenv.config();
 
-const downloadCsv = (filename, rows) => {
-  const csv = toCsv(rows);
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-  const link = document.createElement('a');
-  link.href = URL.createObjectURL(blob);
-  link.setAttribute('download', filename);
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-};
+const PM2_LOG_PATH = '/root/.pm2/logs/index-out.log';
 
-const VendorPage = () => {
-  const { vendorId } = useParams();
-  const [vendorData, setVendorData] = useState(null);
-  const [loading, setLoading] = useState(true);
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const uploadsDir = path.join(__dirname, 'uploads');
 
-  const [dateFilter, setDateFilter] = useState('All');
-  const [categoryFilter, setCategoryFilter] = useState('All');
-  const [groupFilter, setGroupFilter] = useState('All');
+if (!fs.existsSync(uploadsDir)) {
+  fs.mkdirSync(uploadsDir, { recursive: true });
+}
 
-  useEffect(() => {
-    const fetchVendorData = async () => {
-      try {
-        const docRef = doc(db, 'horleyTech_OfflineInventories', vendorId);
-        const docSnap = await getDoc(docRef);
-        if (docSnap.exists()) setVendorData(docSnap.data());
-      } catch (err) {
-        console.error("Error fetching vendor:", err);
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchVendorData();
-  }, [vendorId]);
+const storage = multer.diskStorage({
+  destination: (_req, _file, cb) => cb(null, uploadsDir),
+  filename: (_req, file, cb) => {
+    const safeName = file.originalname.replace(/\s+/g, '-').replace(/[^a-zA-Z0-9._-]/g, '');
+    cb(null, `${Date.now()}-${safeName}`);
+  },
+});
 
-  // Extract unique filters dynamically!
-  const uniqueGroups = vendorData?.products ? ['All', ...new Set(vendorData.products.map(p => p.groupName || 'Direct Message'))] : ['All'];
-  const uniqueCategories = vendorData?.products ? ['All', ...new Set(vendorData.products.map(p => p.Category).filter(Boolean))] : ['All'];
+const upload = multer({
+  storage,
+  limits: { fileSize: 20 * 1024 * 1024 },
+});
 
-  const filteredProducts = () => {
-    if (!vendorData?.products) return [];
-    const now = new Date();
-    
-    return vendorData.products.filter(product => {
-      let passesDate = true;
-      if (dateFilter !== 'All' && product.DatePosted) {
-        const postDate = new Date(product.DatePosted);
-        const diffDays = Math.ceil(Math.abs(now - postDate) / (1000 * 60 * 60 * 24));
-        if (dateFilter === 'This Week') passesDate = diffDays <= 7;
-        if (dateFilter === 'This Month') passesDate = diffDays <= 30;
-      }
+const app = express();
+app.use(cors());
+app.use(compression());
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+app.use(morgan('dev'));
 
-      let passesCategory = categoryFilter === 'All' || product.Category === categoryFilter;
-      let passesGroup = groupFilter === 'All' || (product.groupName || 'Direct Message') === groupFilter;
+const PORT = process.env.PORT || 8000;
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+const CATS = "'iPhone', 'Samsung', 'Laptops', 'Smartphones', 'Smartwatch', 'Sound/Audio', 'Games', 'Tablets', 'Tecno', 'Infinix', 'Xiaomi', 'Oppo', 'Vivo', 'Accessories', 'Others'";
 
-      return passesDate && passesCategory && passesGroup;
+app.get('/', (req, res) => {
+  res.json({ message: 'Server Running' });
+});
+
+app.get('/api/logs', (req, res) => {
+  try {
+    if (!fs.existsSync(PM2_LOG_PATH)) return res.send('No logs yet.');
+    const content = fs.readFileSync(PM2_LOG_PATH, 'utf-8');
+    res.send(content.split('\n').slice(-50).join('\n'));
+  } catch (e) {
+    res.send("Logs loading...");
+  }
+});
+
+app.post('/process', upload.single('file'), async (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ message: 'No file uploaded.', status: false });
+  }
+
+  const filePath = path.join(__dirname, req.file.path);
+
+  res.json({
+    message: 'File uploaded. AI processing started in the background.',
+    status: true,
+  });
+
+  try {
+    const vendorsData = await processChatFile(filePath);
+    if (vendorsData?.length) {
+      await saveVendorsToFirebase(vendorsData);
+    }
+  } catch (err) {
+    console.error('❌ Error processing manual upload:', err);
+  } finally {
+    if (fs.existsSync(filePath)) {
+        fs.unlinkSync(filePath);
+    }
+  }
+});
+
+app.post('/api/webhook/whatsapp', async (req, res) => {
+  const incomingApiKey = req.headers['x-api-key'];
+  if (process.env.WEBHOOK_SECRET && incomingApiKey !== process.env.WEBHOOK_SECRET) {
+    return res.status(401).json({ data: [{ message: '' }] });
+  }
+
+  const { senderName, senderMessage, isMessageFromGroup, groupName } = req.body;
+
+  if (!senderName || !senderMessage) {
+    return res.status(200).json({ data: [{ message: '' }] });
+  }
+
+  res.status(200).json({ data: [{ message: '' }] });
+
+  try {
+    const systemPrompt = `
+        You are an expert product data extractor reading WhatsApp messages.
+        Extract all mobile phones, tablets, laptops, games, and gadgets.
+        
+        Format the output as a JSON array of objects with EXACTLY these keys:
+        - "Category": MUST be one of: ${CATS}. If it does NOT fit these exactly, use 'Others'.
+        - "Device Type": e.g., 'iPhone 15 Pro Max', 'PS5'.
+        - "Condition": e.g., 'Brand New', 'UK Used'.
+        - "SIM Type/Model/Processor": e.g., 'Physical SIM', 'ESIM', 'M1 Chip'.
+        - "Storage Capacity/Configuration": e.g., '256GB'.
+        - "Regular price": The numeric price. CRITICAL: If no price is stated but it's in stock, use 'Available'.
+
+        If no products are found, return []. Only return valid JSON. Do not use markdown blocks.
+        `;
+
+    const aiResponse = await openai.chat.completions.create({
+      model: 'gpt-4o',
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: senderMessage }
+      ],
+      temperature: 0,
     });
-  };
 
-  const displayData = filteredProducts();
+    const cleanJson = aiResponse.choices[0].message.content.replace(/```json/g, '').replace(/```/g, '').trim();
+    const extractedProducts = JSON.parse(cleanJson);
 
-  const handleExport = () => {
-    const rows = displayData.map((product) => ({
-      Group: product.groupName || 'Direct Message',
-      Category: product.Category || '',
-      DeviceType: product['Device Type'] || '',
-      Condition: product.Condition || '',
-      Storage: product['Storage Capacity/Configuration'] || '',
-      Price: product['Regular price'] || '',
-      DatePosted: product.DatePosted || ''
-    }));
-    downloadCsv(`${vendorData?.vendorName || 'Vendor'}-inventory.csv`, rows);
-  };
+    if (extractedProducts.length > 0) {
+      console.log(`✅ AI Extracted ${extractedProducts.length} items.`);
+      const exactServerDate = new Date().toLocaleString('en-US', { timeZone: 'Africa/Lagos' });
 
-  if (loading) return <div className="p-10 text-center">Loading vendor data...</div>;
-  if (!vendorData) return <div className="p-10 text-center font-bold text-red-500">Vendor has no inventory.</div>;
+      const enrichedProducts = extractedProducts.map(product => ({
+        ...product,
+        DatePosted: exactServerDate, 
+        isGroupMessage: isMessageFromGroup || false,
+        groupName: isMessageFromGroup ? groupName : 'Direct Message'
+      }));
 
-  return (
-    <div className="p-6 max-w-7xl mx-auto">
-      <Link to="/dashboard" className="text-blue-500 hover:underline mb-4 inline-block">&larr; Back to Directory</Link>
-      
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-end mb-6 gap-4">
-        <div>
-          <h1 className="text-3xl font-bold text-[#1A1C23]">{vendorData.vendorName}'s Inventory</h1>
-          <p className="text-gray-500 mt-1">Showing {displayData.length} of {vendorData.products.length} Items</p>
-        </div>
-        <button onClick={handleExport} className="bg-green-600 text-white px-5 py-2.5 rounded-[10px] shadow-sm hover:bg-green-700 font-medium transition-colors">
-          Export CSV
-        </button>
-      </div>
+      const masterDocId = senderName.replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6 bg-gray-50 p-5 rounded-[10px] border border-gray-200">
-        <div>
-          <label className="block text-sm font-bold text-gray-700 mb-2">WhatsApp Group</label>
-          <select value={groupFilter} onChange={(e) => setGroupFilter(e.target.value)} className="w-full p-2.5 border rounded-[8px]">
-            {uniqueGroups.map(group => <option key={group} value={group}>{group}</option>)}
-          </select>
-        </div>
-        <div>
-          <label className="block text-sm font-bold text-gray-700 mb-2">Timeframe</label>
-          <select value={dateFilter} onChange={(e) => setDateFilter(e.target.value)} className="w-full p-2.5 border rounded-[8px]">
-            <option value="All">All Time</option>
-            <option value="This Week">Last 7 Days</option>
-            <option value="This Month">Last 30 Days</option>
-          </select>
-        </div>
-        <div>
-          <label className="block text-sm font-bold text-gray-700 mb-2">Category</label>
-          <select value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)} className="w-full p-2.5 border rounded-[8px]">
-            {uniqueCategories.map(cat => <option key={cat} value={cat}>{cat}</option>)}
-          </select>
-        </div>
-      </div>
+      const vendorData = [{
+        vendorId: masterDocId,
+        vendorName: senderName,
+        lastUpdated: new Date().toISOString(),
+        shareableLink: `/vendor/${masterDocId}`,
+        products: enrichedProducts
+      }];
 
-      <div className="overflow-x-auto bg-white shadow rounded-[10px] border border-gray-100">
-        <table className="min-w-full text-left">
-          <thead className="bg-[#1A1C23] text-white">
-            <tr>
-              <th className="p-4 text-sm font-semibold">Group</th>
-              <th className="p-4 text-sm font-semibold">Device</th>
-              <th className="p-4 text-sm font-semibold">Condition</th>
-              <th className="p-4 text-sm font-semibold">Storage</th>
-              <th className="p-4 text-sm font-semibold">Price</th>
-              <th className="p-4 text-sm font-semibold">Date Extracted</th>
-            </tr>
-          </thead>
-          <tbody>
-            {displayData.map((product, index) => (
-              <tr key={index} className="border-b hover:bg-gray-50">
-                <td className="p-4 text-xs"><span className="bg-gray-100 px-2 py-1 rounded">{product.groupName || 'Direct Message'}</span></td>
-                <td className="p-4 font-medium">{product['Device Type']}</td>
-                <td className="p-4 text-gray-600">{product.Condition}</td>
-                <td className="p-4 text-gray-600">{product['Storage Capacity/Configuration']}</td>
-                <td className="p-4 font-bold text-green-600">{product['Regular price']}</td>
-                <td className="p-4 text-sm text-gray-500">{product.DatePosted || 'N/A'}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  );
-};
+      await saveVendorsToFirebase(vendorData);
+    } else {
+      console.log(`🤷‍♂️ No products found in message.`);
+    }
 
-export default VendorPage;
+  } catch (error) {
+    console.error(`❌ Webhook Processing Error:`, error);
+  }
+});
+
+app.listen(PORT, () => {
+  console.log(`🚀 Server running on port ${PORT}`);
+});
