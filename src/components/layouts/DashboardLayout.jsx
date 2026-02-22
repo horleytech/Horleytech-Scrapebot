@@ -7,7 +7,7 @@ import Logo from '../../assets/logo.png';
 import { Bars3Icon, XMarkIcon } from '@heroicons/react/24/outline';
 import { TbLogin2 } from 'react-icons/tb';
 import { IoMdNotifications } from 'react-icons/io';
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 
 // ONLINE ICONS
 import { DiApple, DiSmashingMagazine } from 'react-icons/di';
@@ -20,6 +20,7 @@ import { FaGlobe, FaFileUpload, FaRobot } from 'react-icons/fa';
 
 import { useDispatch, useSelector } from 'react-redux';
 import { toggleMode } from '../../services/reducers/mode/modeReducer';
+import { logout } from '../../services/reducers/auth/loginReducer';
 
 export const OnlineOfflineSwitch = () => {
   const dispatch = useDispatch();
@@ -84,9 +85,16 @@ function classNames(...classes) {
 export default function MenteeDashboardLayout({ children }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const location = useLocation();
+  const navigate = useNavigate();
+  const dispatch = useDispatch();
   
   // REDUX: Check if we are online or offline
   const isOnline = useSelector((state) => state.mode.isOnline);
+
+  const handleLogout = () => {
+    dispatch(logout());
+    navigate('/', { replace: true });
+  };
 
   // Dynamically choose the sidebar links!
   const currentNavigation = isOnline ? onlineNavigation : offlineNavigation;
@@ -168,10 +176,10 @@ export default function MenteeDashboardLayout({ children }) {
                           </ul>
                         </li>
                         <li className="mt-auto">
-                          <Link to="/" className="flex p-2 -mx-2 text-sm leading-6 text-gray-700 rounded-md group gap-x-3 hover:bg-gray-50 hover:text-black">
+                          <button onClick={handleLogout} className="flex w-full p-2 -mx-2 text-sm leading-6 text-gray-700 rounded-md group gap-x-3 hover:bg-gray-50 hover:text-black">
                             <TbLogin2 className="w-6 h-6 shrink-0 text-lightBlue group-hover:text-black" aria-hidden="true" />
-                            Logout
-                          </Link>
+                            Log Out
+                          </button>
                         </li>
                       </ul>
                     </nav>
@@ -222,10 +230,10 @@ export default function MenteeDashboardLayout({ children }) {
                     </ul>
                   </li>
                   <li className="mt-auto">
-                    <Link to="/" className="flex p-2 -mx-2 text-sm leading-6 text-gray-700 rounded-md group gap-x-3 hover:bg-gray-50 hover:text-black">
+                    <button onClick={handleLogout} className="flex w-full p-2 -mx-2 text-sm leading-6 text-gray-700 rounded-md group gap-x-3 hover:bg-gray-50 hover:text-black">
                       <TbLogin2 className="w-6 h-6 shrink-0 text-lightBlue group-hover:text-black" aria-hidden="true" />
-                      Logout
-                    </Link>
+                      Log Out
+                    </button>
                   </li>
                 </ul>
               </nav>
