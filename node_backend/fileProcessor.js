@@ -75,6 +75,7 @@ const extractFromBatch = async (batchText, batchNumber, totalBatches) => {
     console.error(`❌ Error extracting from batch ${batchNumber}:`, error);
     return []; 
   }
+}; // <--- THIS WAS THE MISSING BRACKET!
 
 /**
  * 3. THE POST-PROCESSOR & GROUPER
