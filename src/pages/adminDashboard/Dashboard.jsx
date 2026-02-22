@@ -54,7 +54,8 @@ const AdminDashboard = () => {
     return (
       product['Device Type']?.toLowerCase().includes(term) ||
       product.Category?.toLowerCase().includes(term) ||
-      product.vendorName?.toLowerCase().includes(term)
+      product.vendorName?.toLowerCase().includes(term) ||
+      product.groupName?.toLowerCase().includes(term) // Search by Group Name!
     );
   });
 
@@ -68,7 +69,7 @@ const AdminDashboard = () => {
             <div className="mb-6">
               <input
                 type="text"
-                placeholder="🔍 WhatsApp Inventory: Type a phone model, vendor, or category..."
+                placeholder="🔍 Search by phone model, vendor, category, or WhatsApp Group..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="w-full p-4 border border-gray-300 rounded-[10px] focus:outline-none focus:ring-2 focus:ring-[#1A1C23] text-[15px] shadow-sm"
@@ -86,6 +87,7 @@ const AdminDashboard = () => {
                 <thead className="h-[60px] border-b border-b-[#DDDCF9] bg-white">
                   <tr className="text-[#1A1C23] font-bold text-left">
                     <th className="p-3 pl-6 border-b border-[#DDDCF9]">Vendor</th>
+                    <th className="p-3 border-b border-[#DDDCF9]">Source / Group</th>
                     <th className="p-3 border-b border-[#DDDCF9]">Device Type</th>
                     <th className="p-3 border-b border-[#DDDCF9]">Condition</th>
                     <th className="p-3 border-b border-[#DDDCF9]">Storage</th>
@@ -101,6 +103,9 @@ const AdminDashboard = () => {
                             {product.vendorName}
                           </Link>
                         </td>
+                        <td className="p-3 text-gray-600">
+                          <span className="bg-gray-100 px-2 py-1 rounded text-xs">{product.groupName || 'Direct Message'}</span>
+                        </td>
                         <td className="p-3">{product['Device Type']}</td>
                         <td className="p-3">{product.Condition}</td>
                         <td className="p-3">{product['Storage Capacity/Configuration']}</td>
@@ -109,7 +114,7 @@ const AdminDashboard = () => {
                     ))
                   ) : (
                     <tr>
-                      <td colSpan="5" className="p-6 text-center text-gray-500 font-medium text-[15px]">
+                      <td colSpan="6" className="p-6 text-center text-gray-500 font-medium text-[15px]">
                         {loadingSearch ? "Loading global inventory..." : "No WhatsApp products found."}
                       </td>
                     </tr>
