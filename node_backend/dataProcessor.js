@@ -1,37 +1,47 @@
 import { db } from '../src/services/firebase/index.js';
 import { doc, setDoc, getDoc } from 'firebase/firestore';
 
-const OFFLINE_COLLECTION = 'horleyTech_OfflineInventories';
+export const saveVendorsToFirebase = async (vendorsData) => {
+    for (const vendor of vendorsData) {
+        if (!vendor.vendorId || vendor.vendorId === "Unknown") continue;
 
-export const saveVendorsToFirebase = async (vendorsData, collectionName = OFFLINE_COLLECTION) => {
-  console.log(`🔥 Initiating Firebase update for ${collectionName}...`);
+        // 1. REGEX NORMALIZATION (Your Grouping Idea!)
+        // Strips spaces/symbols so "Horleytech LINE" and "horleytech-line" group together
+        const masterDocId = vendor.vendorId.replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
+        
+        // We now save to the offline collection
+        const docRef = doc(db, 'horleyTech_OfflineInventories', masterDocId);
 
-  for (const vendor of vendorsData) {
-    try {
-      const vendorRef = doc(db, collectionName, vendor.vendorId);
-      const vendorSnap = await getDoc(vendorRef);
+        try {
+            const docSnap = await getDoc(docRef);
+            let existingProducts = [];
 
-      const existingData = vendorSnap.exists() ? vendorSnap.data() : {};
-      const existingProducts = Array.isArray(existingData.products) ? existingData.products : [];
-      const incomingProducts = Array.isArray(vendor.products) ? vendor.products : [];
-      const mergedProducts = [...existingProducts, ...incomingProducts];
+            // 2. FETCH OLD DATA FIRST
+            if (docSnap.exists()) {
+                existingProducts = docSnap.data().products || [];
+            }
 
-      await setDoc(
-        vendorRef,
-        {
-          vendorId: vendor.vendorId,
-          shareableLink: `/vendor/${encodeURIComponent(vendor.vendorId)}`,
-          lastUpdated: vendor.lastUpdated || new Date().toISOString(),
-          products: mergedProducts,
-        },
-        { merge: true }
-      );
+            // 3. MERGE & REMOVE DUPLICATES
+            const mergedProducts = [...existingProducts, ...vendor.products];
+            const uniqueProducts = mergedProducts.filter((product, index, self) =>
+                index === self.findIndex((t) => (
+                    t['Device Type'] === product['Device Type'] && 
+                    t['Regular price'] === product['Regular price']
+                ))
+            );
 
-      console.log(`☁️ Saved ${vendor.vendorId} (${incomingProducts.length} new items).`);
-    } catch (error) {
-      console.error(`❌ Failed to save ${vendor.vendorId} to Firebase:`, error);
+            // 4. SAVE BACK TO FIREBASE
+            await setDoc(docRef, {
+                vendorId: masterDocId,             // Used for URLs
+                vendorName: vendor.vendorId,       // Kept original for Display (e.g., Horleytech LINE)
+                lastUpdated: new Date().toISOString(),
+                shareableLink: `/vendor/${masterDocId}`,
+                products: uniqueProducts
+            });
+
+            console.log(`☁️ Successfully Grouped & Merged ID: ${masterDocId}`);
+        } catch (err) {
+            console.error(`❌ Error saving vendor ${vendor.vendorId}:`, err);
+        }
     }
-  }
-
-  console.log('🎉 Firebase save operation completed.');
 };
