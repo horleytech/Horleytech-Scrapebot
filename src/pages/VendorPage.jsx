@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from '../services/firebase/index.js'; 
@@ -48,20 +48,18 @@ const VendorPage = () => {
     fetchVendorData();
   }, [vendorId]);
 
-  // DYNAMIC FILTERS: These extract unique values directly from the data
-  const uniqueGroups = vendorData?.products 
-    ? ['All', ...new Set(vendorData.products.map(p => p.groupName || 'Direct Message'))] 
-    : ['All'];
+  const products = vendorData?.products || [];
 
-  const uniqueCategories = vendorData?.products 
-    ? ['All', ...new Set(vendorData.products.map(p => p.Category).filter(Boolean))] 
-    : ['All'];
+  // DYNAMIC FILTERS: Extract unique values from the current vendor products
+  const uniqueGroups = useMemo(() => ['All', ...new Set(products.map((p) => p.groupName || 'Direct Message'))], [products]);
+
+  const uniqueCategories = useMemo(() => ['All', ...new Set(products.map((p) => p.Category).filter(Boolean))], [products]);
 
   const filteredProducts = () => {
-    if (!vendorData?.products) return [];
+    if (!products.length) return [];
     const now = new Date();
     
-    return vendorData.products.filter(product => {
+    return products.filter(product => {
       let passesDate = true;
       if (dateFilter !== 'All' && product.DatePosted) {
         const postDate = new Date(product.DatePosted);
@@ -104,7 +102,7 @@ const VendorPage = () => {
       <div className="flex flex-col md:flex-row justify-between items-start md:items-end mb-6 gap-4">
         <div>
           <h1 className="text-3xl font-bold text-[#1A1C23]">{vendorData.vendorName}'s Inventory</h1>
-          <p className="text-gray-500 mt-1">Showing {displayData.length} of {vendorData.products.length} Items</p>
+          <p className="text-gray-500 mt-1">Showing {displayData.length} of {products.length} Items</p>
         </div>
         <button 
           onClick={handleExport}

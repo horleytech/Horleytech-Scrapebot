@@ -8,6 +8,24 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
+const MASTER_CATEGORIES = [
+  'iPhone',
+  'Samsung',
+  'Laptops',
+  'Smartphones',
+  'Smartwatch',
+  'Sound/Audio',
+  'Games',
+  'Tablets',
+  'Tecno',
+  'Infinix',
+  'Xiaomi',
+  'Oppo',
+  'Vivo',
+  'Accessories',
+  'Others',
+];
+
 /**
  * 1. THE BATCH CHUNKER
  * Splits the raw WhatsApp text into safe, token-friendly batches of lines.
@@ -36,7 +54,7 @@ const extractFromBatch = async (batchText, batchNumber, totalBatches) => {
   
   Format the output as a JSON array of objects with EXACTLY these keys:
   - "vendorId": The exact Name or Phone Number of the person who sent the message. (Critical: Do not use the date/time, just the sender's identifier).
-  - "Category": MUST be one of: 'iPhone', 'Samsung', 'Laptops', 'Smartphones', 'Smartwatch', 'Sound/Audio', 'Games', 'Tablets', 'Tecno', 'Infinix', 'Xiaomi', 'Oppo', 'Vivo', 'Accessories', 'Others'. If it does NOT fit these exactly, use 'Others'.
+  - "Category": MUST be one of: ${MASTER_CATEGORIES.map((item) => `'${item}'`).join(', ')}. If it does NOT fit these exactly, use 'Others'.
   - "Device Type": e.g., 'iPhone 15 Pro Max', 'PS5'.
   - "Condition": e.g., 'Brand New', 'UK Used'.
   - "SIM Type/Model/Processor": e.g., 'Physical SIM', 'ESIM', 'M1 Chip', 'No Pad'.

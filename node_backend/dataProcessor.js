@@ -3,7 +3,8 @@ import { doc, setDoc, getDoc } from 'firebase/firestore';
 
 export const saveVendorsToFirebase = async (vendorsData) => {
     for (const vendor of vendorsData) {
-        if (!vendor.vendorId || vendor.vendorId === "Unknown") continue;
+        if (!vendor.vendorId) continue;
+        if (vendor.vendorId === "Unknown") continue;
 
         // REGEX NORMALIZATION: Strips spaces so "Horleytech LINE" and "horleytech-line" merge into "horleytechline"
         const masterDocId = vendor.vendorId.replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
