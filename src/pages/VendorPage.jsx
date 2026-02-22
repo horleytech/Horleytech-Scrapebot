@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from '../services/firebase/index.js'; 
@@ -48,20 +48,17 @@ const VendorPage = () => {
     fetchVendorData();
   }, [vendorId]);
 
-  // DYNAMIC FILTERS: These extract unique values directly from the data
-  const uniqueGroups = vendorData?.products 
-    ? ['All', ...new Set(vendorData.products.map(p => p.groupName || 'Direct Message'))] 
-    : ['All'];
+  const products = vendorData?.products || [];
 
-  const uniqueCategories = vendorData?.products 
-    ? ['All', ...new Set(vendorData.products.map(p => p.Category).filter(Boolean))] 
-    : ['All'];
+  // DYNAMIC FILTERS: Extract unique values from the current vendor products
+  const uniqueGroups = useMemo(() => ['All', ...new Set(products.map((p) => p.groupName || 'Direct Message'))], [products]);
+  const uniqueCategories = useMemo(() => ['All', ...new Set(products.map((p) => p.Category).filter(Boolean))], [products]);
 
   const filteredProducts = () => {
-    if (!vendorData?.products) return [];
+    if (!products.length) return [];
     const now = new Date();
     
-    return vendorData.products.filter(product => {
+    return products.filter(product => {
       let passesDate = true;
       if (dateFilter !== 'All' && product.DatePosted) {
         const postDate = new Date(product.DatePosted);
@@ -94,6 +91,13 @@ const VendorPage = () => {
     downloadCsv(`${vendorData?.vendorName || 'Vendor'}-inventory.csv`, rows);
   };
 
+  // NEW: Copy Shareable Link functionality for Vendors
+  const handleCopyLink = () => {
+    const fullLink = `${window.location.origin}/vendor/${vendorId}`;
+    navigator.clipboard.writeText(fullLink);
+    alert(`✅ Link copied to clipboard!\n\nYou can now share this specific inventory with customers:\n${fullLink}`);
+  };
+
   if (loading) return <div className="p-10 text-center">Loading vendor data...</div>;
   if (!vendorData) return <div className="p-10 text-center font-bold text-red-500">Vendor has no inventory. Please upload data.</div>;
 
@@ -104,14 +108,24 @@ const VendorPage = () => {
       <div className="flex flex-col md:flex-row justify-between items-start md:items-end mb-6 gap-4">
         <div>
           <h1 className="text-3xl font-bold text-[#1A1C23]">{vendorData.vendorName}'s Inventory</h1>
-          <p className="text-gray-500 mt-1">Showing {displayData.length} of {vendorData.products.length} Items</p>
+          <p className="text-gray-500 mt-1">Showing {displayData.length} of {products.length} Items</p>
         </div>
-        <button 
-          onClick={handleExport}
-          className="bg-green-600 text-white px-5 py-2.5 rounded-[10px] shadow-sm hover:bg-green-700 font-medium transition-colors"
-        >
-          Export CSV
-        </button>
+        
+        {/* Buttons Section */}
+        <div className="flex gap-3 w-full md:w-auto">
+          <button 
+            onClick={handleCopyLink}
+            className="bg-blue-600 text-white px-5 py-2.5 rounded-[10px] shadow-sm hover:bg-blue-700 font-medium transition-colors flex-1 md:flex-none"
+          >
+            🔗 Copy Link
+          </button>
+          <button 
+            onClick={handleExport}
+            className="bg-green-600 text-white px-5 py-2.5 rounded-[10px] shadow-sm hover:bg-green-700 font-medium transition-colors flex-1 md:flex-none"
+          >
+            Export CSV
+          </button>
+        </div>
       </div>
 
       {/* Dynamic Filters */}
