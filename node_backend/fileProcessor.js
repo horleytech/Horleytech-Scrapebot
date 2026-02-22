@@ -89,13 +89,17 @@ const groupProductsByVendor = (allExtractedProducts) => {
       };
     }
 
-    // Remove vendorId from the product object itself before saving it to the array, 
-    // to keep the database clean (since it's already under the vendor's folder)
+    // Remove vendorId from the product object itself
     const { vendorId, ...cleanProduct } = product;
-    vendorMap[vendor].products.push(cleanProduct);
+    
+    // NEW: Inject the Group fields so manual uploads perfectly match the Webhook format!
+    vendorMap[vendor].products.push({
+      ...cleanProduct,
+      isGroupMessage: false,
+      groupName: 'Manual .txt Upload' // This will now show nicely on the dashboard
+    });
   });
 
-  // Convert the map object back into an array of vendor objects
   return Object.values(vendorMap);
 };
 
