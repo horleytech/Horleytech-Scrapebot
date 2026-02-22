@@ -6,3 +6,5 @@ generator/myenv/
 ssl
 uploads
 pnpm-lock.yamldist/
+dist/
+get-pip.py
