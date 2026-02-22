@@ -38,7 +38,7 @@ app.get('/', (req, res) => {
 });
 
 // ==========================================================
-// 🚀 1. MANUAL UPLOAD ROUTE (Restored & Upgraded)
+// 🚀 1. MANUAL UPLOAD ROUTE
 // ==========================================================
 app.post('/process', upload.single('file'), async (req, res) => {
   if (!req.file) {
@@ -49,19 +49,16 @@ app.post('/process', upload.single('file'), async (req, res) => {
   const filePath = path.join(__dirname, req.file.path);
   console.log(`File path resolved as: ${filePath}`);
 
-  // Respond to the frontend immediately so the loading spinner doesn't hang forever
   res.json({
     message: 'File Uploaded. AI processing started. Check dashboard shortly for updates.',
     status: true,
   });
 
-  // Run the new AI Extractor in the background
   try {
     const vendorsData = await processChatFile(filePath);
     if (vendorsData && vendorsData.length > 0) {
         await saveVendorsToFirebase(vendorsData);
     }
-    // Delete the file from the server after successful processing
     fs.unlink(filePath, (err) => {
       if (err) console.error('Error deleting file:', err);
       else console.log('🗑️ Deleted temporary upload file');
@@ -72,31 +69,37 @@ app.post('/process', upload.single('file'), async (req, res) => {
 });
 
 // ==========================================================
-// 🚀 2. "AUTO LISTEN" WEBHOOK (Custom Header Auth)
+// 🚀 2. "AUTO LISTEN" WEBHOOK (Configured for Auto Reply App)
 // ==========================================================
 app.post('/api/webhook/whatsapp', async (req, res) => {
-    // 1. SECURE AUTHENTICATION: Look for 'x-api-key' in the custom headers
-    // Express automatically converts header names to lowercase
+    // 1. SECURE AUTHENTICATION (Optional but recommended)
     const incomingApiKey = req.headers['x-api-key'];
-
-    if (incomingApiKey !== process.env.WEBHOOK_SECRET) {
-        console.warn(`🚨 Unauthorized webhook attempt blocked. Invalid x-api-key.`);
-        return res.status(401).json({ error: "Unauthorized. Invalid API Key." });
+    if (process.env.WEBHOOK_SECRET && incomingApiKey !== process.env.WEBHOOK_SECRET) {
+        console.warn(`🚨 Unauthorized webhook attempt blocked.`);
+        // Must still return the dummy format so the app doesn't crash on failure
+        return res.status(401).json({ data: [{ message: "" }] });
     }
 
-    // 2. EXTRACT DATA: Catch the AutoResponder app's default payload
-    const sender = req.body?.sender || req.body?.title;
-    const message = req.body?.message || req.body?.senderMessage;
+    // 2. EXTRACT EXACT DATA FROM AUTO REPLY APP
+    const { 
+        senderName, 
+        senderMessage, 
+        isMessageFromGroup, 
+        groupName 
+    } = req.body;
 
-    if (!sender || !message) {
-        return res.status(400).json({ error: "Missing sender or message." });
+    // Ignore empty messages silently
+    if (!senderName || !senderMessage) {
+        return res.status(200).json({ data: [{ message: "" }] });
     }
 
-    console.log(`📡 [AUTO LISTEN] Secure message received from ${sender}`);
+    console.log(`📡 [AUTO LISTEN] Message from ${isMessageFromGroup ? `Group: ${groupName} (Sender: ${senderName})` : senderName}`);
 
-    // Immediately send 200 OK so the Android app doesn't crash
-    res.status(200).json({ status: "Secure message received, processing..." });
+    // 3. IMMEDIATELY RESPOND TO THE APP 
+    // We send an empty message string so it DOES NOT reply on WhatsApp
+    res.status(200).json({ data: [{ message: "" }] });
 
+    // 4. BACKGROUND AI PROCESSING
     try {
         const systemPrompt = `
         You are an expert product data extractor.
@@ -119,7 +122,7 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
             model: 'gpt-4o',
             messages: [
                 { role: 'system', content: systemPrompt },
-                { role: 'user', content: message }
+                { role: 'user', content: senderMessage }
             ],
             temperature: 0,
         });
@@ -129,23 +132,33 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
         const extractedProducts = JSON.parse(cleanJson);
 
         if (extractedProducts.length > 0) {
-            console.log(`✅ AI Extracted ${extractedProducts.length} items from ${sender}`);
+            console.log(`✅ AI Extracted ${extractedProducts.length} items.`);
             
+            // 5. ENRICH PRODUCTS WITH GROUP DATA
+            const enrichedProducts = extractedProducts.map(product => ({
+                ...product,
+                isGroupMessage: isMessageFromGroup || false,
+                groupName: isMessageFromGroup ? groupName : null
+            }));
+
+            // Use groupName as the vendorId if it's a group, otherwise use senderName
+            const identifier = isMessageFromGroup ? groupName : senderName;
+
             const vendorData = [{
-                vendorId: sender,
+                vendorId: identifier,
                 lastUpdated: new Date().toISOString(),
-                shareableLink: `/vendor/${encodeURIComponent(sender.replace(/\s+/g, '-'))}`,
-                products: extractedProducts
+                shareableLink: `/vendor/${encodeURIComponent(identifier.replace(/\s+/g, '-'))}`,
+                products: enrichedProducts
             }];
 
             await saveVendorsToFirebase(vendorData);
-            console.log(`🗂️ Background save complete for ${sender}.`);
+            console.log(`🗂️ Background save complete for ${identifier}.`);
         } else {
-            console.log(`🤷‍♂️ No products found in message from ${sender}.`);
+            console.log(`🤷‍♂️ No products found in message.`);
         }
 
     } catch (error) {
-        console.error(`❌ Webhook Processing Error for ${sender}:`, error);
+        console.error(`❌ Webhook Processing Error:`, error);
     }
 });
 
