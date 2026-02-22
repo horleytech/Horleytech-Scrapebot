@@ -5,23 +5,20 @@ export const saveVendorsToFirebase = async (vendorsData) => {
     for (const vendor of vendorsData) {
         if (!vendor.vendorId || vendor.vendorId === "Unknown") continue;
 
-        // 1. REGEX NORMALIZATION (Your Grouping Idea!)
-        // Strips spaces/symbols so "Horleytech LINE" and "horleytech-line" group together
+        // REGEX NORMALIZATION: Strips spaces so "Horleytech LINE" and "horleytech-line" merge into "horleytechline"
         const masterDocId = vendor.vendorId.replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
         
-        // We now save to the offline collection
         const docRef = doc(db, 'horleyTech_OfflineInventories', masterDocId);
 
         try {
             const docSnap = await getDoc(docRef);
             let existingProducts = [];
 
-            // 2. FETCH OLD DATA FIRST
             if (docSnap.exists()) {
                 existingProducts = docSnap.data().products || [];
             }
 
-            // 3. MERGE & REMOVE DUPLICATES
+            // Merge & Remove Duplicates
             const mergedProducts = [...existingProducts, ...vendor.products];
             const uniqueProducts = mergedProducts.filter((product, index, self) =>
                 index === self.findIndex((t) => (
@@ -30,10 +27,9 @@ export const saveVendorsToFirebase = async (vendorsData) => {
                 ))
             );
 
-            // 4. SAVE BACK TO FIREBASE
             await setDoc(docRef, {
-                vendorId: masterDocId,             // Used for URLs
-                vendorName: vendor.vendorId,       // Kept original for Display (e.g., Horleytech LINE)
+                vendorId: masterDocId,
+                vendorName: vendor.vendorId, // Keep original name for display
                 lastUpdated: new Date().toISOString(),
                 shareableLink: `/vendor/${masterDocId}`,
                 products: uniqueProducts
