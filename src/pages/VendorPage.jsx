@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from '../services/firebase/index.js'; 
+import { useSelector } from 'react-redux';
 
 // CSV Helpers
 const toCsv = (rows) => {
@@ -32,6 +33,9 @@ const VendorPage = () => {
   const [dateFilter, setDateFilter] = useState('All');
   const [categoryFilter, setCategoryFilter] = useState('All');
   const [groupFilter, setGroupFilter] = useState('All');
+
+  // Check if the person viewing this page is the logged-in admin
+  const isAdmin = useSelector((state) => state.auth?.isAuthenticated);
 
   useEffect(() => {
     const fetchVendorData = async () => {
@@ -67,7 +71,6 @@ const VendorPage = () => {
         if (dateFilter === 'This Month') passesDate = diffDays <= 30;
       }
 
-      // Exact match for the dynamic category filter
       let passesCategory = categoryFilter === 'All' || product.Category === categoryFilter;
       let passesGroup = groupFilter === 'All' || (product.groupName || 'Direct Message') === groupFilter;
 
@@ -77,7 +80,6 @@ const VendorPage = () => {
 
   const displayData = filteredProducts();
 
-  // Export EXACTLY what is currently filtered on the screen
   const handleExport = () => {
     const rows = displayData.map((product) => ({
       Group: product.groupName || 'Direct Message',
@@ -91,7 +93,7 @@ const VendorPage = () => {
     downloadCsv(`${vendorData?.vendorName || 'Vendor'}-inventory.csv`, rows);
   };
 
-  // NEW: Copy Shareable Link functionality for Vendors
+  // Copy Shareable Link
   const handleCopyLink = () => {
     const fullLink = `${window.location.origin}/vendor/${vendorId}`;
     navigator.clipboard.writeText(fullLink);
@@ -99,11 +101,16 @@ const VendorPage = () => {
   };
 
   if (loading) return <div className="p-10 text-center">Loading vendor data...</div>;
-  if (!vendorData) return <div className="p-10 text-center font-bold text-red-500">Vendor has no inventory. Please upload data.</div>;
+  if (!vendorData) return <div className="p-10 text-center font-bold text-red-500">Vendor has no inventory.</div>;
 
   return (
     <div className="p-6 max-w-7xl mx-auto">
-      <Link to="/dashboard" className="text-blue-500 hover:underline mb-4 inline-block">&larr; Back to Directory</Link>
+      {/* ONLY SHOW THIS "BACK" BUTTON TO THE ADMIN */}
+      {isAdmin && (
+        <Link to="/dashboard" className="text-blue-500 hover:underline mb-4 inline-block">
+          &larr; Back to Directory
+        </Link>
+      )}
       
       <div className="flex flex-col md:flex-row justify-between items-start md:items-end mb-6 gap-4">
         <div>
@@ -113,12 +120,14 @@ const VendorPage = () => {
         
         {/* Buttons Section */}
         <div className="flex gap-3 w-full md:w-auto">
-          <button 
-            onClick={handleCopyLink}
-            className="bg-blue-600 text-white px-5 py-2.5 rounded-[10px] shadow-sm hover:bg-blue-700 font-medium transition-colors flex-1 md:flex-none"
-          >
-            🔗 Copy Link
-          </button>
+          {isAdmin && (
+            <button 
+              onClick={handleCopyLink}
+              className="bg-blue-600 text-white px-5 py-2.5 rounded-[10px] shadow-sm hover:bg-blue-700 font-medium transition-colors flex-1 md:flex-none"
+            >
+              🔗 Copy Link
+            </button>
+          )}
           <button 
             onClick={handleExport}
             className="bg-green-600 text-white px-5 py-2.5 rounded-[10px] shadow-sm hover:bg-green-700 font-medium transition-colors flex-1 md:flex-none"

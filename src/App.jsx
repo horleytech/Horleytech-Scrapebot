@@ -16,14 +16,11 @@ function App() {
   return (
     <Routes>
       <Route path="/" element={<TechLogin />} />
-      <Route
-        path="/vendor/:vendorId"
-        element={
-          <ProtectedRoute>
-            <VendorPage />
-          </ProtectedRoute>
-        }
-      />
+      
+      {/* 🔴 PUBLIC ROUTE: Anyone with the link can view a vendor's inventory */}
+      <Route path="/vendor/:vendorId" element={<VendorPage />} />
+
+      {/* 🟢 PROTECTED ROUTES: Only logged-in admins can access the main dashboard */}
       <Route
         path="/dashboard"
         element={
