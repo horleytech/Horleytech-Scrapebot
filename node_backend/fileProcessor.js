@@ -1,5 +1,6 @@
 import OpenAI from 'openai';
 import fs from 'fs';
+import { convertString } from './cleaner.js';
 import dotenv from 'dotenv';
 dotenv.config();
 
@@ -60,12 +61,20 @@ const extractFromBatch = async (batchText, batchNumber, totalBatches) => {
     const rawJson = response.choices[0].message.content.trim();
     const cleanJson = rawJson.replace(/^```json/g, '').replace(/```$/g, '').trim();
     
-    return JSON.parse(cleanJson);
+    // First, try to parse it normally
+    try {
+        return JSON.parse(cleanJson);
+    } catch (parseError) {
+        console.warn(`⚠️ JSON was cut off in Batch ${batchNumber}. Activating cleaner.js rescue...`);
+        // If it fails, use the cleaner to rescue the data!
+        const rescuedJson = convertString(cleanJson);
+        return JSON.parse(rescuedJson);
+    }
+
   } catch (error) {
     console.error(`❌ Error extracting from batch ${batchNumber}:`, error);
-    return []; // Return empty array so one failed batch doesn't stop the whole file
+    return []; 
   }
-};
 
 /**
  * 3. THE POST-PROCESSOR & GROUPER
