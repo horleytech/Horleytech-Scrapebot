@@ -14,7 +14,6 @@ import { saveVendorsToFirebase } from './dataProcessor.js';
 dotenv.config();
 
 const OFFLINE_COLLECTION = 'horleyTech_OfflineInventories';
-const PM2_LOG_PATH = '/root/.pm2/logs/index-out.log';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -39,18 +38,7 @@ app.get('/', (req, res) => {
 });
 
 app.get('/api/logs', (req, res) => {
-  try {
-    if (!fs.existsSync(PM2_LOG_PATH)) {
-      return res.status(404).json({ message: 'PM2 log file does not exist yet.', logs: '' });
-    }
-
-    const fileContent = fs.readFileSync(PM2_LOG_PATH, 'utf-8');
-    const last50Lines = fileContent.split('\n').slice(-50).join('\n');
-    return res.json({ logs: last50Lines });
-  } catch (error) {
-    console.error('Error reading PM2 logs:', error);
-    return res.status(500).json({ message: 'Failed to read PM2 logs.', logs: '' });
-  }
+  res.send(fs.readFileSync('/root/.pm2/logs/index-out.log', 'utf8').split('\n').slice(-50).join('\n'));
 });
 
 app.post('/process', upload.single('file'), async (req, res) => {
@@ -93,20 +81,28 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
 
   res.status(200).json({ data: [{ message: '' }] });
 
+  // 4. BACKGROUND AI PROCESSING
   try {
     const systemPrompt = `
-      You are an expert product data extractor.
-      Extract all mobile phones, tablets, laptops, games, and gadgets from this single WhatsApp message.
-      Return a JSON array with keys: Category, Device Type, Condition, SIM Type/Model/Processor,
-      Storage Capacity/Configuration, Regular price, DatePosted.
-      If no products exist, return [].
-    `;
+        You are an expert product data extractor reading WhatsApp messages.
+        Extract all mobile phones, tablets, laptops, games, and gadgets.
+        
+        Format the output as a JSON array of objects with EXACTLY these keys:
+        - "Category": MUST be one of: 'iPhone', 'Samsung', 'Laptops', 'Smartphones', 'Smartwatch', 'Sound/Audio', 'Games', 'Tablets', 'Accessories', 'Others'. If it does NOT fit these exactly, use 'Others'.
+        - "Device Type": e.g., 'iPhone 15 Pro Max', 'PS5'.
+        - "Condition": e.g., 'Brand New', 'UK Used'.
+        - "SIM Type/Model/Processor": e.g., 'Physical SIM', 'ESIM', 'M1 Chip'.
+        - "Storage Capacity/Configuration": e.g., '256GB'.
+        - "Regular price": The numeric price. CRITICAL: If no price is stated but it's in stock, use 'Available'.
+
+        If no products are found, return []. Only return valid JSON. Do not use markdown blocks.
+        `;
 
     const aiResponse = await openai.chat.completions.create({
       model: 'gpt-4o',
       messages: [
         { role: 'system', content: systemPrompt },
-        { role: 'user', content: senderMessage },
+        { role: 'user', content: senderMessage }
       ],
       temperature: 0,
     });
@@ -116,26 +112,34 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
     const extractedProducts = JSON.parse(cleanJson);
 
     if (extractedProducts.length > 0) {
-      const enrichedProducts = extractedProducts.map((product) => ({
+      console.log(`✅ AI Extracted ${extractedProducts.length} items.`);
+      
+      // EXACT SERVER DATE STAMP FIX
+      const exactServerDate = new Date().toLocaleString('en-US', { timeZone: 'Africa/Lagos' });
+
+      const enrichedProducts = extractedProducts.map(product => ({
         ...product,
+        DatePosted: exactServerDate, // Overrides the AI!
         isGroupMessage: isMessageFromGroup || false,
-        groupName: isMessageFromGroup ? groupName : 'Direct Message',
+        groupName: isMessageFromGroup ? groupName : 'Direct Message'
       }));
 
-      await saveVendorsToFirebase(
-        [
-          {
-            vendorId: senderName,
-            lastUpdated: new Date().toISOString(),
-            shareableLink: `/vendor/${encodeURIComponent(senderName)}`,
-            products: enrichedProducts,
-          },
-        ],
-        OFFLINE_COLLECTION
-      );
+      const identifier = senderName;
+
+      const vendorData = [{
+        vendorId: identifier,
+        lastUpdated: new Date().toISOString(),
+        shareableLink: `/vendor/${encodeURIComponent(identifier.replace(/\s+/g, '-'))}`,
+        products: enrichedProducts
+      }];
+
+      await saveVendorsToFirebase(vendorData, OFFLINE_COLLECTION);
+    } else {
+      console.log(`🤷‍♂️ No products found in message.`);
     }
+
   } catch (error) {
-    console.error('❌ Webhook Processing Error:', error);
+    console.error(`❌ Webhook Processing Error:`, error);
   }
 });
 

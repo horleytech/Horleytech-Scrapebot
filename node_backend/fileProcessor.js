@@ -36,9 +36,8 @@ const extractFromBatch = async (batchText, batchNumber, totalBatches) => {
   
   Format the output as a JSON array of objects with EXACTLY these keys:
   - "vendorId": The exact Name or Phone Number of the person who sent the message. (Critical: Do not use the date/time, just the sender's identifier).
-  - "DatePosted": The date the message was sent, extracted from the chat log.
-  - "Category": e.g., 'iPhone 14 Series'. If it does NOT fit a standard phone/laptop category, use 'Others'.
-  - "Device Type": e.g., 'iPhone 14 Pro Max', 'Xbox Series S'.
+  - "Category": MUST be one of: 'iPhone', 'Samsung', 'Laptops', 'Smartphones', 'Smartwatch', 'Sound/Audio', 'Games', 'Tablets', 'Accessories', 'Others'. If it does NOT fit these exactly, use 'Others'.
+  - "Device Type": e.g., 'iPhone 15 Pro Max', 'PS5'.
   - "Condition": e.g., 'Brand New', 'UK Used'.
   - "SIM Type/Model/Processor": e.g., 'Physical SIM', 'ESIM', 'M1 Chip', 'No Pad'.
   - "Storage Capacity/Configuration": e.g., '256GB', '512GB/16GB RAM'.
@@ -63,19 +62,19 @@ const extractFromBatch = async (batchText, batchNumber, totalBatches) => {
     
     // First, try to parse it normally
     try {
-        return JSON.parse(cleanJson);
+      return JSON.parse(cleanJson);
     } catch (parseError) {
-        console.warn(`⚠️ JSON was cut off in Batch ${batchNumber}. Activating cleaner.js rescue...`);
-        // If it fails, use the cleaner to rescue the data!
-        const rescuedJson = convertString(cleanJson);
-        return JSON.parse(rescuedJson);
+      console.warn(`⚠️ JSON was cut off in Batch ${batchNumber}. Activating cleaner.js rescue...`);
+      // If it fails, use the cleaner to rescue the data!
+      const rescuedJson = convertString(cleanJson);
+      return JSON.parse(rescuedJson);
     }
 
   } catch (error) {
     console.error(`❌ Error extracting from batch ${batchNumber}:`, error);
     return []; 
   }
-}; // <--- THIS WAS THE MISSING BRACKET!
+};
 
 /**
  * 3. THE POST-PROCESSOR & GROUPER
@@ -83,11 +82,11 @@ const extractFromBatch = async (batchText, batchNumber, totalBatches) => {
  */
 const groupProductsByVendor = (allExtractedProducts) => {
   const vendorMap = {};
+  const exactServerDate = new Date().toLocaleString('en-US', { timeZone: 'Africa/Lagos' });
 
   allExtractedProducts.forEach(product => {
     const vendor = product.vendorId;
     
-    // Skip if AI failed to find a vendor
     if (!vendor || vendor === "Unknown") return; 
 
     if (!vendorMap[vendor]) {
@@ -99,14 +98,13 @@ const groupProductsByVendor = (allExtractedProducts) => {
       };
     }
 
-    // Remove vendorId from the product object itself
     const { vendorId, ...cleanProduct } = product;
     
-    // NEW: Inject the Group fields so manual uploads perfectly match the Webhook format!
     vendorMap[vendor].products.push({
       ...cleanProduct,
+      DatePosted: exactServerDate, // Overrides the AI with exact time!
       isGroupMessage: false,
-      groupName: 'Manual .txt Upload' // This will now show nicely on the dashboard
+      groupName: 'TXT Upload'
     });
   });
 
@@ -118,25 +116,25 @@ const groupProductsByVendor = (allExtractedProducts) => {
  * Coordinates chunking, AI extraction, and grouping.
  */
 export const processChatFile = async (filePath) => {
-    const rawText = fs.readFileSync(filePath, 'utf-8');
-    
-    // 1. Chunk the file
-    const batches = createBatches(rawText, 60); // 60 lines per batch is very safe for tokens
-    console.log(`📦 File split into ${batches.length} batches to protect API limits.`);
+  const rawText = fs.readFileSync(filePath, 'utf-8');
+  
+  // 1. Chunk the file
+  const batches = createBatches(rawText, 60); // 60 lines per batch is very safe for tokens
+  console.log(`📦 File split into ${batches.length} batches to protect API limits.`);
 
-    let allProducts = [];
+  let allProducts = [];
 
-    // 2. Process each chunk sequentially (or you could use Promise.all to do it concurrently)
-    for (let i = 0; i < batches.length; i++) {
-        const batchProducts = await extractFromBatch(batches[i], i + 1, batches.length);
-        allProducts = [...allProducts, ...batchProducts];
-    }
-    
-    console.log(`✅ Total products extracted globally: ${allProducts.length}`);
+  // 2. Process each chunk sequentially (or you could use Promise.all to do it concurrently)
+  for (let i = 0; i < batches.length; i++) {
+    const batchProducts = await extractFromBatch(batches[i], i + 1, batches.length);
+    allProducts = [...allProducts, ...batchProducts];
+  }
+  
+  console.log(`✅ Total products extracted globally: ${allProducts.length}`);
 
-    // 3. Group by vendor
-    const finalVendorData = groupProductsByVendor(allProducts);
-    
-    console.log(`🗂️ Successfully grouped into ${finalVendorData.length} unique Vendors.`);
-    return finalVendorData;
+  // 3. Group by vendor
+  const finalVendorData = groupProductsByVendor(allProducts);
+  
+  console.log(`🗂️ Successfully grouped into ${finalVendorData.length} unique Vendors.`);
+  return finalVendorData;
 };
