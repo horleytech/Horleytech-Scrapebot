@@ -8,12 +8,13 @@ import compression from 'compression';
 import cors from 'cors';
 import { fileURLToPath } from 'url';
 import OpenAI from 'openai';
-
-// Import our new Phase 1 functions
 import { processChatFile } from './fileProcessor.js';
 import { saveVendorsToFirebase } from './dataProcessor.js';
 
 dotenv.config();
+
+const OFFLINE_COLLECTION = 'horleyTech_OfflineInventories';
+const PM2_LOG_PATH = '/root/.pm2/logs/index-out.log';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -37,129 +38,105 @@ app.get('/', (req, res) => {
   res.json({ message: 'Server Running' });
 });
 
-// ==========================================================
-// 🚀 1. MANUAL UPLOAD ROUTE
-// ==========================================================
+app.get('/api/logs', (req, res) => {
+  try {
+    if (!fs.existsSync(PM2_LOG_PATH)) {
+      return res.status(404).json({ message: 'PM2 log file does not exist yet.', logs: '' });
+    }
+
+    const fileContent = fs.readFileSync(PM2_LOG_PATH, 'utf-8');
+    const last50Lines = fileContent.split('\n').slice(-50).join('\n');
+    return res.json({ logs: last50Lines });
+  } catch (error) {
+    console.error('Error reading PM2 logs:', error);
+    return res.status(500).json({ message: 'Failed to read PM2 logs.', logs: '' });
+  }
+});
+
 app.post('/process', upload.single('file'), async (req, res) => {
   if (!req.file) {
-    console.error("No file uploaded.");
-    return res.status(400).send('No file uploaded.');
+    return res.status(400).json({ message: 'No file uploaded.' });
   }
 
   const filePath = path.join(__dirname, req.file.path);
-  console.log(`File path resolved as: ${filePath}`);
 
   res.json({
-    message: 'File Uploaded. AI processing started. Check dashboard shortly for updates.',
+    message: 'File uploaded. AI processing started in the background.',
     status: true,
   });
 
   try {
     const vendorsData = await processChatFile(filePath);
-    if (vendorsData && vendorsData.length > 0) {
-        await saveVendorsToFirebase(vendorsData);
+    if (vendorsData?.length) {
+      await saveVendorsToFirebase(vendorsData, OFFLINE_COLLECTION);
     }
-    fs.unlink(filePath, (err) => {
-      if (err) console.error('Error deleting file:', err);
-      else console.log('🗑️ Deleted temporary upload file');
-    });
   } catch (err) {
     console.error('❌ Error processing manual upload:', err);
+  } finally {
+    fs.unlink(filePath, (err) => {
+      if (err) console.error('Error deleting file:', err);
+    });
   }
 });
 
-// ==========================================================
-// 🚀 2. "AUTO LISTEN" WEBHOOK (Configured for Auto Reply App)
-// ==========================================================
 app.post('/api/webhook/whatsapp', async (req, res) => {
-    // 1. SECURE AUTHENTICATION (Optional but recommended)
-    const incomingApiKey = req.headers['x-api-key'];
-    if (process.env.WEBHOOK_SECRET && incomingApiKey !== process.env.WEBHOOK_SECRET) {
-        console.warn(`🚨 Unauthorized webhook attempt blocked.`);
-        // Must still return the dummy format so the app doesn't crash on failure
-        return res.status(401).json({ data: [{ message: "" }] });
+  const incomingApiKey = req.headers['x-api-key'];
+  if (process.env.WEBHOOK_SECRET && incomingApiKey !== process.env.WEBHOOK_SECRET) {
+    return res.status(401).json({ data: [{ message: '' }] });
+  }
+
+  const { senderName, senderMessage, isMessageFromGroup, groupName } = req.body;
+
+  if (!senderName || !senderMessage) {
+    return res.status(200).json({ data: [{ message: '' }] });
+  }
+
+  res.status(200).json({ data: [{ message: '' }] });
+
+  try {
+    const systemPrompt = `
+      You are an expert product data extractor.
+      Extract all mobile phones, tablets, laptops, games, and gadgets from this single WhatsApp message.
+      Return a JSON array with keys: Category, Device Type, Condition, SIM Type/Model/Processor,
+      Storage Capacity/Configuration, Regular price, DatePosted.
+      If no products exist, return [].
+    `;
+
+    const aiResponse = await openai.chat.completions.create({
+      model: 'gpt-4o',
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: senderMessage },
+      ],
+      temperature: 0,
+    });
+
+    const rawJson = aiResponse.choices[0].message.content.trim();
+    const cleanJson = rawJson.replace(/^```json/g, '').replace(/```$/g, '').trim();
+    const extractedProducts = JSON.parse(cleanJson);
+
+    if (extractedProducts.length > 0) {
+      const enrichedProducts = extractedProducts.map((product) => ({
+        ...product,
+        isGroupMessage: isMessageFromGroup || false,
+        groupName: isMessageFromGroup ? groupName : 'Direct Message',
+      }));
+
+      await saveVendorsToFirebase(
+        [
+          {
+            vendorId: senderName,
+            lastUpdated: new Date().toISOString(),
+            shareableLink: `/vendor/${encodeURIComponent(senderName)}`,
+            products: enrichedProducts,
+          },
+        ],
+        OFFLINE_COLLECTION
+      );
     }
-
-    // 2. EXTRACT EXACT DATA FROM AUTO REPLY APP
-    const { 
-        senderName, 
-        senderMessage, 
-        isMessageFromGroup, 
-        groupName 
-    } = req.body;
-
-    // Ignore empty messages silently
-    if (!senderName || !senderMessage) {
-        return res.status(200).json({ data: [{ message: "" }] });
-    }
-
-    console.log(`📡 [AUTO LISTEN] Message from ${isMessageFromGroup ? `Group: ${groupName} (Sender: ${senderName})` : senderName}`);
-
-    // 3. IMMEDIATELY RESPOND TO THE APP 
-    // We send an empty message string so it DOES NOT reply on WhatsApp
-    res.status(200).json({ data: [{ message: "" }] });
-
-    // 4. BACKGROUND AI PROCESSING
-    try {
-        const systemPrompt = `
-        You are an expert product data extractor.
-        Extract all mobile phones, tablets, laptops, games, and gadgets from this single WhatsApp message.
-        
-        Format the output as a JSON array of objects with EXACTLY these keys:
-        - "Category": e.g., 'iPhone 14 Series'. If it does NOT fit a standard category, use 'Others'.
-        - "Device Type": e.g., 'iPhone 14 Pro Max'.
-        - "Condition": e.g., 'Brand New', 'UK Used'.
-        - "SIM Type/Model/Processor": e.g., 'Physical SIM', 'ESIM'.
-        - "Storage Capacity/Configuration": e.g., '256GB'.
-        - "Regular price": The numeric price. CRITICAL: If no price is stated but it's in stock, use 'Available'.
-        - "DatePosted": Use today's date: "${new Date().toISOString().split('T')[0]}".
-
-        If no products are found in this message, return an empty array [].
-        Only return the valid JSON array. Do not include markdown formatting.
-        `;
-
-        const aiResponse = await openai.chat.completions.create({
-            model: 'gpt-4o',
-            messages: [
-                { role: 'system', content: systemPrompt },
-                { role: 'user', content: senderMessage }
-            ],
-            temperature: 0,
-        });
-
-        const rawJson = aiResponse.choices[0].message.content.trim();
-        const cleanJson = rawJson.replace(/^```json/g, '').replace(/```$/g, '').trim();
-        const extractedProducts = JSON.parse(cleanJson);
-
-        if (extractedProducts.length > 0) {
-            console.log(`✅ AI Extracted ${extractedProducts.length} items.`);
-            
-   // 5. ENRICH PRODUCTS WITH GROUP DATA
-            const enrichedProducts = extractedProducts.map(product => ({
-                ...product,
-                isGroupMessage: isMessageFromGroup || false,
-                groupName: isMessageFromGroup ? groupName : 'Direct Message' // Tag the product
-            }));
-
-            // ALWAYS use the sender's name as their Vendor ID!
-            const identifier = senderName;
-
-            const vendorData = [{
-                vendorId: identifier,
-                lastUpdated: new Date().toISOString(),
-                shareableLink: `/vendor/${encodeURIComponent(identifier.replace(/\s+/g, '-'))}`,
-                products: enrichedProducts
-            }];
-
-            await saveVendorsToFirebase(vendorData);
-            console.log(`🗂️ Background save complete for ${identifier}.`);
-        } else {
-            console.log(`🤷‍♂️ No products found in message.`);
-        }
-
-    } catch (error) {
-        console.error(`❌ Webhook Processing Error:`, error);
-    }
+  } catch (error) {
+    console.error('❌ Webhook Processing Error:', error);
+  }
 });
 
 app.listen(PORT, () => {
