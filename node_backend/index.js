@@ -134,15 +134,15 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
         if (extractedProducts.length > 0) {
             console.log(`✅ AI Extracted ${extractedProducts.length} items.`);
             
-            // 5. ENRICH PRODUCTS WITH GROUP DATA
+   // 5. ENRICH PRODUCTS WITH GROUP DATA
             const enrichedProducts = extractedProducts.map(product => ({
                 ...product,
                 isGroupMessage: isMessageFromGroup || false,
-                groupName: isMessageFromGroup ? groupName : null
+                groupName: isMessageFromGroup ? groupName : 'Direct Message' // Tag the product
             }));
 
-            // Use groupName as the vendorId if it's a group, otherwise use senderName
-            const identifier = isMessageFromGroup ? groupName : senderName;
+            // ALWAYS use the sender's name as their Vendor ID!
+            const identifier = senderName;
 
             const vendorData = [{
                 vendorId: identifier,
