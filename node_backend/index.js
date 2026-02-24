@@ -10,6 +10,7 @@ import { fileURLToPath } from 'url';
 import OpenAI from 'openai';
 import { processChatFile } from './fileProcessor.js';
 import { saveVendorsToFirebase } from './dataProcessor.js';
+import { initializeBackupJob } from './backup.js';
 
 dotenv.config();
 
@@ -46,6 +47,8 @@ app.use(morgan('dev'));
 const PORT = process.env.PORT || 8000;
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const CATS = "'iPhone', 'Samsung', 'Laptops', 'Smartphones', 'Smartwatch', 'Sound/Audio', 'Games', 'Tablets', 'Tecno', 'Infinix', 'Xiaomi', 'Oppo', 'Vivo', 'Accessories', 'Others'";
+
+initializeBackupJob();
 
 app.get('/', (req, res) => {
   res.json({ message: 'Server Running' });

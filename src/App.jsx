@@ -5,6 +5,7 @@ import Dashboard from './pages/adminDashboard/Dashboard';
 import VendorPage from './pages/VendorPage';
 import UploadData from './pages/adminDashboardPages/UploadData';
 import AutoListen from './pages/adminDashboardPages/AutoListen';
+import StoreFront from './pages/StoreFront';
 
 const ProtectedRoute = ({ children }) => {
   const isAuthenticated = useSelector((state) => state.auth.isAuthenticated);
@@ -16,9 +17,12 @@ function App() {
   return (
     <Routes>
       <Route path="/" element={<TechLogin />} />
-      
-      {/* 🔴 PUBLIC ROUTE: Anyone with the link can view a vendor's inventory */}
+
+      {/* 🔴 PUBLIC ROUTE: Anyone with the admin/vendor inventory link can view full inventory */}
       <Route path="/vendor/:vendorId" element={<VendorPage />} />
+
+      {/* 🟢 PUBLIC STOREFRONT: Customer-facing page with visible products only */}
+      <Route path="/store/:vendorId" element={<StoreFront />} />
 
       {/* 🟢 PROTECTED ROUTES: Only logged-in admins can access the main dashboard */}
       <Route
