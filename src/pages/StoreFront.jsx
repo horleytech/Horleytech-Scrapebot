@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { doc, getDoc, updateDoc, increment } from 'firebase/firestore';
 import { db } from '../services/firebase/index.js';
@@ -175,14 +175,173 @@ const StoreFront = () => {
 
   const themeColor = vendorData.themeColor || '#16a34a';
   const lighterTheme = lightenHex(themeColor, 0.22);
+  const storeLayout = vendorData.storeLayout || 'classic';
+  const isDarkLayout = storeLayout === 'dark';
+
+  const pageClassName = isDarkLayout
+    ? 'min-h-screen py-8 px-4 md:px-8 bg-[#121212] text-gray-100'
+    : 'min-h-screen bg-gray-50 py-8 px-4 md:px-8';
+
+  const renderClassicTable = () => (
+    <div className={`overflow-x-auto rounded-2xl shadow-xl border ${isDarkLayout ? 'bg-[#181818] border-[#2b2b2b]' : 'bg-white border-gray-100'}`}>
+      <table className="min-w-full text-left border-collapse">
+        <thead className="text-white uppercase tracking-wider" style={{ backgroundColor: themeColor }}>
+          <tr>
+            <th className="px-6 py-5 text-xs font-black first:rounded-tl-2xl">Device</th>
+            <th className="px-6 py-5 text-xs font-black">Condition</th>
+            <th className="px-6 py-5 text-xs font-black">Specification</th>
+            <th className="px-6 py-5 text-xs font-black">Storage</th>
+            <th className="px-6 py-5 text-xs font-black">Price</th>
+            <th className="px-6 py-5 text-xs font-black last:rounded-tr-2xl">Order</th>
+          </tr>
+        </thead>
+        <tbody className={isDarkLayout ? 'divide-y divide-[#2b2b2b]' : 'divide-y divide-gray-100'}>
+          {visibleProducts.length > 0 ? (
+            visibleProducts.map((product, index) => (
+              <tr
+                key={index}
+                className="transition-colors group"
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.backgroundColor = isDarkLayout ? '#1f1f1f' : `${lighterTheme}1A`;
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.backgroundColor = 'transparent';
+                }}
+              >
+                <td className="px-6 py-5">
+                  <div className="flex items-center gap-3">
+                    {product.productImageBase64 && (
+                      <img
+                        src={product.productImageBase64}
+                        alt=""
+                        className={`w-12 h-12 rounded-lg object-cover shadow-sm border ${isDarkLayout ? 'bg-[#202020] border-[#333]' : 'bg-gray-100 border-gray-200'}`}
+                      />
+                    )}
+                    <span className={`font-bold text-sm ${isDarkLayout ? 'text-gray-100' : 'text-[#1A1C23]'}`}>{product['Device Type'] || 'N/A'}</span>
+                  </div>
+                </td>
+                <td className="px-6 py-5 text-sm">
+                  <span className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase ${
+                    product.Condition?.toLowerCase().includes('new')
+                      ? 'bg-blue-50 text-blue-600'
+                      : 'bg-orange-50 text-orange-600'
+                  }`}>
+                    {product.Condition || 'N/A'}
+                  </span>
+                </td>
+                <td className={`px-6 py-5 text-sm italic font-medium ${isDarkLayout ? 'text-gray-400' : 'text-gray-600'}`}>
+                  {product['SIM Type/Model/Processor'] || 'N/A'}
+                </td>
+                <td className={`px-6 py-5 text-sm font-bold ${isDarkLayout ? 'text-gray-300' : 'text-gray-500'}`}>
+                  {product['Storage Capacity/Configuration'] || 'N/A'}
+                </td>
+                <td className="px-6 py-5 font-black text-lg" style={{ color: themeColor }}>
+                  {product['Regular price'] || 'N/A'}
+                </td>
+                <td className="px-6 py-5">
+                  <button
+                    onClick={() => handleWhatsAppClick(product)}
+                    style={{ backgroundColor: themeColor, boxShadow: isDarkLayout ? `0 0 0 1px ${themeColor}, 0 0 12px ${themeColor}66` : 'none' }}
+                    className="inline-flex items-center text-white px-5 py-2.5 rounded-xl font-black text-xs uppercase shadow-sm hover:brightness-90 transition-all active:scale-95 whitespace-nowrap"
+                  >
+                    Order via WhatsApp
+                  </button>
+                </td>
+              </tr>
+            ))
+          ) : null}
+        </tbody>
+      </table>
+    </div>
+  );
+
+  const renderGridLayout = () => (
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+      {visibleProducts.map((product, index) => (
+        <div key={index} className={`rounded-2xl overflow-hidden border shadow-sm ${isDarkLayout ? 'bg-[#1a1a1a] border-[#2b2b2b]' : 'bg-white border-gray-100'}`}>
+          {product.productImageBase64 ? (
+            <img src={product.productImageBase64} alt={product['Device Type'] || 'Product'} className="w-full h-48 object-cover" />
+          ) : (
+            <div className={`w-full h-48 flex items-center justify-center text-sm font-bold ${isDarkLayout ? 'bg-[#202020] text-gray-500' : 'bg-gray-100 text-gray-400'}`}>No Image</div>
+          )}
+          <div className="p-4 space-y-2">
+            <h3 className={`font-black text-lg ${isDarkLayout ? 'text-gray-100' : 'text-[#1A1C23]'}`}>{product['Device Type'] || 'N/A'}</h3>
+            <p className={`text-xs uppercase font-bold ${isDarkLayout ? 'text-gray-400' : 'text-gray-500'}`}>{product.Condition || 'N/A'}</p>
+            <p className={`text-sm ${isDarkLayout ? 'text-gray-300' : 'text-gray-600'}`}>{product['SIM Type/Model/Processor'] || 'N/A'}</p>
+            <p className={`text-sm font-semibold ${isDarkLayout ? 'text-gray-300' : 'text-gray-600'}`}>{product['Storage Capacity/Configuration'] || 'N/A'}</p>
+            <div className="flex items-center justify-between pt-2">
+              <span className="font-black text-lg" style={{ color: themeColor }}>{product['Regular price'] || 'N/A'}</span>
+              <button
+                onClick={() => handleWhatsAppClick(product)}
+                style={{ backgroundColor: themeColor, boxShadow: isDarkLayout ? `0 0 10px ${themeColor}66` : 'none' }}
+                className="text-white text-xs font-black uppercase px-3 py-2 rounded-lg hover:brightness-90"
+              >
+                Order
+              </button>
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+
+  const renderListLayout = (variant) => (
+    <div className={`rounded-2xl overflow-hidden border ${isDarkLayout ? 'bg-[#181818] border-[#2b2b2b]' : 'bg-white border-gray-100'}`}>
+      {visibleProducts.map((product, index) => (
+        <div key={index} className={`flex items-center justify-between gap-4 border-b last:border-b-0 ${isDarkLayout ? 'border-[#2b2b2b]' : 'border-gray-200'} ${variant === 'compact' ? 'px-4 py-3 text-xs' : 'px-6 py-6 text-sm'}`}>
+          <div className="min-w-0">
+            <p className={`font-black truncate ${variant === 'compact' ? 'text-sm' : 'text-base'} ${isDarkLayout ? 'text-gray-100' : 'text-[#1A1C23]'}`}>{product['Device Type'] || 'N/A'}</p>
+            <p className={`${isDarkLayout ? 'text-gray-400' : 'text-gray-500'} ${variant === 'compact' ? 'mt-0.5' : 'mt-1'}`}>{product.Condition || 'N/A'} • {product['Storage Capacity/Configuration'] || 'N/A'}</p>
+            {variant !== 'compact' && (
+              <p className={`mt-1 italic ${isDarkLayout ? 'text-gray-500' : 'text-gray-500'}`}>{product['SIM Type/Model/Processor'] || 'N/A'}</p>
+            )}
+          </div>
+          <div className="flex items-center gap-3 shrink-0">
+            <span className={`font-black ${variant === 'compact' ? 'text-sm' : 'text-lg'}`} style={{ color: themeColor }}>
+              {product['Regular price'] || 'N/A'}
+            </span>
+            <button
+              onClick={() => handleWhatsAppClick(product)}
+              style={{ backgroundColor: themeColor, boxShadow: isDarkLayout ? `0 0 10px ${themeColor}66` : 'none' }}
+              className={`${variant === 'compact' ? 'px-3 py-1.5 text-[10px]' : 'px-4 py-2 text-xs'} text-white rounded-lg uppercase font-black hover:brightness-90`}
+            >
+              Order
+            </button>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+
+  const renderProductsByLayout = () => {
+    if (visibleProducts.length === 0) {
+      return (
+        <div className={`rounded-2xl border py-20 text-center ${isDarkLayout ? 'bg-[#181818] border-[#2b2b2b]' : 'bg-white border-gray-100'}`}>
+          <span className="text-5xl mb-4 grayscale block">📦</span>
+          <p className={`font-bold text-xl uppercase tracking-widest ${isDarkLayout ? 'text-gray-500' : 'text-gray-400'}`}>No matching products found.</p>
+        </div>
+      );
+    }
+
+    if (storeLayout === 'grid') return renderGridLayout();
+    if (storeLayout === 'minimal') return renderListLayout('minimal');
+    if (storeLayout === 'compact') return renderListLayout('compact');
+    if (storeLayout === 'dark') return renderClassicTable();
+    return renderClassicTable();
+  };
 
   return (
-    <div className="min-h-screen bg-gray-50 py-8 px-4 md:px-8">
+    <div className={pageClassName}>
       <div className="max-w-7xl mx-auto">
         {/* Header with Chrome-style Gradient and Description */}
-        <div 
-          className="mb-6 p-6 rounded-2xl text-white shadow-xl transition-all" 
-          style={{ background: `linear-gradient(135deg, ${themeColor}, #1A1C23)` }}
+        <div
+          className="mb-6 p-6 rounded-2xl text-white shadow-xl transition-all"
+          style={{
+            background: storeLayout === 'dark'
+              ? `linear-gradient(135deg, ${themeColor}, #000000)`
+              : `linear-gradient(135deg, ${themeColor}, #1A1C23)`,
+            boxShadow: storeLayout === 'dark' ? `0 0 20px ${themeColor}55` : undefined,
+          }}
         >
           <div className="flex flex-col md:flex-row items-center gap-6">
             {vendorData.logoBase64 ? (
@@ -206,87 +365,13 @@ const StoreFront = () => {
               <div className="flex flex-wrap justify-center md:justify-start gap-4 mt-4">
                 {vendorData.address && <span className="text-xs font-bold bg-black/20 px-3 py-1.5 rounded-full">📍 {vendorData.address}</span>}
                 <span className="text-xs font-bold bg-black/20 px-3 py-1.5 rounded-full">📦 {visibleProducts.length} items available</span>
+                <span className="text-xs font-bold bg-black/20 px-3 py-1.5 rounded-full">🧩 {storeLayout} layout</span>
               </div>
             </div>
           </div>
         </div>
 
-        {/* Product Table - Hides the "Group" column */}
-        <div className="overflow-x-auto bg-white rounded-2xl shadow-xl border border-gray-100">
-          <table className="min-w-full text-left border-collapse">
-            <thead className="text-white uppercase tracking-wider" style={{ backgroundColor: themeColor }}>
-              <tr>
-                <th className="px-6 py-5 text-xs font-black first:rounded-tl-2xl">Device</th>
-                <th className="px-6 py-5 text-xs font-black">Condition</th>
-                <th className="px-6 py-5 text-xs font-black">Specification</th>
-                <th className="px-6 py-5 text-xs font-black">Storage</th>
-                <th className="px-6 py-5 text-xs font-black">Price</th>
-                <th className="px-6 py-5 text-xs font-black last:rounded-tr-2xl">Order</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {visibleProducts.length > 0 ? (
-                visibleProducts.map((product, index) => (
-                  <tr 
-                    key={index} 
-                    className="transition-colors group"
-                    onMouseEnter={(e) => e.currentTarget.style.backgroundColor = `${lighterTheme}1A`}
-                    onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
-                  >
-                    <td className="px-6 py-5">
-                      <div className="flex items-center gap-3">
-                        {product.productImageBase64 && (
-                          <img 
-                            src={product.productImageBase64} 
-                            alt="" 
-                            className="w-12 h-12 rounded-lg object-cover bg-gray-100 shadow-sm border border-gray-200"
-                          />
-                        )}
-                        <span className="font-bold text-[#1A1C23] text-sm">{product['Device Type'] || 'N/A'}</span>
-                      </div>
-                    </td>
-                    <td className="px-6 py-5 text-sm">
-                      <span className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase ${
-                        product.Condition?.toLowerCase().includes('new') 
-                          ? 'bg-blue-50 text-blue-600' 
-                          : 'bg-orange-50 text-orange-600'
-                      }`}>
-                        {product.Condition || 'N/A'}
-                      </span>
-                    </td>
-                    <td className="px-6 py-5 text-gray-600 text-sm italic font-medium">
-                      {product['SIM Type/Model/Processor'] || 'N/A'}
-                    </td>
-                    <td className="px-6 py-5 text-gray-500 text-sm font-bold">
-                      {product['Storage Capacity/Configuration'] || 'N/A'}
-                    </td>
-                    <td className="px-6 py-5 font-black text-lg" style={{ color: themeColor }}>
-                      {product['Regular price'] || 'N/A'}
-                    </td>
-                    <td className="px-6 py-5">
-                      <button
-                        onClick={() => handleWhatsAppClick(product)}
-                        style={{ backgroundColor: themeColor }}
-                        className="inline-flex items-center text-white px-5 py-2.5 rounded-xl font-black text-xs uppercase shadow-sm hover:brightness-90 transition-all active:scale-95 whitespace-nowrap"
-                      >
-                        Order via WhatsApp
-                      </button>
-                    </td>
-                  </tr>
-                ))
-              ) : (
-                <tr>
-                  <td colSpan="6" className="px-5 py-20 text-center">
-                    <div className="flex flex-col items-center">
-                      <span className="text-5xl mb-4 grayscale">📦</span>
-                      <p className="text-gray-400 font-bold text-xl uppercase tracking-widest">No matching products found.</p>
-                    </div>
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
+        {renderProductsByLayout()}
       </div>
     </div>
   );
