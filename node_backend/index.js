@@ -327,19 +327,19 @@ app.post('/api/inventory/bulk-edit', async (req, res) => {
 
 // Vendor Onboarding Link Generator
 app.post('/api/admin/onboard-vendor', async (req, res) => {
-  const { vendorName, phoneNumber } = req.body || {};
+  const { vendorName, adminNumber } = req.body || {};
 
-  if (!vendorName || !phoneNumber) {
-    return res.status(400).json({ success: false, error: 'vendorName and phoneNumber are required.' });
+  if (!vendorName || !adminNumber) {
+    return res.status(400).json({ success: false, error: 'vendorName and adminNumber are required.' });
   }
 
-  const cleanedNumber = String(phoneNumber).replace(/[^0-9]/g, '');
+  const cleanedNumber = String(adminNumber).replace(/[^0-9]/g, '');
   if (!cleanedNumber) {
-    return res.status(400).json({ success: false, error: 'phoneNumber must include digits.' });
+    return res.status(400).json({ success: false, error: 'adminNumber must include digits.' });
   }
 
-  const message = `Hello! I am ${String(vendorName).trim()}. Please onboard me. My product format will be: [Device] | [Specs] | [Condition] | [Price]`;
-  const url = `https://wa.me/${cleanedNumber}?text=${encodeURIComponent(message)}`;
+  const message = `Hello! I am ${String(vendorName).trim()}. Please onboard me to Horleytech. My product list format will be: [Device] | [Specs] | [Condition] | [Price]`;
+  const url = encodeURI(`https://wa.me/${cleanedNumber}?text=${message}`);
 
   return res.json({ success: true, url, message });
 });
