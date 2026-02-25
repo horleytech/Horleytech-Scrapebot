@@ -120,6 +120,8 @@ const AdminDashboard = () => {
   const [bulkPrice, setBulkPrice] = useState('');
   const [tutorialVideoUrl, setTutorialVideoUrl] = useState('');
   const [savingTutorialVideo, setSavingTutorialVideo] = useState(false);
+  const [onboardVendorName, setOnboardVendorName] = useState('');
+  const [botNumber, setBotNumber] = useState('');
 
   const fetchInventory = async () => {
     setLoadingSearch(true);
@@ -238,6 +240,34 @@ const AdminDashboard = () => {
       alert(`❌ ${error.message}`);
     } finally {
       setSavingTutorialVideo(false);
+    }
+  };
+
+  const generateOnboardingLink = async () => {
+    if (!onboardVendorName.trim() || !botNumber.trim()) {
+      alert('Please enter vendor name and bot number.');
+      return;
+    }
+
+    try {
+      const response = await fetch(`${BASE_URL}/api/admin/onboard-vendor`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        body: JSON.stringify({
+          vendorName: onboardVendorName.trim(),
+          phoneNumber: botNumber.trim(),
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok || !data.success) throw new Error(data.error);
+      const tinyUrlRes = await fetch(`https://tinyurl.com/api-create.php?url=${encodeURIComponent(data.url)}`);
+      const shortUrl = await tinyUrlRes.text();
+      await navigator.clipboard.writeText(shortUrl);
+      alert(`✅ Shortened link copied to clipboard:
+
+${shortUrl}`);
+    } catch (error) {
+      alert(`❌ ${error.message}`);
     }
   };
 
@@ -673,6 +703,7 @@ const AdminDashboard = () => {
               <button onClick={() => setActiveTab('activity')} className={`flex-shrink-0 px-5 py-2.5 rounded-lg text-sm font-bold transition-all ${activeTab === 'activity' ? 'bg-white text-[#1A1C23] shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Activity Log</button>
               <button onClick={() => setActiveTab('backups')} className={`flex-shrink-0 px-5 py-2.5 rounded-lg text-sm font-bold transition-all ${activeTab === 'backups' ? 'bg-white text-[#1A1C23] shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Backups</button>
               <button onClick={() => setActiveTab('history')} className={`flex-shrink-0 px-5 py-2.5 rounded-lg text-sm font-bold transition-all ${activeTab === 'history' ? 'bg-white text-[#1A1C23] shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>History</button>
+              <button onClick={() => setActiveTab('share')} className={`flex-shrink-0 px-5 py-2.5 rounded-lg text-sm font-bold transition-all ${activeTab === 'share' ? 'bg-white text-[#1A1C23] shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Share</button>
             </div>
           </div>
 
@@ -871,6 +902,18 @@ const AdminDashboard = () => {
                 )) : (
                   <p className="text-sm text-gray-400">No audit logs found.</p>
                 )}
+              </div>
+            </div>
+          ) : activeTab === 'share' ? (
+            <div className="bg-emerald-50 border border-emerald-100 rounded-xl p-4">
+              <h3 className="text-sm font-black text-emerald-800 uppercase tracking-wider mb-3">Onboard Vendor</h3>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <input value={onboardVendorName} onChange={(e) => setOnboardVendorName(e.target.value)} placeholder="Vendor's Name" className="w-full p-3 border rounded-[8px] focus:ring-2 focus:ring-emerald-500 outline-none" />
+                <input value={botNumber} onChange={(e) => setBotNumber(e.target.value)} placeholder="Your Admin Bot Number" className="w-full p-3 border rounded-[8px] focus:ring-2 focus:ring-emerald-500 outline-none" />
+                <button onClick={generateOnboardingLink} className="bg-emerald-600 text-white px-4 py-3 rounded-[8px] font-bold hover:bg-emerald-700 transition-colors">Generate & Copy Link</button>
+              </div>
+              <div className="mt-3 p-3 rounded-lg border border-emerald-100 bg-emerald-50 text-emerald-900 text-xs">
+                Generates a pre-formatted WhatsApp onboarding link for vendors and copies a shortened version to your clipboard.
               </div>
             </div>
           ) : (
