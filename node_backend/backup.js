@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import { fileURLToPath } from 'url'; // Required for absolute pathing
+import { fileURLToPath } from 'url';
 import cron from 'node-cron';
 import { google } from 'googleapis';
 import admin from 'firebase-admin';
@@ -16,11 +16,6 @@ const AUDIT_COLLECTION = 'horleyTech_AuditLogs';
 const ensureAdminInitialized = () => {
   if (!admin.apps.length) {
     try {
-      /**
-       * PERFECT PATH LOGIC:
-       * Since backup.js and firebase-credentials.json are in the same folder,
-       * we look for the file relative to this script, not the terminal path.
-       */
       const serviceAccountPath = path.join(__dirname, 'firebase-credentials.json');
 
       if (!fs.existsSync(serviceAccountPath)) {
@@ -60,6 +55,9 @@ const getDriveClient = () => {
     email: serviceAccountEmail,
     key: serviceAccountPrivateKey,
     scopes: ['https://www.googleapis.com/auth/drive.file'],
+    // Note: If you ever want to upload to "My Drive" instead of a "Shared Drive",
+    // you must use Domain-Wide Delegation and uncomment the line below:
+    // subject: 'admin@your-workspace-domain.com' 
   });
 
   const drive = google.drive({ version: 'v3', auth });
@@ -73,10 +71,10 @@ const uploadFileToDrive = async (filePath, fileName) => {
   const { drive, driveFolderId } = client;
 
   try {
-    console.log(`☁️ Starting Google Drive upload for ${fileName} -> folder ${driveFolderId}`);
+    console.log(`☁️ Starting Google Drive upload for ${fileName} -> Shared Drive ${driveFolderId}`);
 
     await drive.files.create({
-      // 🔥 THIS IS THE MAGIC LINE: Forces Drive to use the Folder Owner's quota
+      // 🔥 Required for uploading to Workspace Shared Drives
       supportsAllDrives: true, 
       requestBody: {
         name: fileName,
@@ -97,7 +95,6 @@ const uploadFileToDrive = async (filePath, fileName) => {
       : (error?.stack || error?.message || String(error));
 
     console.error(`❌ Google Drive upload failed for ${fileName}: ${detailedMessage}`);
-    throw error;
   }
 };
 
@@ -146,7 +143,7 @@ export const listBackupsFromDrive = async () => {
     orderBy: 'createdTime desc',
     pageSize: 5,
     fields: 'files(id,name,createdTime,size)',
-    supportsAllDrives: true, // Added here as well for safety
+    supportsAllDrives: true,
     includeItemsFromAllDrives: true,
   });
 
@@ -166,7 +163,7 @@ export const downloadAndRestoreFromDrive = async (fileId) => {
     { 
       fileId, 
       alt: 'media',
-      supportsAllDrives: true // Added here as well
+      supportsAllDrives: true
     },
     { responseType: 'arraybuffer' }
   );
@@ -206,7 +203,6 @@ export const runBackup = async () => {
   const safeTimestamp = timestamp.replace(/[:.]/g, '-');
   const fileName = `offline-inventory-backup-${safeTimestamp}.json`;
   
-  // Save local backups in a folder relative to this script
   const backupDir = path.join(__dirname, 'backups');
   const localPath = path.join(backupDir, fileName);
 
@@ -231,10 +227,8 @@ export const runBackup = async () => {
 
     fs.writeFileSync(localPath, JSON.stringify(payload, null, 2));
 
-    // Async upload to Drive
     await uploadFileToDrive(localPath, fileName);
 
-    // Save history record to Firebase
     await firestore.collection(BACKUP_HISTORY_COLLECTION).doc(safeTimestamp).set(payload);
 
     console.log(`✅ Backup Successful: ${fileName}`);
@@ -251,7 +245,6 @@ export const runBackup = async () => {
       error: error.message,
     };
   } finally {
-    // Cleanup local temp file
     if (fs.existsSync(localPath)) {
       fs.unlinkSync(localPath);
     }
