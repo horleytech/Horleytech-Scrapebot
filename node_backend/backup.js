@@ -76,6 +76,8 @@ const uploadFileToDrive = async (filePath, fileName) => {
     console.log(`☁️ Starting Google Drive upload for ${fileName} -> folder ${driveFolderId}`);
 
     await drive.files.create({
+      // 🔥 THIS IS THE MAGIC LINE: Forces Drive to use the Folder Owner's quota
+      supportsAllDrives: true, 
       requestBody: {
         name: fileName,
         parents: [driveFolderId],
@@ -87,6 +89,8 @@ const uploadFileToDrive = async (filePath, fileName) => {
       },
       fields: 'id, name',
     });
+    
+    console.log('✅ Google Drive upload finished successfully.');
   } catch (error) {
     const detailedMessage = error?.response?.data
       ? JSON.stringify(error.response.data)
@@ -142,6 +146,8 @@ export const listBackupsFromDrive = async () => {
     orderBy: 'createdTime desc',
     pageSize: 5,
     fields: 'files(id,name,createdTime,size)',
+    supportsAllDrives: true, // Added here as well for safety
+    includeItemsFromAllDrives: true,
   });
 
   return response.data.files || [];
@@ -157,7 +163,11 @@ export const downloadAndRestoreFromDrive = async (fileId) => {
   const { drive } = client;
 
   const response = await drive.files.get(
-    { fileId, alt: 'media' },
+    { 
+      fileId, 
+      alt: 'media',
+      supportsAllDrives: true // Added here as well
+    },
     { responseType: 'arraybuffer' }
   );
 
