@@ -354,9 +354,13 @@ const AdminDashboard = () => {
   const triggerManualBackup = async () => {
     setManualBackupLoading(true);
     try {
+<<<<<<< codex/fix-routing-error-and-refine-ui/ux-74emu9
       const res = await fetch(`${BASE_URL}/api/backup/manual`, {
         headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
       });
+=======
+      const res = await fetch(`${BASE_URL}/api/backup/manual`);
+>>>>>>> main
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error || 'Manual backup failed');
       alert(`✅ Manual backup completed. Backup ID: ${data.backupId}`);
@@ -405,9 +409,13 @@ const AdminDashboard = () => {
     setChatVendor(vendor);
     setChatOpen(true);
     try {
+<<<<<<< codex/fix-routing-error-and-refine-ui/ux-74emu9
       const response = await fetch(`${BASE_URL}/api/messages/${vendor.vendorId}`, {
         headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
       });
+=======
+      const response = await fetch(`${BASE_URL}/api/messages/${vendor.vendorId}`);
+>>>>>>> main
       const data = await response.json();
       if (!response.ok || !data.success) throw new Error(data.error || 'Failed to load conversation');
       setChatMessages(Array.isArray(data.messages) ? data.messages : []);
@@ -644,9 +652,15 @@ const AdminDashboard = () => {
                             {togglingAdvancedVendorId === vendor.docId ? '...' : vendor.advancedEnabled ? 'AI Enabled' : 'AI Locked'}
                           </button>
                         </td>
+<<<<<<< codex/fix-routing-error-and-refine-ui/ux-74emu9
                         <td className="hidden md:table-cell p-4"><span className="bg-gray-100 text-gray-600 px-3 py-1.5 rounded-full text-[11px] font-bold">{vendor.totalProducts} Items</span></td>
                         <td className="p-4"><Link to={vendor.shareableLink} target="_blank" rel="noopener noreferrer" className="inline-block bg-[#1A1C23] text-white px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-wider hover:bg-black transition-all shadow-sm">Manage</Link></td>
                         <td className="hidden md:table-cell p-4 pr-6">
+=======
+                        <td className="p-4"><span className="bg-gray-100 text-gray-600 px-3 py-1.5 rounded-full text-[11px] font-bold">{vendor.totalProducts} Items</span></td>
+                        <td className="p-4"><Link to={vendor.shareableLink} target="_blank" rel="noopener noreferrer" className="inline-block bg-[#1A1C23] text-white px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-wider hover:bg-black transition-all shadow-sm">Manage</Link></td>
+                        <td className="p-4 pr-6">
+>>>>>>> main
                           <button onClick={() => openChatForVendor(vendor)} className="p-2.5 rounded-xl bg-blue-100 text-blue-600 hover:bg-blue-600 hover:text-white transition-all shadow-sm relative group">
                             <IoMdChatboxes className="w-5 h-5" />
                             {allMessages.some(m => m.vendorId === vendor.vendorId && m.sender === 'vendor' && !m.readByAdmin) && (

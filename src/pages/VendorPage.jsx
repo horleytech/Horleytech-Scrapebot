@@ -697,9 +697,13 @@ const VendorPage = () => {
   const fetchSupportMessages = async () => {
     setSupportLoading(true);
     try {
+<<<<<<< codex/fix-routing-error-and-refine-ui/ux-74emu9
       const response = await fetch(`${BASE_URL}/api/messages/${vendorId}`, {
         headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
       });
+=======
+      const response = await fetch(`${BASE_URL}/api/messages/${vendorId}`);
+>>>>>>> main
       const data = await response.json();
       if (!response.ok || !data.success) {
         throw new Error(data.error || 'Unable to fetch messages');
