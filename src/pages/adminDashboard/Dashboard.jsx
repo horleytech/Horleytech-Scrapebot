@@ -19,6 +19,7 @@ import {
 } from 'recharts';
 import AdminDashboardLayout from '../../components/layouts/DashboardLayout';
 import { db } from '../../services/firebase/index.js';
+import { BASE_URL } from '../../services/constants/apiConstants.js';
 
 const COLLECTIONS = {
   offline: 'horleyTech_OfflineInventories',
@@ -159,7 +160,7 @@ const AdminDashboard = () => {
 
   const fetchAllMessages = async () => {
     try {
-      const response = await fetch('/api/messages');
+      const response = await fetch(`${BASE_URL}/api/messages`);
       const data = await response.json();
       if (!response.ok || !data.success) throw new Error(data.error || 'Failed to load messages');
       setAllMessages(Array.isArray(data.messages) ? data.messages : []);
@@ -350,7 +351,7 @@ const AdminDashboard = () => {
   const triggerManualBackup = async () => {
     setManualBackupLoading(true);
     try {
-      const res = await fetch('/api/backup/manual');
+      const res = await fetch(`${BASE_URL}/api/backup/manual`);
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error || 'Manual backup failed');
       alert(`✅ Manual backup completed. Backup ID: ${data.backupId}`);
@@ -366,7 +367,7 @@ const AdminDashboard = () => {
     if (!window.confirm(`Restore backup ${backupId}? This will overwrite the live offline inventory.`)) return;
     setRestoringBackupId(backupId);
     try {
-      const res = await fetch('/api/backup/restore', {
+      const res = await fetch(`${BASE_URL}/api/backup/restore`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ backupId }),
@@ -399,7 +400,7 @@ const AdminDashboard = () => {
     setChatVendor(vendor);
     setChatOpen(true);
     try {
-      const response = await fetch(`/api/messages/${vendor.vendorId}`);
+      const response = await fetch(`${BASE_URL}/api/messages/${vendor.vendorId}`);
       const data = await response.json();
       if (!response.ok || !data.success) throw new Error(data.error || 'Failed to load conversation');
       setChatMessages(Array.isArray(data.messages) ? data.messages : []);
@@ -414,7 +415,7 @@ const AdminDashboard = () => {
 
     setSendingChat(true);
     try {
-      const response = await fetch('/api/messages/send', {
+      const response = await fetch(`${BASE_URL}/api/messages/send`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -615,7 +616,7 @@ const AdminDashboard = () => {
                     {filteredOffline.map(vendor => (
                       <tr key={vendor.docId} className="hover:bg-blue-50/30 transition-colors">
                         <td className="p-4 pl-6"><input type="checkbox" checked={selectedVendorIds.includes(vendor.docId)} onChange={() => toggleVendor(vendor.docId)} className="w-4 h-4 rounded border-gray-300 cursor-pointer" /></td>
-                        <td className="p-4 font-bold text-blue-600 hover:text-blue-800"><Link to={vendor.shareableLink}>{vendor.vendorName}</Link></td>
+                        <td className="p-4 font-bold text-blue-600 hover:text-blue-800"><Link to={vendor.shareableLink} target="_blank" rel="noopener noreferrer">{vendor.vendorName}</Link></td>
                         <td className="p-4">
                           <span className={`px-2.5 py-1 rounded-lg text-[10px] font-black uppercase ${vendor.status === 'suspended' ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>{vendor.status}</span>
                         </td>
@@ -637,7 +638,7 @@ const AdminDashboard = () => {
                           </button>
                         </td>
                         <td className="p-4"><span className="bg-gray-100 text-gray-600 px-3 py-1.5 rounded-full text-[11px] font-bold">{vendor.totalProducts} Items</span></td>
-                        <td className="p-4"><Link to={vendor.shareableLink} className="inline-block bg-[#1A1C23] text-white px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-wider hover:bg-black transition-all shadow-sm">Manage</Link></td>
+                        <td className="p-4"><Link to={vendor.shareableLink} target="_blank" rel="noopener noreferrer" className="inline-block bg-[#1A1C23] text-white px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-wider hover:bg-black transition-all shadow-sm">Manage</Link></td>
                         <td className="p-4 pr-6">
                           <button onClick={() => openChatForVendor(vendor)} className="p-2.5 rounded-xl bg-blue-100 text-blue-600 hover:bg-blue-600 hover:text-white transition-all shadow-sm relative group">
                             <IoMdChatboxes className="w-5 h-5" />
