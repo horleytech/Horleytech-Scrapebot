@@ -12,7 +12,7 @@ const normalizeLogs = (logs) => ({
   customer: Array.isArray(logs?.customer) ? logs.customer : [],
 });
 
-// Helper to push a log to a specific channel while maintaining a rolling limit of 200
+// Helper to push a rolling log
 const appendRollingLog = (logs, channel, entry) => {
   const normalized = normalizeLogs(logs);
   return {
@@ -72,16 +72,24 @@ const StoreFront = () => {
   }, [vendorData]);
 
   const pickStaffNumber = () => {
-    const configuredNumbers = (vendorData?.whatsappNumbers || [])
+    const configuredStaffNumbers = (vendorData?.whatsappNumbers || [])
       .map((number) => String(number || '').trim())
-      .filter((num) => num !== '');
+      .filter(Boolean);
 
-    if (!configuredNumbers.length) {
-      return vendorId; // Fallback to vendorId if no staff numbers configured
+    // 1. Pick random staff number if they exist
+    if (configuredStaffNumbers.length > 0) {
+      const randomIndex = Math.floor(Math.random() * configuredStaffNumbers.length);
+      return configuredStaffNumbers[randomIndex];
     }
 
-    const randomIndex = Math.floor(Math.random() * configuredNumbers.length);
-    return configuredNumbers[randomIndex];
+    // 2. Fallback to Primary Store Number
+    const primaryNumber = String(vendorData?.storeWhatsappNumber || '').trim();
+    if (primaryNumber) {
+      return primaryNumber;
+    }
+
+    // 3. Final fallback to vendorId
+    return vendorId;
   };
 
   const handleWhatsAppClick = async (product) => {
@@ -93,14 +101,12 @@ const StoreFront = () => {
     };
 
     try {
-      // Update Click Counter and append a Rolling Activity Log (Version 2.0)
       const nextLogs = appendRollingLog(previousLogs, 'customer', logEntry);
       await updateDoc(vendorRef, {
         whatsappClicks: increment(1),
         logs: nextLogs,
       });
 
-      // Update local state to reflect the click and the log instantly
       setVendorData((prev) => ({
         ...prev,
         whatsappClicks: (prev?.whatsappClicks || 0) + 1,
@@ -151,48 +157,69 @@ const StoreFront = () => {
   return (
     <div className="min-h-screen bg-gray-50 py-8 px-4 md:px-8">
       <div className="max-w-7xl mx-auto">
-        <div className="mb-6 p-5 rounded-2xl text-white shadow-lg transition-all" style={{ backgroundColor: themeColor }}>
-          <div className="flex items-center gap-4">
+        {/* Header with Chrome-style Gradient and Description */}
+        <div 
+          className="mb-6 p-6 rounded-2xl text-white shadow-xl transition-all" 
+          style={{ background: `linear-gradient(135deg, ${themeColor}, #1A1C23)` }}
+        >
+          <div className="flex flex-col md:flex-row items-center gap-6">
             {vendorData.logoBase64 ? (
               <img
                 src={vendorData.logoBase64}
                 alt="Store logo"
-                className="w-16 h-16 rounded-full border-2 border-white object-cover bg-white"
+                className="w-24 h-24 rounded-full border-4 border-white/20 object-cover bg-white shadow-lg"
               />
             ) : (
-              <div className="w-16 h-16 rounded-full border-2 border-white bg-white/20 flex items-center justify-center text-2xl font-bold">
+              <div className="w-24 h-24 rounded-full border-4 border-white/20 bg-white/10 flex items-center justify-center text-4xl font-black">
                 {vendorData.vendorName ? vendorData.vendorName[0].toUpperCase() : 'V'}
               </div>
             )}
-            <div>
-              <h1 className="text-3xl font-bold">{vendorData.vendorName || vendorId}</h1>
-              {vendorData.address && <p className="text-white/90 mt-1">📍 {vendorData.address}</p>}
-              <p className="text-white/90 mt-1 text-sm">Showing {visibleProducts.length} available items.</p>
+            <div className="text-center md:text-left flex-1">
+              <h1 className="text-4xl font-black tracking-tight">{vendorData.vendorName || vendorId}</h1>
+              {vendorData.storeDescription && (
+                <p className="text-white/80 mt-2 text-sm max-w-2xl leading-relaxed italic">
+                  {vendorData.storeDescription}
+                </p>
+              )}
+              <div className="flex flex-wrap justify-center md:justify-start gap-4 mt-4">
+                {vendorData.address && <span className="text-xs font-bold bg-black/20 px-3 py-1.5 rounded-full">📍 {vendorData.address}</span>}
+                <span className="text-xs font-bold bg-black/20 px-3 py-1.5 rounded-full">📦 {visibleProducts.length} items available</span>
+              </div>
             </div>
           </div>
         </div>
 
+        {/* Product Table - Hides the "Group" column */}
         <div className="overflow-x-auto bg-white rounded-2xl shadow-xl border border-gray-100">
           <table className="min-w-full text-left border-collapse">
-            <thead className="text-white" style={{ backgroundColor: themeColor }}>
+            <thead className="text-white uppercase tracking-wider" style={{ backgroundColor: themeColor }}>
               <tr>
-                <th className="px-5 py-4 text-sm font-semibold first:rounded-tl-2xl">Group</th>
-                <th className="px-5 py-4 text-sm font-semibold">Device</th>
-                <th className="px-5 py-4 text-sm font-semibold">Condition</th>
-                <th className="px-5 py-4 text-sm font-semibold">Specification</th>
-                <th className="px-5 py-4 text-sm font-semibold">Storage</th>
-                <th className="px-5 py-4 text-sm font-semibold">Price</th>
-                <th className="px-5 py-4 text-sm font-semibold last:rounded-tr-2xl">Order</th>
+                <th className="px-6 py-5 text-xs font-black first:rounded-tl-2xl">Device</th>
+                <th className="px-6 py-5 text-xs font-black">Condition</th>
+                <th className="px-6 py-5 text-xs font-black">Specification</th>
+                <th className="px-6 py-5 text-xs font-black">Storage</th>
+                <th className="px-6 py-5 text-xs font-black">Price</th>
+                <th className="px-6 py-5 text-xs font-black last:rounded-tr-2xl">Order</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
               {visibleProducts.length > 0 ? (
                 visibleProducts.map((product, index) => (
-                  <tr key={`${product['Device Type']}-${index}`} className="hover:bg-gray-50 transition-colors">
-                    <td className="px-5 py-4 text-xs font-medium text-gray-500">{product.groupName || 'Direct Message'}</td>
-                    <td className="px-5 py-4 font-bold text-[#1A1C23]">{product['Device Type'] || 'N/A'}</td>
-                    <td className="px-5 py-4">
-                      <span className={`px-2.5 py-1 rounded-full text-xs font-semibold ${
+                  <tr key={index} className="hover:bg-gray-50 transition-colors group">
+                    <td className="px-6 py-5">
+                      <div className="flex items-center gap-3">
+                        {product.imageBase64 && (
+                          <img 
+                            src={product.imageBase64} 
+                            alt="" 
+                            className="w-12 h-12 rounded-lg object-cover bg-gray-100 shadow-sm"
+                          />
+                        )}
+                        <span className="font-bold text-[#1A1C23] text-sm">{product['Device Type'] || 'N/A'}</span>
+                      </div>
+                    </td>
+                    <td className="px-6 py-5 text-sm">
+                      <span className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase ${
                         product.Condition?.toLowerCase().includes('new') 
                           ? 'bg-blue-50 text-blue-600' 
                           : 'bg-orange-50 text-orange-600'
@@ -200,20 +227,20 @@ const StoreFront = () => {
                         {product.Condition || 'N/A'}
                       </span>
                     </td>
-                    <td className="px-5 py-4 text-gray-600 text-sm">
+                    <td className="px-6 py-5 text-gray-600 text-sm italic font-medium">
                       {product['SIM Type/Model/Processor'] || 'N/A'}
                     </td>
-                    <td className="px-5 py-4 text-gray-600 text-sm font-medium">
+                    <td className="px-6 py-5 text-gray-500 text-sm font-bold">
                       {product['Storage Capacity/Configuration'] || 'N/A'}
                     </td>
-                    <td className="px-5 py-4 font-black text-lg" style={{ color: themeColor }}>
+                    <td className="px-6 py-5 font-black text-lg" style={{ color: themeColor }}>
                       {product['Regular price'] || 'N/A'}
                     </td>
-                    <td className="px-5 py-4">
+                    <td className="px-6 py-5">
                       <button
                         onClick={() => handleWhatsAppClick(product)}
                         style={{ backgroundColor: themeColor }}
-                        className="inline-flex items-center text-white px-5 py-2.5 rounded-xl font-bold shadow-sm hover:brightness-90 transition-all active:scale-95 whitespace-nowrap"
+                        className="inline-flex items-center text-white px-5 py-2.5 rounded-xl font-black text-xs uppercase shadow-sm hover:brightness-90 transition-all active:scale-95 whitespace-nowrap"
                       >
                         Order via WhatsApp
                       </button>
@@ -222,10 +249,10 @@ const StoreFront = () => {
                 ))
               ) : (
                 <tr>
-                  <td colSpan="7" className="px-5 py-16 text-center">
+                  <td colSpan="6" className="px-5 py-20 text-center">
                     <div className="flex flex-col items-center">
-                      <span className="text-4xl mb-3">📦</span>
-                      <p className="text-gray-500 font-medium text-lg">No products match your current filters.</p>
+                      <span className="text-5xl mb-4 grayscale">📦</span>
+                      <p className="text-gray-400 font-bold text-xl uppercase tracking-widest">No matching products found.</p>
                     </div>
                   </td>
                 </tr>

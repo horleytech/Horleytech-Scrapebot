@@ -38,9 +38,7 @@ const parseNairaValue = (value) => {
 };
 
 const formatNaira = (amount) =>
-  new Intl.NumberFormat('en-NG', { style: 'currency', currency: 'NGN', maximumFractionDigits: 0 }).format(
-    amount
-  );
+  new Intl.NumberFormat('en-NG', { style: 'currency', currency: 'NGN', maximumFractionDigits: 0 }).format(amount);
 
 const normalizeLogs = (logs) => ({
   admin: Array.isArray(logs?.admin) ? logs.admin : [],
@@ -51,21 +49,24 @@ const normalizeLogs = (logs) => ({
 const formatTimelineDate = (isoDate) => {
   const date = new Date(isoDate);
   if (Number.isNaN(date.getTime())) return isoDate;
+
   const now = new Date();
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const target = new Date(date.getFullYear(), date.getMonth(), date.getDate());
   const diffDays = Math.round((today - target) / (1000 * 60 * 60 * 24));
+
   const timeText = date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 
   if (diffDays === 0) return `Today at ${timeText}`;
   if (diffDays === 1) return `Yesterday at ${timeText}`;
+
   return date.toLocaleString();
 };
 
 const AdminDashboard = () => {
   const location = useLocation();
 
-  const [activeTab, setActiveTab] = useState('offline'); // 'offline', 'backups', or 'activity'
+  const [activeTab, setActiveTab] = useState('offline');
   const [searchQuery, setSearchQuery] = useState('');
   const [offlineVendors, setOfflineVendors] = useState([]);
   const [backups, setBackups] = useState([]);
@@ -96,10 +97,13 @@ const AdminDashboard = () => {
           status: data.status || 'active',
           viewCount: data.viewCount || 0,
           whatsappClicks: data.whatsappClicks || 0,
+          vendorPassword: data.vendorPassword || '',
+          storeWhatsappNumber: data.storeWhatsappNumber || '',
           products: data.products || [],
           logs: normalizeLogs(data.logs),
         });
       });
+
       setOfflineVendors(vendors);
       setSelectedVendorIds([]);
     } catch (error) {
@@ -114,11 +118,7 @@ const AdminDashboard = () => {
     try {
       const backupQuery = query(collection(db, COLLECTIONS.backups), orderBy('createdAt', 'desc'));
       const snapshot = await getDocs(backupQuery);
-      const list = snapshot.docs.map((docSnap) => ({
-        id: docSnap.id,
-        ...docSnap.data(),
-      }));
-      setBackups(list);
+      setBackups(snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() })));
     } catch (error) {
       console.error('Error fetching backups:', error);
     } finally {
@@ -134,10 +134,7 @@ const AdminDashboard = () => {
   }, [location.pathname]);
 
   const filteredOffline = useMemo(
-    () =>
-      offlineVendors.filter(
-        (v) => !searchQuery || v.vendorName?.toLowerCase().includes(searchQuery.toLowerCase())
-      ),
+    () => offlineVendors.filter((v) => !searchQuery || v.vendorName?.toLowerCase().includes(searchQuery.toLowerCase())),
     [offlineVendors, searchQuery]
   );
 
@@ -211,9 +208,9 @@ const AdminDashboard = () => {
       await batch.commit();
       fetchInventory();
       setSelectedVendorIds([]);
-      alert(`✅ Vendors updated to ${status}.`);
+      alert(`✅ Selected vendors are now ${status}.`);
     } catch (error) {
-      console.error('Update failed:', error);
+      console.error('Bulk vendor update failed:', error);
     } finally {
       setBulkUpdating(false);
     }
@@ -225,7 +222,7 @@ const AdminDashboard = () => {
       const res = await fetch('/api/backup/manual');
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error || 'Manual backup failed');
-      alert(`✅ Backup completed: ${data.backupId}`);
+      alert(`✅ Manual backup completed. ID: ${data.backupId}`);
       fetchBackups();
     } catch (error) {
       alert(`❌ ${error.message}`);
@@ -245,7 +242,7 @@ const AdminDashboard = () => {
       });
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error || 'Restore failed');
-      alert(`✅ Restore complete. ${data.restoredDocuments} vendors restored.`);
+      alert(`✅ Restore complete. ${data.restoredDocuments} records recovered.`);
       fetchInventory();
     } catch (error) {
       alert(`❌ ${error.message}`);
@@ -261,38 +258,39 @@ const AdminDashboard = () => {
       Views: v.viewCount,
       Orders: v.whatsappClicks,
       Products: v.totalProducts,
-      Value: v.inventoryValue
+      Value: v.inventoryValue,
+      Password: v.vendorPassword
     }));
-    downloadCsv('whatsapp-directory.csv', rows);
+    downloadCsv('platform-directory.csv', rows);
   };
 
   return (
     <AdminDashboardLayout>
       {location.pathname === '/dashboard' || location.pathname === '/dashboard/' ? (
         <div className="p-6">
-          {/* Analytics Grid */}
+          {/* Analytics Hub */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4 mb-8">
-            <div className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm">
+            <div className="bg-white border border-gray-200 rounded-[12px] p-5 shadow-sm">
               <p className="text-xs font-bold text-gray-500 uppercase">Total Vendors</p>
               <p className="text-2xl font-black text-[#1A1C23] mt-2">{analytics.totalVendors}</p>
             </div>
-            <div className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm">
+            <div className="bg-white border border-gray-200 rounded-[12px] p-5 shadow-sm">
               <p className="text-xs font-bold text-gray-500 uppercase">Inventory Value</p>
               <p className="text-2xl font-black text-green-600 mt-2">{formatNaira(analytics.totalInventoryValue)}</p>
             </div>
-            <div className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm">
+            <div className="bg-white border border-gray-200 rounded-[12px] p-5 shadow-sm">
               <p className="text-xs font-bold text-gray-500 uppercase">Store Views</p>
               <p className="text-2xl font-black text-blue-600 mt-2">{analytics.totalStoreViews}</p>
             </div>
-            <div className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm">
+            <div className="bg-white border border-gray-200 rounded-[12px] p-5 shadow-sm">
               <p className="text-xs font-bold text-gray-500 uppercase">WA Orders</p>
               <p className="text-2xl font-black text-emerald-600 mt-2">{analytics.totalWhatsAppOrders}</p>
             </div>
-            <div className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm">
+            <div className="bg-white border border-gray-200 rounded-[12px] p-5 shadow-sm">
               <p className="text-xs font-bold text-gray-500 uppercase">Top Device</p>
               <p className="text-sm font-bold text-[#1A1C23] mt-2 truncate">{analytics.mostTrackedDevice}</p>
             </div>
-            <div className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm">
+            <div className="bg-white border border-gray-200 rounded-[12px] p-5 shadow-sm">
               <p className="text-xs font-bold text-gray-500 uppercase">Star Vendor</p>
               <p className="text-sm font-bold text-[#1A1C23] mt-2 truncate">{analytics.topVendor}</p>
             </div>
@@ -306,17 +304,17 @@ const AdminDashboard = () => {
                 onClick={() => setActiveTab(tab)}
                 className={`px-6 py-2.5 rounded-lg text-sm font-bold transition-all ${activeTab === tab ? 'bg-white text-[#1A1C23] shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
               >
-                {tab === 'offline' ? 'WhatsApp Directory' : tab === 'backups' ? 'Database Backups' : 'Platform Activity'}
+                {tab === 'offline' ? 'Directory' : tab === 'backups' ? 'Database Backups' : 'Platform Activity'}
               </button>
             ))}
           </div>
 
           {activeTab === 'backups' ? (
             <div className="bg-white shadow-lg rounded-xl overflow-hidden border border-gray-200">
-              <div className="p-5 bg-gray-50 border-b flex justify-between items-center">
-                <h2 className="text-lg font-bold text-[#1A1C23]">Version History ({backups.length})</h2>
-                <button onClick={triggerManualBackup} disabled={manualBackupLoading} className="bg-blue-600 text-white px-5 py-2 rounded-lg text-sm font-bold hover:bg-blue-700 transition-all shadow-md disabled:opacity-50">
-                  {manualBackupLoading ? 'Backing up...' : 'Trigger Manual Backup'}
+              <div className="p-5 bg-gray-50 border-b flex justify-between items-center gap-4">
+                <h2 className="text-lg font-bold text-[#1A1C23]">Backup Version History ({backups.length})</h2>
+                <button onClick={triggerManualBackup} disabled={manualBackupLoading} className="bg-blue-600 text-white px-5 py-2 rounded-lg text-sm font-bold hover:bg-blue-700 disabled:opacity-50 transition-all shadow-md">
+                  {manualBackupLoading ? 'Running Backup...' : 'Trigger Manual Backup'}
                 </button>
               </div>
               <table className="w-full text-left">
@@ -359,27 +357,31 @@ const AdminDashboard = () => {
                     <p className="text-[11px] font-bold text-gray-500 mt-1 uppercase tracking-wider">{entry.vendorName} • {formatTimelineDate(entry.date)}</p>
                   </div>
                 ))}
+                {platformActivityTimeline.length === 0 && <p className="p-10 text-center text-gray-400">No activity logs recorded.</p>}
               </div>
             </div>
           ) : (
             <>
+              {/* Toolbar */}
               <div className="flex flex-col xl:flex-row gap-4 mb-6">
-                <input type="text" placeholder="🔍 Search for a WhatsApp Vendor..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="flex-1 p-4 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm shadow-sm" />
+                <input type="text" placeholder="🔍 Search for a WhatsApp Vendor..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="flex-1 p-4 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm shadow-sm font-medium" />
                 <div className="flex gap-3">
                   <button onClick={() => bulkUpdateStatus('suspended')} disabled={!selectedVendorIds.length || bulkUpdating} className="bg-red-600 text-white px-6 py-2 rounded-xl text-xs font-black uppercase hover:bg-red-700 disabled:opacity-50 shadow-md">Suspend</button>
                   <button onClick={() => bulkUpdateStatus('active')} disabled={!selectedVendorIds.length || bulkUpdating} className="bg-emerald-600 text-white px-6 py-2 rounded-xl text-xs font-black uppercase hover:bg-emerald-700 disabled:opacity-50 shadow-md">Activate</button>
                   <button onClick={handleExport} className="bg-gray-800 text-white px-6 py-2 rounded-xl text-xs font-black uppercase hover:bg-black shadow-md">Export</button>
                 </div>
               </div>
+
+              {/* Vendor Directory */}
               <div className="bg-white shadow-lg rounded-xl overflow-hidden border border-gray-200">
                 <table className="w-full text-left">
                   <thead className="bg-gray-50 border-b border-gray-100">
                     <tr className="text-gray-400 text-[11px] font-black uppercase tracking-widest">
-                      <th className="p-4 pl-6 w-[50px]"><input type="checkbox" checked={allFilteredSelected} onChange={toggleSelectAll} className="w-4 h-4 rounded" /></th>
+                      <th className="p-4 pl-6 w-[50px]"><input type="checkbox" checked={allFilteredSelected} onChange={toggleSelectAll} className="w-4 h-4 rounded border-gray-300" /></th>
                       <th className="p-4">Vendor Name</th>
                       <th className="p-4">Status</th>
-                      <th className="p-4">Views</th>
-                      <th className="p-4">WA Clicks</th>
+                      <th className="p-4">Stats</th>
+                      <th className="p-4">Access Detail</th>
                       <th className="p-4">Total Inventory</th>
                       <th className="p-4">Action</th>
                     </tr>
@@ -387,17 +389,26 @@ const AdminDashboard = () => {
                   <tbody className="divide-y divide-gray-50">
                     {filteredOffline.map(vendor => (
                       <tr key={vendor.docId} className="hover:bg-blue-50/30 transition-colors">
-                        <td className="p-4 pl-6"><input type="checkbox" checked={selectedVendorIds.includes(vendor.docId)} onChange={() => toggleVendor(vendor.docId)} className="w-4 h-4 rounded" /></td>
+                        <td className="p-4 pl-6"><input type="checkbox" checked={selectedVendorIds.includes(vendor.docId)} onChange={() => toggleVendor(vendor.docId)} className="w-4 h-4 rounded border-gray-300" /></td>
                         <td className="p-4 font-bold text-blue-600 hover:underline"><Link to={vendor.shareableLink}>{vendor.vendorName}</Link></td>
-                        <td className="p-4"><span className={`px-2.5 py-1 rounded-lg text-[10px] font-black uppercase ${vendor.status === 'suspended' ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>{vendor.status}</span></td>
-                        <td className="p-4 font-bold text-gray-700">{vendor.viewCount}</td>
-                        <td className="p-4 font-bold text-emerald-600">{vendor.whatsappClicks}</td>
+                        <td className="p-4">
+                          <span className={`px-2.5 py-1 rounded-lg text-[10px] font-black uppercase ${vendor.status === 'suspended' ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>{vendor.status}</span>
+                        </td>
+                        <td className="p-4 text-xs font-bold text-gray-500">
+                          <p>👁️ {vendor.viewCount} Views</p>
+                          <p>🔗 {vendor.whatsappClicks} Clicks</p>
+                        </td>
+                        <td className="p-4 text-[10px] text-gray-600">
+                          <p><span className="font-black uppercase text-[9px] text-gray-400">Pass:</span> {vendor.vendorPassword || 'None'}</p>
+                          <p><span className="font-black uppercase text-[9px] text-gray-400">Primary:</span> {vendor.storeWhatsappNumber || 'None'}</p>
+                        </td>
                         <td className="p-4"><span className="bg-gray-100 text-gray-600 px-3 py-1 rounded-full text-[11px] font-bold">{vendor.totalProducts} Items</span></td>
-                        <td className="p-4"><Link to={vendor.shareableLink} className="bg-[#1A1C23] text-white px-4 py-2 rounded-lg text-[11px] font-black uppercase hover:bg-black transition-all">Manage</Link></td>
+                        <td className="p-4"><Link to={vendor.shareableLink} className="inline-block bg-[#1A1C23] text-white px-4 py-2 rounded-lg text-[11px] font-black uppercase hover:bg-black transition-all shadow-sm">Manage</Link></td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
+                {filteredOffline.length === 0 && <div className="p-20 text-center text-gray-400 font-bold uppercase tracking-widest">No vendors found.</div>}
               </div>
             </>
           )}

@@ -64,6 +64,7 @@ const runBatchInChunks = async (operations, maxPerBatch = 400) => {
       if (operation.type === 'delete') {
         batch.delete(operation.ref);
       }
+
       if (operation.type === 'set') {
         batch.set(operation.ref, operation.data, { merge: false });
       }
@@ -91,9 +92,11 @@ app.get('/api/logs', (req, res) => {
 app.get('/api/backup/manual', async (req, res) => {
   try {
     const result = await runBackup();
+
     if (!result.success) {
       return res.status(500).json({ success: false, error: result.error || 'Manual backup failed.' });
     }
+
     return res.json({ success: true, backupId: result.backupId, totalDocuments: result.totalDocuments });
   } catch (error) {
     return res.status(500).json({ success: false, error: error.message });
@@ -103,14 +106,15 @@ app.get('/api/backup/manual', async (req, res) => {
 // Admin Database Restore Endpoint
 app.post('/api/backup/restore', async (req, res) => {
   const { backupId } = req.body || {};
+
   if (!backupId) {
     return res.status(400).json({ success: false, error: 'backupId is required.' });
   }
 
   try {
     const firestore = getAdminFirestore();
+
     const backupDoc = await firestore.collection(BACKUP_COLLECTION).doc(backupId).get();
-    
     if (!backupDoc.exists) {
       return res.status(404).json({ success: false, error: 'Backup version not found.' });
     }
