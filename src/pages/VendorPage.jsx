@@ -3,6 +3,7 @@ import { useParams, Link } from 'react-router-dom';
 import { doc, getDoc, updateDoc } from 'firebase/firestore';
 import { db } from '../services/firebase/index.js';
 import { useSelector } from 'react-redux';
+import { BASE_URL } from '../services/constants/apiConstants.js';
 
 const MAX_LOG_ITEMS = 200;
 const THEME_PRESETS = ['#16a34a', '#1d4ed8', '#7c3aed', '#ea580c'];
@@ -216,7 +217,14 @@ const VendorPage = () => {
 
   const products = vendorData?.products || [];
 
-  const uniqueGroups = useMemo(() => ['All', ...new Set(products.map((p) => p.groupName || 'Direct Message'))], [products]);
+  const uniqueGroups = useMemo(() => {
+    const filteredProducts = products.filter((product) => {
+      const productGroup = product.groupName || 'Direct Message';
+      return allowedGroups.length > 0 ? allowedGroups.includes(productGroup) : true;
+    });
+
+    return ['All', ...new Set(filteredProducts.map((p) => p.groupName || 'Direct Message'))];
+  }, [products, allowedGroups]);
   const sourceGroups = useMemo(() => [...new Set(products.map((p) => p.groupName || 'Direct Message'))], [products]);
   const uniqueCategories = useMemo(() => ['All', ...new Set(products.map((p) => p.Category).filter(Boolean))], [products]);
 
@@ -242,11 +250,13 @@ const VendorPage = () => {
         }
 
         const passesCategory = categoryFilter === 'All' || product.Category === categoryFilter;
-        const passesGroup = groupFilter === 'All' || (product.groupName || 'Direct Message') === groupFilter;
+        const productGroup = product.groupName || 'Direct Message';
+        const passesGroup = groupFilter === 'All' || productGroup === groupFilter;
+        const passesAllowedGroup = allowedGroups.length > 0 ? allowedGroups.includes(productGroup) : true;
 
-        return passesDate && passesCategory && passesGroup;
+        return passesDate && passesCategory && passesGroup && passesAllowedGroup;
       });
-  }, [products, dateFilter, categoryFilter, groupFilter]);
+  }, [products, dateFilter, categoryFilter, groupFilter, allowedGroups]);
 
   const allVisibleRowsSelected = displayData.length > 0 && displayData.every(({ index }) => selectedProductIndexes.includes(index));
 
@@ -451,7 +461,7 @@ const VendorPage = () => {
 
     setRunningAutoFix(true);
     try {
-      const response = await fetch('/api/ai/fix-inventory', {
+      const response = await fetch(`${BASE_URL}/api/ai/fix-inventory`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ products: targetProducts, actionType: aiAction }),
@@ -550,7 +560,7 @@ const VendorPage = () => {
 
     const prevGroups = JSON.stringify(previousVendorData.storefrontAllowedGroups || []);
     const nextGroups = JSON.stringify(nextState.storefrontAllowedGroups);
-    if (prevGroups !== nextGroups) actions.push(`Updated Storefront Allowed Groups`);
+    if (prevGroups !== nextGroups) actions.push(`Updated Allowed Inventory Groups`);
 
     if (!actions.length) actions.push('Saved Settings (No Field Changes Detected)');
     return actions;
@@ -558,7 +568,7 @@ const VendorPage = () => {
 
   const handleSaveSettings = async () => {
     const cleanedNumbers = whatsappNumbersInput.map((number) => number.trim()).filter(Boolean).slice(0, 3);
-    const cleanedAllowedGroups = allowedGroups.filter(Boolean);
+    const cleanedAllowedGroups = allowedGroups.map((group) => group.trim()).filter(Boolean);
 
     const nextState = {
       vendorName: vendorNameInput.trim() || vendorData?.vendorName || vendorId,
@@ -678,7 +688,7 @@ const VendorPage = () => {
   const fetchSupportMessages = async () => {
     setSupportLoading(true);
     try {
-      const response = await fetch(`/api/messages/${vendorId}`);
+      const response = await fetch(`${BASE_URL}/api/messages/${vendorId}`);
       const data = await response.json();
       if (!response.ok || !data.success) {
         throw new Error(data.error || 'Unable to fetch messages');
@@ -703,7 +713,7 @@ const VendorPage = () => {
 
     setSendingSupportMessage(true);
     try {
-      const response = await fetch('/api/messages/send', {
+      const response = await fetch(`${BASE_URL}/api/messages/send`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -874,7 +884,7 @@ const VendorPage = () => {
           </div>
 
           <div className="mb-6">
-            <label className="block text-sm font-bold text-gray-700 mb-2">Allowed Storefront Groups</label>
+            <label className="block text-sm font-bold text-gray-700 mb-2">Allowed Inventory Groups</label>
             <div className="flex flex-wrap gap-4 p-4 bg-gray-50 rounded-lg border border-gray-100">
               {sourceGroups.map((group) => (
                 <label key={group} className="flex items-center gap-2 cursor-pointer select-none">
