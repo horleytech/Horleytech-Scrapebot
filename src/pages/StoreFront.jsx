@@ -1,9 +1,16 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { doc, getDoc, updateDoc, increment } from 'firebase/firestore';
+import { useSelector } from 'react-redux';
 import { db } from '../services/firebase/index.js';
+import { BASE_URL } from '../services/constants/apiConstants.js';
 
 const MAX_LOG_ITEMS = 200;
+
+const HD_IMAGE_STYLE = {
+  imageRendering: '-webkit-optimize-contrast',
+  filter: 'contrast(1.1) brightness(1.03) saturate(1.05)',
+};
 
 // Helper to ensure log structure exists
 const normalizeLogs = (logs) => ({
@@ -45,8 +52,13 @@ const lightenHex = (hex, amount = 0.18) => {
 
 const StoreFront = () => {
   const { vendorId } = useParams();
+  const isAdmin = useSelector((state) => state.auth?.isAuthenticated);
   const [vendorData, setVendorData] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [driveBackups, setDriveBackups] = useState([]);
+  const [loadingDriveBackups, setLoadingDriveBackups] = useState(false);
+  const [restoringDriveId, setRestoringDriveId] = useState(null);
+  const [uploadRestoreLoading, setUploadRestoreLoading] = useState(false);
 
   useEffect(() => {
     const fetchStore = async () => {
@@ -147,6 +159,69 @@ const StoreFront = () => {
     window.open(link, '_blank', 'noopener,noreferrer');
   };
 
+  const fetchDriveBackups = async () => {
+    setLoadingDriveBackups(true);
+    try {
+      const response = await fetch(`${BASE_URL}/api/backup/drive-list`, {
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      });
+      const data = await response.json();
+      if (!response.ok || !data.success) throw new Error(data.error || 'Failed to load drive backups');
+      setDriveBackups(Array.isArray(data.files) ? data.files : []);
+    } catch (error) {
+      alert(`❌ ${error.message}`);
+    } finally {
+      setLoadingDriveBackups(false);
+    }
+  };
+
+  const restoreDriveBackup = async (fileId) => {
+    setRestoringDriveId(fileId);
+    try {
+      const response = await fetch(`${BASE_URL}/api/backup/drive-restore`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        body: JSON.stringify({ fileId }),
+      });
+      const data = await response.json();
+      if (!response.ok || !data.success) throw new Error(data.error || 'Drive restore failed');
+      alert(`✅ Restored ${data.restoredDocuments || 0} documents from Drive backup.`);
+    } catch (error) {
+      alert(`❌ ${error.message}`);
+    } finally {
+      setRestoringDriveId(null);
+    }
+  };
+
+  const uploadAndRestoreLocalBackup = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const formData = new FormData();
+    formData.append('file', file);
+
+    setUploadRestoreLoading(true);
+    try {
+      const response = await fetch(`${BASE_URL}/api/backup/upload-restore`, {
+        method: 'POST',
+        body: formData,
+      });
+      const data = await response.json();
+      if (!response.ok || !data.success) throw new Error(data.error || 'Upload restore failed');
+      alert(`✅ Restored ${data.restoredDocuments || 0} documents from local backup.`);
+    } catch (error) {
+      alert(`❌ ${error.message}`);
+    } finally {
+      event.target.value = '';
+      setUploadRestoreLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!isAdmin) return;
+    fetchDriveBackups();
+  }, [isAdmin]);
+
   if (loading) {
     return (
       <div className="min-h-screen grid place-items-center bg-gray-50">
@@ -218,6 +293,7 @@ const StoreFront = () => {
                       <img
                         src={product.productImageBase64}
                         alt=""
+                        style={HD_IMAGE_STYLE}
                         className={`w-12 h-12 rounded-lg object-cover shadow-sm border ${isDarkLayout ? 'bg-[#202020] border-[#333]' : 'bg-gray-100 border-gray-200'}`}
                       />
                     )}
@@ -264,7 +340,7 @@ const StoreFront = () => {
       {visibleProducts.map((product, index) => (
         <div key={index} className={`rounded-2xl overflow-hidden border shadow-sm ${isDarkLayout ? 'bg-[#1a1a1a] border-[#2b2b2b]' : 'bg-white border-gray-100'}`}>
           {product.productImageBase64 ? (
-            <img src={product.productImageBase64} alt={product['Device Type'] || 'Product'} className="w-full h-48 object-cover" />
+            <img src={product.productImageBase64} alt={product['Device Type'] || 'Product'} style={HD_IMAGE_STYLE} className="w-full h-48 object-cover" />
           ) : (
             <div className={`w-full h-48 flex items-center justify-center text-sm font-bold ${isDarkLayout ? 'bg-[#202020] text-gray-500' : 'bg-gray-100 text-gray-400'}`}>No Image</div>
           )}
@@ -352,6 +428,7 @@ const StoreFront = () => {
               <img
                 src={vendorData.logoBase64}
                 alt="Store logo"
+                style={HD_IMAGE_STYLE}
                 className="w-24 h-24 rounded-full border-4 border-white/20 object-cover bg-white shadow-lg"
               />
             ) : (
@@ -375,6 +452,51 @@ const StoreFront = () => {
         </div>
 
         {renderProductsByLayout()}
+
+        {isAdmin && (
+          <div className="mt-8 bg-white border border-gray-200 rounded-2xl p-5 shadow-sm">
+            <h2 className="text-xl font-black text-[#1A1C23] mb-2">System Maintenance</h2>
+            <p className="text-sm text-gray-500 mb-4">Restore backup snapshots from local JSON or Google Drive versions.</p>
+
+            <div className="mb-5">
+              <label className="inline-flex items-center gap-2 bg-[#1A1C23] text-white px-4 py-2 rounded-lg font-bold text-sm cursor-pointer hover:bg-black">
+                {uploadRestoreLoading ? 'Uploading...' : 'Upload & Restore from Local JSON'}
+                <input type="file" accept="application/json,.json" className="hidden" onChange={uploadAndRestoreLocalBackup} disabled={uploadRestoreLoading} />
+              </label>
+            </div>
+
+            <div className="border-t pt-4">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-sm font-black uppercase tracking-wider text-gray-600">Cloud Backups (Drive)</h3>
+                <button onClick={fetchDriveBackups} className="text-xs font-bold px-3 py-1.5 bg-gray-100 rounded-lg hover:bg-gray-200">Refresh</button>
+              </div>
+
+              {loadingDriveBackups ? (
+                <p className="text-sm text-gray-400">Loading cloud backups...</p>
+              ) : driveBackups.length ? (
+                <div className="space-y-2">
+                  {driveBackups.map((file) => (
+                    <div key={file.id} className="flex flex-col md:flex-row md:items-center md:justify-between gap-2 border border-gray-100 rounded-lg p-3">
+                      <div>
+                        <p className="text-sm font-bold text-[#1A1C23]">{file.name}</p>
+                        <p className="text-xs text-gray-500">{file.createdTime ? new Date(file.createdTime).toLocaleString() : 'Unknown time'}</p>
+                      </div>
+                      <button
+                        onClick={() => restoreDriveBackup(file.id)}
+                        disabled={restoringDriveId === file.id}
+                        className="bg-red-600 text-white px-4 py-2 rounded-lg text-xs font-black uppercase hover:bg-red-700 disabled:opacity-50"
+                      >
+                        {restoringDriveId === file.id ? 'Restoring...' : 'Restore This Version'}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-gray-400">No Drive backups found.</p>
+              )}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

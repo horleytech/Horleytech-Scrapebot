@@ -10,7 +10,15 @@ import { fileURLToPath } from 'url';
 import OpenAI from 'openai';
 import { processChatFile } from './fileProcessor.js';
 import { saveVendorsToFirebase } from './dataProcessor.js';
-import { initializeBackupJob, initializeSystemCollections, runBackup, getAdminFirestore } from './backup.js';
+import {
+  initializeBackupJob,
+  initializeSystemCollections,
+  runBackup,
+  getAdminFirestore,
+  listBackupsFromDrive,
+  downloadAndRestoreFromDrive,
+  restoreInventoryFromBackupPayload,
+} from './backup.js';
 
 dotenv.config();
 
@@ -344,6 +352,67 @@ app.get('/api/backup/manual', async (req, res) => {
   }
 });
 
+// Drive Backup Listing Endpoint
+app.get('/api/backup/drive-list', async (_req, res) => {
+  try {
+    const files = await listBackupsFromDrive();
+    return res.json({ success: true, files });
+  } catch (error) {
+    console.error('❌ Drive list error:', error);
+    return res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Drive Backup Restore Endpoint
+app.post('/api/backup/drive-restore', async (req, res) => {
+  const { fileId } = req.body || {};
+
+  if (!fileId) {
+    return res.status(400).json({ success: false, error: 'fileId is required.' });
+  }
+
+  try {
+    const result = await downloadAndRestoreFromDrive(String(fileId));
+    return res.json({ success: true, ...result });
+  } catch (error) {
+    console.error('❌ Drive restore error:', error);
+    return res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Manual JSON Upload Restore Endpoint
+app.post('/api/backup/upload-restore', upload.single('file'), async (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ success: false, error: 'Backup JSON file is required.' });
+  }
+
+  const filePath = path.join(__dirname, req.file.path);
+
+  try {
+    const rawContent = fs.readFileSync(filePath, 'utf-8');
+    const payload = JSON.parse(rawContent);
+
+    if (!payload || typeof payload !== 'object' || !Array.isArray(payload.documents)) {
+      return res.status(400).json({ success: false, error: 'Invalid backup schema. Expected { documents: [] }.' });
+    }
+
+    const hasInvalidDoc = payload.documents.some((docEntry) => !docEntry || typeof docEntry !== 'object' || !docEntry.id);
+    if (hasInvalidDoc) {
+      return res.status(400).json({ success: false, error: 'Invalid backup schema: each document must include an id.' });
+    }
+
+    const result = await restoreInventoryFromBackupPayload(payload);
+    return res.json({ success: true, mode: 'upload', ...result });
+  } catch (error) {
+    console.error('❌ Upload restore error:', error);
+    return res.status(500).json({ success: false, error: error.message });
+  } finally {
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+    }
+  }
+});
+
 // Admin Database Restore Endpoint
 app.post('/api/backup/restore', async (req, res) => {
   const { backupId } = req.body || {};
@@ -361,35 +430,11 @@ app.post('/api/backup/restore', async (req, res) => {
     }
 
     const payload = backupDoc.data();
-    const backupDocuments = Array.isArray(payload.documents) ? payload.documents : [];
-
-    // Clear current collection
-    const existingSnapshot = await firestore.collection(OFFLINE_COLLECTION).get();
-    const operations = [];
-
-    existingSnapshot.docs.forEach((docSnap) => {
-      operations.push({
-        type: 'delete',
-        ref: firestore.collection(OFFLINE_COLLECTION).doc(docSnap.id),
-      });
-    });
-
-    // Populate with backup data
-    backupDocuments.forEach((vendorDoc) => {
-      const { id, ...vendorData } = vendorDoc;
-      if (!id) return;
-      operations.push({
-        type: 'set',
-        ref: firestore.collection(OFFLINE_COLLECTION).doc(id),
-        data: vendorData,
-      });
-    });
-
-    await runBatchInChunks(operations);
+    const result = await restoreInventoryFromBackupPayload(payload);
 
     return res.json({
       success: true,
-      restoredDocuments: backupDocuments.length,
+      restoredDocuments: result.restoredDocuments,
       backupId,
     });
   } catch (error) {

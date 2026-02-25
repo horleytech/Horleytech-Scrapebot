@@ -33,7 +33,7 @@ export const getAdminFirestore = () => {
   return admin.firestore();
 };
 
-const uploadFileToDrive = async (filePath, fileName) => {
+const getDriveClient = () => {
   const serviceAccountEmail = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
   const serviceAccountPrivateKey = process.env.GOOGLE_PRIVATE_KEY?.replace(/\\n/g, '\n');
   const driveFolderId = process.env.GOOGLE_DRIVE_FOLDER_ID;
@@ -49,6 +49,12 @@ const uploadFileToDrive = async (filePath, fileName) => {
   });
 
   const drive = google.drive({ version: 'v3', auth });
+
+  return { drive, driveFolderId };
+};
+
+const uploadFileToDrive = async (filePath, fileName) => {
+  const { drive, driveFolderId } = getDriveClient();
 
   try {
     console.log(`☁️ Starting Google Drive upload for ${fileName} -> folder ${driveFolderId}`);
@@ -73,6 +79,77 @@ const uploadFileToDrive = async (filePath, fileName) => {
     console.error(`❌ Google Drive upload failed for ${fileName}: ${detailedMessage}`);
     throw error;
   }
+};
+
+const restoreCollectionFromDocuments = async (documents = []) => {
+  const firestore = getAdminFirestore();
+  const existingSnapshot = await firestore.collection(BACKUP_COLLECTION).get();
+
+  const existingIds = existingSnapshot.docs.map((docSnap) => docSnap.id);
+  for (let i = 0; i < existingIds.length; i += 400) {
+    const batch = firestore.batch();
+    existingIds.slice(i, i + 400).forEach((docId) => {
+      batch.delete(firestore.collection(BACKUP_COLLECTION).doc(docId));
+    });
+    await batch.commit();
+  }
+
+  for (let i = 0; i < documents.length; i += 400) {
+    const batch = firestore.batch();
+    documents.slice(i, i + 400).forEach((vendorDoc) => {
+      const { id, ...vendorData } = vendorDoc || {};
+      if (!id) return;
+      batch.set(firestore.collection(BACKUP_COLLECTION).doc(String(id)), vendorData, { merge: false });
+    });
+    await batch.commit();
+  }
+};
+
+export const restoreInventoryFromBackupPayload = async (payload) => {
+  const backupDocuments = Array.isArray(payload?.documents) ? payload.documents : null;
+  if (!backupDocuments) {
+    throw new Error('Invalid backup payload: documents array is required.');
+  }
+
+  await restoreCollectionFromDocuments(backupDocuments);
+  return { restoredDocuments: backupDocuments.length };
+};
+
+export const listBackupsFromDrive = async () => {
+  const { drive, driveFolderId } = getDriveClient();
+
+  const query = `'${driveFolderId}' in parents and mimeType='application/json' and trashed=false`;
+  const response = await drive.files.list({
+    q: query,
+    orderBy: 'createdTime desc',
+    pageSize: 5,
+    fields: 'files(id,name,createdTime,size)',
+  });
+
+  return response.data.files || [];
+};
+
+export const downloadAndRestoreFromDrive = async (fileId) => {
+  if (!fileId) {
+    throw new Error('fileId is required.');
+  }
+
+  const { drive } = getDriveClient();
+
+  const response = await drive.files.get(
+    { fileId, alt: 'media' },
+    { responseType: 'arraybuffer' }
+  );
+
+  const raw = Buffer.from(response.data).toString('utf-8');
+  const payload = JSON.parse(raw);
+
+  const restoreResult = await restoreInventoryFromBackupPayload(payload);
+  return {
+    fileId,
+    backupId: payload?.backupId || null,
+    ...restoreResult,
+  };
 };
 
 export const initializeSystemCollections = async () => {
