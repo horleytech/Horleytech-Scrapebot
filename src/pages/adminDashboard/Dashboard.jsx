@@ -109,6 +109,20 @@ const AdminDashboard = () => {
   const [chatInput, setChatInput] = useState('');
   const [sendingChat, setSendingChat] = useState(false);
 
+  // Audit, Bulk Edit, Onboarding
+  const [auditLogs, setAuditLogs] = useState([]);
+  const [loadingAuditLogs, setLoadingAuditLogs] = useState(false);
+  const [restoringAuditId, setRestoringAuditId] = useState(null);
+  const [bulkEditOpen, setBulkEditOpen] = useState(false);
+  const [bulkEditLoading, setBulkEditLoading] = useState(false);
+  const [bulkCondition, setBulkCondition] = useState('');
+  const [bulkCategory, setBulkCategory] = useState('');
+  const [bulkPrice, setBulkPrice] = useState('');
+  const [onboardName, setOnboardName] = useState('');
+  const [onboardPhone, setOnboardPhone] = useState('');
+  const [tutorialVideoUrl, setTutorialVideoUrl] = useState('');
+  const [savingTutorialVideo, setSavingTutorialVideo] = useState(false);
+
   const fetchInventory = async () => {
     setLoadingSearch(true);
     try {
@@ -172,6 +186,63 @@ const AdminDashboard = () => {
     }
   };
 
+  const fetchAuditLogs = async () => {
+    setLoadingAuditLogs(true);
+    try {
+      const response = await fetch(`${BASE_URL}/api/admin/audit-logs`, {
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      });
+      const data = await response.json();
+      if (!response.ok || !data.success) throw new Error(data.error || 'Failed to load audit logs');
+      setAuditLogs(Array.isArray(data.logs) ? data.logs : []);
+    } catch (error) {
+      console.error('Unable to fetch audit logs:', error);
+    } finally {
+      setLoadingAuditLogs(false);
+    }
+  };
+
+  const fetchTutorialVideo = async () => {
+    try {
+      const response = await fetch(`${BASE_URL}/api/settings/tutorial-video`, {
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      });
+      const data = await response.json();
+      if (!response.ok || !data.success) throw new Error(data.error || 'Failed to load tutorial video setting');
+      setTutorialVideoUrl(data.youtubeUrl || '');
+    } catch (error) {
+      console.error('Unable to fetch tutorial video setting:', error);
+    }
+  };
+
+  const saveTutorialVideo = async () => {
+    const trimmedUrl = tutorialVideoUrl.trim();
+
+    if (!trimmedUrl) {
+      alert('Please enter a valid YouTube link.');
+      return;
+    }
+
+    if (!window.confirm('Are you sure you want to proceed? This will change the live user experience/data.')) return;
+
+    setSavingTutorialVideo(true);
+    try {
+      const response = await fetch(`${BASE_URL}/api/settings/tutorial-video`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'x-user-role': 'admin' },
+        body: JSON.stringify({ youtubeUrl: trimmedUrl }),
+      });
+      const data = await response.json();
+      if (!response.ok || !data.success) throw new Error(data.error || 'Could not save tutorial video');
+      setTutorialVideoUrl(data.youtubeUrl || trimmedUrl);
+      alert('✅ Tutorial video updated successfully.');
+    } catch (error) {
+      alert(`❌ ${error.message}`);
+    } finally {
+      setSavingTutorialVideo(false);
+    }
+  };
+
   useEffect(() => {
     if (location.pathname === '/dashboard' || location.pathname === '/dashboard/') {
       fetchInventory();
@@ -181,6 +252,8 @@ const AdminDashboard = () => {
 
   useEffect(() => {
     fetchAllMessages();
+    fetchAuditLogs();
+    fetchTutorialVideo();
     const timer = setInterval(fetchAllMessages, 12000);
     return () => clearInterval(timer);
   }, []);
@@ -445,6 +518,144 @@ const AdminDashboard = () => {
     }
   };
 
+  const openBulkEdit = () => {
+    if (!selectedVendorIds.length) {
+      alert('Select at least one vendor first.');
+      return;
+    }
+    setBulkCondition('');
+    setBulkCategory('');
+    setBulkPrice('');
+    setBulkEditOpen(true);
+  };
+
+  const runBulkEdit = async () => {
+    const fields = {};
+    if (bulkCondition.trim()) fields.Condition = bulkCondition.trim();
+    if (bulkCategory.trim()) fields.Category = bulkCategory.trim();
+    if (bulkPrice.trim()) fields['Regular price'] = bulkPrice.trim();
+
+    if (!Object.keys(fields).length) {
+      alert('Please add at least one field update.');
+      return;
+    }
+
+    const selectedVendors = offlineVendors.filter((vendor) => selectedVendorIds.includes(vendor.docId));
+    const productIds = [];
+
+    selectedVendors.forEach((vendor) => {
+      (vendor.products || []).forEach((_product, index) => {
+        productIds.push(`${vendor.docId}::${index}`);
+      });
+    });
+
+    if (!productIds.length) {
+      alert('No products found for selected vendors.');
+      return;
+    }
+
+    setBulkEditLoading(true);
+    try {
+      const response = await fetch(`${BASE_URL}/api/inventory/bulk-edit`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        body: JSON.stringify({ productIds, fields }),
+      });
+      const data = await response.json();
+      if (!response.ok || !data.success) throw new Error(data.error || 'Bulk edit failed');
+      alert(`✅ Updated ${data.updatedProducts || 0} products.`);
+      setBulkEditOpen(false);
+      fetchInventory();
+      fetchAuditLogs();
+    } catch (error) {
+      alert(`❌ ${error.message}`);
+    } finally {
+      setBulkEditLoading(false);
+    }
+  };
+
+  const generateOnboardingLink = async () => {
+    if (!onboardName.trim() || !onboardPhone.trim()) {
+      alert('Enter vendor name and phone number.');
+      return;
+    }
+
+    try {
+      const response = await fetch(`${BASE_URL}/api/admin/onboard-vendor`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        body: JSON.stringify({ vendorName: onboardName.trim(), phoneNumber: onboardPhone.trim() }),
+      });
+      const data = await response.json();
+      if (!response.ok || !data.success) throw new Error(data.error || 'Could not generate onboarding link');
+      await navigator.clipboard.writeText(data.url);
+      alert('✅ Onboarding link generated and copied.');
+    } catch (error) {
+      alert(`❌ ${error.message}`);
+    }
+  };
+
+  const undoAuditAction = async (auditId) => {
+    if (!window.confirm('Are you sure you want to proceed? This will change the live user experience/data.')) return;
+    setRestoringAuditId(auditId);
+    try {
+      const response = await fetch(`${BASE_URL}/api/admin/restore-action`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        body: JSON.stringify({ auditId }),
+      });
+      const data = await response.json();
+      if (!response.ok || !data.success) throw new Error(data.error || 'Undo failed');
+      alert('✅ Action restored successfully.');
+      fetchInventory();
+      fetchAuditLogs();
+    } catch (error) {
+      alert(`❌ ${error.message}`);
+    } finally {
+      setRestoringAuditId(null);
+    }
+  };
+
+  const advancedAnalytics = useMemo(() => {
+    const buckets = {};
+    const heat = { 'Admin edits': 0, 'Vendor WhatsApp updates': 0 };
+    const accuracy = { 'Automated Fixes': 0, 'Manual Edits': 0 };
+
+    offlineVendors.forEach((vendor) => {
+      (vendor.products || []).forEach((product) => {
+        const key = `${product['Device Type'] || 'Unknown'} (${product.Condition || 'Unknown'})`;
+        if (!buckets[key]) buckets[key] = { total: 0, count: 0 };
+        buckets[key].total += parseNairaValue(product['Regular price']);
+        buckets[key].count += 1;
+      });
+
+      const logs = normalizeLogs(vendor.logs);
+      logs.admin.forEach((entry) => {
+        const action = String(entry?.action || '').toLowerCase();
+        if (action.includes('edited')) {
+          heat['Admin edits'] += 1;
+          accuracy['Manual Edits'] += 1;
+        }
+        if (action.includes('ai')) accuracy['Automated Fixes'] += 1;
+      });
+      logs.vendor.forEach((entry) => {
+        const action = String(entry?.action || '').toLowerCase();
+        if (action.includes('whatsapp') || action.includes('updated')) {
+          heat['Vendor WhatsApp updates'] += 1;
+        }
+      });
+    });
+
+    return {
+      priceVariance: Object.entries(buckets).slice(0, 10).map(([name, v]) => ({
+        name,
+        averagePrice: Math.round(v.total / Math.max(v.count, 1)),
+      })),
+      actionHeatmap: Object.entries(heat).map(([type, frequency]) => ({ type, frequency })),
+      scraperAccuracy: Object.entries(accuracy).map(([name, value]) => ({ name, value })),
+    };
+  }, [offlineVendors]);
+
   return (
     <AdminDashboardLayout notificationCount={unreadMessages.length} onNotificationClick={() => setNotificationOpen(true)}>
       {location.pathname === '/dashboard' || location.pathname === '/dashboard/' ? (
@@ -484,6 +695,36 @@ const AdminDashboard = () => {
               <button onClick={() => setActiveTab('analytics')} className={`flex-shrink-0 px-5 py-2.5 rounded-lg text-sm font-bold transition-all ${activeTab === 'analytics' ? 'bg-white text-[#1A1C23] shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Visual Analytics</button>
               <button onClick={() => setActiveTab('activity')} className={`flex-shrink-0 px-5 py-2.5 rounded-lg text-sm font-bold transition-all ${activeTab === 'activity' ? 'bg-white text-[#1A1C23] shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Activity Log</button>
               <button onClick={() => setActiveTab('backups')} className={`flex-shrink-0 px-5 py-2.5 rounded-lg text-sm font-bold transition-all ${activeTab === 'backups' ? 'bg-white text-[#1A1C23] shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Backups</button>
+              <button onClick={() => setActiveTab('history')} className={`flex-shrink-0 px-5 py-2.5 rounded-lg text-sm font-bold transition-all ${activeTab === 'history' ? 'bg-white text-[#1A1C23] shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>History</button>
+            </div>
+          </div>
+
+          <div className="bg-white border border-gray-200 rounded-xl p-4 mb-6">
+            <h3 className="font-black text-[#1A1C23] mb-3">Tutorial Video Manager</h3>
+            <div className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-3">
+              <input
+                value={tutorialVideoUrl}
+                onChange={(e) => setTutorialVideoUrl(e.target.value)}
+                placeholder="Paste YouTube link"
+                className="border border-gray-200 rounded-lg px-3 py-2 text-sm"
+              />
+              <button
+                onClick={saveTutorialVideo}
+                disabled={savingTutorialVideo}
+                className="bg-blue-600 text-white rounded-lg px-4 py-2 text-sm font-bold hover:bg-blue-700 disabled:opacity-50"
+              >
+                {savingTutorialVideo ? 'Saving...' : 'Save Video'}
+              </button>
+            </div>
+            <p className="text-xs text-gray-400 mt-2">Update the tutorial video shown to all vendors on their tips page.</p>
+          </div>
+
+          <div className="bg-white border border-gray-200 rounded-xl p-4 mb-6">
+            <h3 className="font-black text-[#1A1C23] mb-3">Onboard Vendor</h3>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <input value={onboardName} onChange={(e) => setOnboardName(e.target.value)} placeholder="Vendor name" className="border border-gray-200 rounded-lg px-3 py-2 text-sm" />
+              <input value={onboardPhone} onChange={(e) => setOnboardPhone(e.target.value)} placeholder="Phone number" className="border border-gray-200 rounded-lg px-3 py-2 text-sm" />
+              <button onClick={generateOnboardingLink} className="bg-emerald-600 text-white rounded-lg px-4 py-2 text-sm font-bold hover:bg-emerald-700">Generate & Copy Link</button>
             </div>
           </div>
 
@@ -536,14 +777,56 @@ const AdminDashboard = () => {
                   </LineChart>
                 </ResponsiveContainer>
               </div>
+              <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 mt-8">
+                <div className="h-[320px] border border-gray-100 rounded-2xl p-5 shadow-sm bg-gray-50">
+                  <h3 className="font-bold text-gray-700 mb-4 uppercase tracking-widest text-xs">Price Variance Chart</h3>
+                  <ResponsiveContainer width="100%" height="90%">
+                    <BarChart data={advancedAnalytics.priceVariance}>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                      <XAxis dataKey="name" hide />
+                      <YAxis />
+                      <Tooltip formatter={(value) => [formatNaira(value), 'Average Price']} />
+                      <Bar dataKey="averagePrice" fill="#4f46e5" radius={[6, 6, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+                <div className="h-[320px] border border-gray-100 rounded-2xl p-5 shadow-sm bg-gray-50">
+                  <h3 className="font-bold text-gray-700 mb-4 uppercase tracking-widest text-xs">Action Heatmap</h3>
+                  <ResponsiveContainer width="100%" height="90%">
+                    <BarChart data={advancedAnalytics.actionHeatmap}>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                      <XAxis dataKey="type" />
+                      <YAxis />
+                      <Tooltip />
+                      <Bar dataKey="frequency" fill="#10b981" radius={[6, 6, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+                <div className="h-[320px] border border-gray-100 rounded-2xl p-5 shadow-sm bg-gray-50">
+                  <h3 className="font-bold text-gray-700 mb-4 uppercase tracking-widest text-xs">Scraper Accuracy</h3>
+                  <ResponsiveContainer width="100%" height="90%">
+                    <PieChart>
+                      <Pie data={advancedAnalytics.scraperAccuracy} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={90} label>
+                        {advancedAnalytics.scraperAccuracy.map((entry, index) => (
+                          <Cell key={`scraper-cell-${index}`} fill={CHART_COLORS[index % CHART_COLORS.length]} />
+                        ))}
+                      </Pie>
+                      <Tooltip />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
             </div>
           ) : activeTab === 'backups' ? (
             <div className="bg-white shadow-lg rounded-xl overflow-hidden border border-gray-200">
               <div className="p-5 bg-gray-50 border-b flex justify-between items-center gap-4">
                 <h2 className="text-lg font-bold text-[#1A1C23]">Backup Version History ({backups.length})</h2>
-                <button onClick={triggerManualBackup} disabled={manualBackupLoading} className="bg-blue-600 text-white px-5 py-2.5 rounded-lg text-sm font-bold hover:bg-blue-700 transition-all shadow-md disabled:opacity-50">
-                  {manualBackupLoading ? 'Backing up...' : 'Trigger Manual Backup'}
-                </button>
+                <div>
+                  <button onClick={triggerManualBackup} disabled={manualBackupLoading} className="bg-blue-600 text-white px-5 py-2.5 rounded-lg text-sm font-bold hover:bg-blue-700 transition-all shadow-md disabled:opacity-50">
+                    {manualBackupLoading ? 'Running...' : 'Run Backup'}
+                  </button>
+                  <p className="text-xs text-gray-400 mt-2">Creates a manual snapshot and uploads it to Cloud Storage and Firebase.</p>
+                </div>
               </div>
               <table className="w-full text-left">
                 <thead className="bg-white text-gray-400 text-[11px] font-black uppercase tracking-widest border-b">
@@ -561,9 +844,12 @@ const AdminDashboard = () => {
                       <td className="p-4 text-sm text-gray-600 font-medium">{backup.createdAt ? new Date(backup.createdAt).toLocaleString() : 'N/A'}</td>
                       <td className="p-4 text-sm font-bold text-gray-800">{backup.totalDocuments || 0} Vendors</td>
                       <td className="p-4">
-                        <button onClick={() => restoreBackup(backup.id)} disabled={restoringBackupId === backup.id} className="bg-red-50 text-red-600 px-4 py-2 rounded-lg text-xs font-black uppercase hover:bg-red-600 hover:text-white transition-all disabled:opacity-50">
-                          {restoringBackupId === backup.id ? 'Restoring...' : 'Restore Version'}
-                        </button>
+                        <div className="flex flex-col items-end">
+                          <button onClick={() => restoreBackup(backup.id)} disabled={restoringBackupId === backup.id} className="bg-red-50 text-red-600 px-4 py-2 rounded-lg text-xs font-black uppercase hover:bg-red-600 hover:text-white transition-all disabled:opacity-50">
+                            {restoringBackupId === backup.id ? 'Restoring...' : 'Restore Version'}
+                          </button>
+                          <p className="text-xs text-gray-400 mt-2 text-right">Reverts the selected item or collection to a previous historical state.</p>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -588,6 +874,35 @@ const AdminDashboard = () => {
                 {platformActivityTimeline.length === 0 && <p className="p-10 text-center text-gray-400 font-bold uppercase tracking-widest">No activity logs recorded.</p>}
               </div>
             </div>
+          ) : activeTab === 'history' ? (
+            <div className="bg-white shadow-lg rounded-xl overflow-hidden border border-gray-200">
+              <div className="p-5 border-b bg-gray-50 flex items-center justify-between">
+                <h2 className="text-xl font-black text-[#1A1C23]">Audit Trail</h2>
+                <button onClick={fetchAuditLogs} className="text-xs font-bold uppercase tracking-wider bg-gray-100 px-4 py-2 rounded-lg">Refresh</button>
+              </div>
+              <div className="p-4 space-y-3 max-h-[60vh] overflow-y-auto">
+                {loadingAuditLogs ? (
+                  <p className="text-sm text-gray-400">Loading audit logs...</p>
+                ) : auditLogs.length ? auditLogs.map((log) => (
+                  <div key={log.id} className="border border-gray-200 rounded-xl p-4 bg-white">
+                    <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
+                      <div>
+                        <p className="text-sm font-black text-[#1A1C23]">{log.userRole || 'Unknown'} • {log.method} {log.path}</p>
+                        <p className="text-xs text-gray-500">{formatTimelineDate(log.timestamp)}</p>
+                      </div>
+                      <div className="flex flex-col items-end">
+                        <button onClick={() => undoAuditAction(log.id)} disabled={restoringAuditId === log.id} className="bg-red-600 text-white px-4 py-2 rounded-lg text-xs font-black uppercase disabled:opacity-50">
+                          {restoringAuditId === log.id ? 'Undoing...' : 'Undo'}
+                        </button>
+                        <p className="text-xs text-gray-400 mt-2 text-right">Reverts the selected item or collection to a previous historical state.</p>
+                      </div>
+                    </div>
+                  </div>
+                )) : (
+                  <p className="text-sm text-gray-400">No audit logs found.</p>
+                )}
+              </div>
+            </div>
           ) : (
             <>
               {/* Toolbar */}
@@ -602,6 +917,16 @@ const AdminDashboard = () => {
                   <button onClick={handleExport} className="bg-gray-800 text-white px-6 py-2 rounded-xl text-xs font-black uppercase tracking-wider hover:bg-black shadow-md transition-all">Export</button>
                 </div>
               </div>
+
+              {selectedVendorIds.length > 0 && (
+                <div className="sticky bottom-4 z-20 bg-[#1A1C23] text-white px-4 py-3 rounded-xl shadow-lg mb-4 flex flex-wrap items-center justify-between gap-3">
+                  <p className="text-sm font-bold">{selectedVendorIds.length} vendors selected</p>
+                  <div className="flex flex-col">
+                    <button onClick={openBulkEdit} className="bg-blue-600 px-4 py-2 rounded-lg text-xs font-black uppercase">Bulk Edit</button>
+                    <p className="text-xs text-gray-400 mt-2">Updates condition, category, or price for all selected items instantly.</p>
+                  </div>
+                </div>
+              )}
 
               {/* Vendor Directory */}
               <div className="bg-white shadow-lg rounded-xl overflow-hidden border border-gray-200">
@@ -665,6 +990,28 @@ const AdminDashboard = () => {
         </div>
       ) : (
         <Outlet />
+      )}
+
+      {bulkEditOpen && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+          <div className="bg-white w-full max-w-lg rounded-2xl shadow-2xl border border-gray-200 overflow-hidden">
+            <div className="p-5 border-b bg-gray-50 flex items-center justify-between">
+              <h3 className="text-lg font-black text-[#1A1C23]">Bulk Edit Products</h3>
+              <button onClick={() => setBulkEditOpen(false)} className="text-gray-400 hover:text-red-500 text-xl">✕</button>
+            </div>
+            <div className="p-5 grid grid-cols-1 gap-3">
+              <input value={bulkCondition} onChange={(e) => setBulkCondition(e.target.value)} placeholder="Condition (e.g. Used)" className="border border-gray-200 rounded-lg px-3 py-2 text-sm" />
+              <input value={bulkCategory} onChange={(e) => setBulkCategory(e.target.value)} placeholder="Category (e.g. Smartphones)" className="border border-gray-200 rounded-lg px-3 py-2 text-sm" />
+              <input value={bulkPrice} onChange={(e) => setBulkPrice(e.target.value)} placeholder="Price (e.g. ₦350,000)" className="border border-gray-200 rounded-lg px-3 py-2 text-sm" />
+            </div>
+            <div className="p-5 border-t bg-gray-50 flex justify-end gap-3">
+              <button onClick={() => setBulkEditOpen(false)} className="px-4 py-2 rounded-lg border border-gray-200 font-bold text-gray-600">Cancel</button>
+              <button onClick={runBulkEdit} disabled={bulkEditLoading} className="px-4 py-2 rounded-lg bg-blue-600 text-white font-black uppercase disabled:opacity-50">
+                {bulkEditLoading ? 'Applying...' : 'Apply Changes'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Global Notification Modal */}

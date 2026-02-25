@@ -8,6 +8,11 @@ import { BASE_URL } from '../services/constants/apiConstants.js';
 const MAX_LOG_ITEMS = 200;
 const THEME_PRESETS = ['#16a34a', '#1d4ed8', '#7c3aed', '#ea580c'];
 
+const HD_IMAGE_STYLE = {
+  imageRendering: '-webkit-optimize-contrast',
+  filter: 'contrast(1.1) brightness(1.03) saturate(1.05)',
+};
+
 const toCsv = (rows) => {
   if (!rows.length) return '';
   const headers = Object.keys(rows[0]);
@@ -69,6 +74,35 @@ const parseEditFromValues = (specification, storage) => ({
   'SIM Type/Model/Processor': specification,
   'Storage Capacity/Configuration': storage,
 });
+
+
+const toYoutubeEmbedUrl = (url) => {
+  if (!url) return '';
+
+  try {
+    const parsed = new URL(url);
+
+    if (parsed.hostname.includes('youtu.be')) {
+      const id = parsed.pathname.replace('/', '').trim();
+      return id ? `https://www.youtube.com/embed/${id}` : '';
+    }
+
+    if (parsed.hostname.includes('youtube.com')) {
+      const id = parsed.searchParams.get('v');
+      if (id) return `https://www.youtube.com/embed/${id}`;
+
+      const pathParts = parsed.pathname.split('/').filter(Boolean);
+      const embedIndex = pathParts.findIndex((part) => part === 'embed');
+      if (embedIndex !== -1 && pathParts[embedIndex + 1]) {
+        return `https://www.youtube.com/embed/${pathParts[embedIndex + 1]}`;
+      }
+    }
+  } catch (error) {
+    return '';
+  }
+
+  return '';
+};
 
 // Security Gate UI
 const VendorLogin = ({ vendorName, onSubmit, passwordValue, setPasswordValue, error }) => {
@@ -156,6 +190,9 @@ const VendorPage = () => {
   const [storeWhatsappNumberInput, setStoreWhatsappNumberInput] = useState('');
   const [vendorPasswordInput, setVendorPasswordInput] = useState('');
   const [allowedGroups, setAllowedGroups] = useState([]);
+  const [onboardVendorName, setOnboardVendorName] = useState('');
+  const [onboardVendorPhone, setOnboardVendorPhone] = useState('');
+  const [tutorialVideoUrl, setTutorialVideoUrl] = useState('');
 
   // Timeline & Chat State
   const [timelineTab, setTimelineTab] = useState('vendor');
@@ -223,6 +260,10 @@ const VendorPage = () => {
     fetchVendorData();
   }, [vendorRef]);
 
+  useEffect(() => {
+    fetchTutorialVideo();
+  }, []);
+
   const products = vendorData?.products || [];
 
   const uniqueGroups = useMemo(() => {
@@ -284,6 +325,47 @@ const VendorPage = () => {
   };
 
   const requiresVendorAuth = Boolean(vendorData?.vendorPassword) && !isAdmin && !isAuthenticatedVendor;
+
+  const generateOnboardingLink = async () => {
+    if (!onboardVendorName.trim() || !onboardVendorPhone.trim()) {
+      alert('Please enter vendor name and phone number.');
+      return;
+    }
+
+    try {
+      const response = await fetch(`${BASE_URL}/api/admin/onboard-vendor`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        body: JSON.stringify({
+          vendorName: onboardVendorName.trim(),
+          phoneNumber: onboardVendorPhone.trim(),
+        }),
+      });
+
+      const data = await response.json();
+      if (!response.ok || !data.success) throw new Error(data.error || 'Could not generate onboarding link');
+
+      await navigator.clipboard.writeText(data.url);
+      alert('✅ Onboarding link generated and copied.');
+    } catch (error) {
+      alert(`❌ ${error.message}`);
+    }
+  };
+
+  const fetchTutorialVideo = async () => {
+    try {
+      const response = await fetch(`${BASE_URL}/api/settings/tutorial-video`, {
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      });
+      const data = await response.json();
+      if (!response.ok || !data.success) throw new Error(data.error || 'Could not load tutorial video');
+      setTutorialVideoUrl(data.youtubeUrl || '');
+    } catch (error) {
+      console.error('Tutorial video fetch failed:', error);
+    }
+  };
+
+  const tutorialVideoEmbedUrl = useMemo(() => toYoutubeEmbedUrl(tutorialVideoUrl), [tutorialVideoUrl]);
 
   const handleExport = () => {
     const rows = displayData.map(({ product }) => ({
@@ -866,7 +948,7 @@ const VendorPage = () => {
             <div>
               <label className="block text-sm font-bold text-gray-700 mb-2">Store Logo (150x150)</label>
               <input type="file" accept="image/*" onChange={handleLogoChange} className="w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100" />
-              {logoBase64 && <img src={logoBase64} alt="Store logo preview" className="w-16 h-16 rounded-full mt-3 border object-cover shadow-sm" />}
+              {logoBase64 && <img src={logoBase64} alt="Store logo preview" style={HD_IMAGE_STYLE} className="w-16 h-16 rounded-full mt-3 border object-cover shadow-sm" />}
             </div>
           </div>
 
@@ -903,6 +985,18 @@ const VendorPage = () => {
                   <span className="text-sm font-medium text-gray-700">{group}</span>
                 </label>
               ))}
+            </div>
+          </div>
+
+          <div className="mb-6 bg-emerald-50 border border-emerald-100 rounded-xl p-4">
+            <h3 className="text-sm font-black text-emerald-800 uppercase tracking-wider mb-3">Onboard Vendor</h3>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <input value={onboardVendorName} onChange={(e) => setOnboardVendorName(e.target.value)} placeholder="Vendor name" className="w-full p-3 border rounded-[8px] focus:ring-2 focus:ring-emerald-500 outline-none" />
+              <input value={onboardVendorPhone} onChange={(e) => setOnboardVendorPhone(e.target.value)} placeholder="Phone number" className="w-full p-3 border rounded-[8px] focus:ring-2 focus:ring-emerald-500 outline-none" />
+              <button onClick={generateOnboardingLink} className="bg-emerald-600 text-white px-4 py-3 rounded-[8px] font-bold hover:bg-emerald-700 transition-colors">Generate & Copy Link</button>
+            </div>
+            <div className="mt-3 p-3 rounded-lg border border-emerald-100 bg-emerald-50 text-emerald-900 text-xs">
+              Generates a pre-formatted WhatsApp message link. When a vendor clicks this, it automatically teaches them how to use the scraper.
             </div>
           </div>
 
@@ -986,7 +1080,7 @@ const VendorPage = () => {
                     <td className="hidden md:table-cell p-4 text-[11px] text-gray-400 font-medium">{product.DatePosted || 'N/A'}</td>
                     <td className="p-4">
                       <div className="flex flex-col gap-2">
-                        {product.productImageBase64 && <img src={product.productImageBase64} alt="Product" className="w-10 h-10 object-cover rounded border shadow-sm" />}
+                        {product.productImageBase64 && <img src={product.productImageBase64} alt="Product" style={HD_IMAGE_STYLE} className="w-10 h-10 object-cover rounded border shadow-sm" />}
                         <input id={`product-image-${index}`} type="file" accept="image/*" className="hidden" onChange={(e) => handleProductImageUpload(index, e.target.files?.[0])} />
                         <label htmlFor={`product-image-${index}`} className="cursor-pointer bg-purple-100 text-purple-700 px-3 py-1.5 rounded-md text-[10px] font-black uppercase text-center hover:bg-purple-200">🖼️ Upload</label>
                       </div>
@@ -1153,6 +1247,30 @@ const VendorPage = () => {
               )
             ))}
           </div>
+          <div className="mb-4 p-4 border border-amber-100 bg-amber-50 rounded-xl">
+            <h3 className="text-sm font-black text-amber-800 uppercase tracking-wider mb-2">Pro Tips</h3>
+            <p className="text-sm text-amber-900 font-medium">Best formatting style for the AI scraper: <span className="font-black">Product | Specs | Condition | Price</span>.</p>
+            <p className="text-xs text-amber-800 mt-2">Using the pipe-separated format (<span className="font-black">|</span>) guarantees 100% scraper accuracy for property mapping.</p>
+          </div>
+
+          <div className="mb-4 p-4 border border-blue-100 bg-blue-50 rounded-xl">
+            <h3 className="text-sm font-black text-blue-800 uppercase tracking-wider mb-2">Video Tutorial</h3>
+            <p className="text-xs text-blue-900 mb-3">Watch this quick guide to learn how to format your WhatsApp messages for the fastest AI inventory updates.</p>
+            {tutorialVideoEmbedUrl ? (
+              <div className="w-full aspect-video rounded-lg overflow-hidden border border-blue-200 bg-black">
+                <iframe
+                  src={tutorialVideoEmbedUrl}
+                  title="Scraper tutorial video"
+                  className="w-full h-full"
+                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                  allowFullScreen
+                />
+              </div>
+            ) : (
+              <p className="text-xs text-blue-700 font-medium">No tutorial video has been configured yet. Please contact admin.</p>
+            )}
+          </div>
+
           <div className="space-y-3 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
             {(timelineEntries[timelineTab] || []).map((log, idx) => (
               <div key={idx} className="border-l-4 border-blue-500 pl-4 py-2 bg-gray-50 rounded-r-lg">
