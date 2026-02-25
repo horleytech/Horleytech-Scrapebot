@@ -202,6 +202,14 @@ const VendorPage = () => {
             existingNumbers[1] || '',
             existingNumbers[2] || '',
           ]);
+
+          const storedSessionTime = localStorage.getItem(`vendor_session_${vendorId}`);
+          if (storedSessionTime) {
+            const parsedSessionTime = Number.parseInt(storedSessionTime, 10);
+            if (!Number.isNaN(parsedSessionTime) && Date.now() - parsedSessionTime < 600000) {
+              setIsAuthenticatedVendor(true);
+            }
+          }
         } else {
           setVendorData(null);
         }
@@ -269,6 +277,7 @@ const VendorPage = () => {
     if (vendorPasswordEntry === vendorData.vendorPassword) {
       setIsAuthenticatedVendor(true);
       setVendorLoginError('');
+      localStorage.setItem(`vendor_session_${vendorId}`, Date.now().toString());
     } else {
       setVendorLoginError('Incorrect password. Please try again.');
     }
@@ -463,7 +472,7 @@ const VendorPage = () => {
     try {
       const response = await fetch(`${BASE_URL}/api/ai/fix-inventory`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
         body: JSON.stringify({ products: targetProducts, actionType: aiAction }),
       });
 
@@ -688,7 +697,9 @@ const VendorPage = () => {
   const fetchSupportMessages = async () => {
     setSupportLoading(true);
     try {
-      const response = await fetch(`${BASE_URL}/api/messages/${vendorId}`);
+      const response = await fetch(`${BASE_URL}/api/messages/${vendorId}`, {
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      });
       const data = await response.json();
       if (!response.ok || !data.success) {
         throw new Error(data.error || 'Unable to fetch messages');
@@ -715,7 +726,7 @@ const VendorPage = () => {
     try {
       const response = await fetch(`${BASE_URL}/api/messages/send`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
         body: JSON.stringify({
           vendorId,
           sender: isAdmin ? 'admin' : 'vendor',
@@ -788,7 +799,7 @@ const VendorPage = () => {
       </div>
 
       {/* Main Navigation Tabs */}
-      <div className="mb-4 flex overflow-x-auto hide-scrollbar whitespace-nowrap w-full gap-3 bg-gray-100 p-1.5 rounded-xl">
+      <div className="mb-4 flex overflow-x-auto hide-scrollbar whitespace-nowrap w-full gap-2 pb-2 bg-gray-100 p-1.5 rounded-xl">
         <button onClick={() => setMainTab('settings')} className={`flex-shrink-0 px-6 py-2.5 rounded-lg text-sm font-bold transition-all ${mainTab === 'settings' ? 'bg-white text-[#1A1C23] shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Store Settings</button>
         <button onClick={() => setMainTab('inventory')} className={`flex-shrink-0 px-6 py-2.5 rounded-lg text-sm font-bold transition-all ${mainTab === 'inventory' ? 'bg-white text-[#1A1C23] shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Inventory</button>
         <button onClick={() => setMainTab('advanced')} className={`flex-shrink-0 px-6 py-2.5 rounded-lg text-sm font-bold transition-all ${mainTab === 'advanced' ? 'bg-white text-[#1A1C23] shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Advanced Tools</button>
@@ -958,7 +969,7 @@ const VendorPage = () => {
                   <th className="p-4 text-xs font-bold uppercase tracking-wider">Status</th>
                   <th className="hidden md:table-cell p-4 text-xs font-bold uppercase tracking-wider">Extracted</th>
                   <th className="p-4 text-xs font-bold uppercase tracking-wider">Image</th>
-                  <th className="hidden md:table-cell p-4 text-xs font-bold uppercase tracking-wider">Edit</th>
+                  <th className="p-4 text-xs font-bold uppercase tracking-wider">Edit</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
@@ -980,7 +991,7 @@ const VendorPage = () => {
                         <label htmlFor={`product-image-${index}`} className="cursor-pointer bg-purple-100 text-purple-700 px-3 py-1.5 rounded-md text-[10px] font-black uppercase text-center hover:bg-purple-200">🖼️ Upload</label>
                       </div>
                     </td>
-                    <td className="hidden md:table-cell p-4"><button onClick={() => openEditModal(index, product)} className="bg-blue-600 text-white px-3 py-1.5 rounded-md text-xs font-bold hover:bg-blue-700">✏️ Edit</button></td>
+                    <td className="p-4"><button onClick={() => openEditModal(index, product)} className="bg-blue-600 text-white px-3 py-1.5 rounded-md text-xs font-bold hover:bg-blue-700">✏️ Edit</button></td>
                   </tr>
                 ))}
               </tbody>
@@ -1069,7 +1080,7 @@ const VendorPage = () => {
 
       {/* Support Chat Hub (Version 3.1) */}
       {mainTab === 'support' && (
-        <div className="bg-white border border-gray-200 rounded-[12px] p-5 mb-6 shadow-sm flex flex-col h-[500px] md:h-[600px]">
+        <div className="bg-white border border-gray-200 rounded-[12px] p-5 mb-6 shadow-sm flex flex-col h-[50vh] md:h-[600px]">
           <div className="flex items-center justify-between mb-4 border-b pb-4">
             <h2 className="text-xl font-black text-[#1A1C23]">Live Support</h2>
             <button onClick={fetchSupportMessages} className="text-xs font-bold uppercase tracking-wider bg-gray-100 text-gray-600 px-4 py-2 rounded-lg hover:bg-gray-200 transition-colors">Refresh Chat</button>

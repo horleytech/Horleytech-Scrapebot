@@ -84,6 +84,7 @@ const formatTimelineDate = (isoDate) => {
 
 const AdminDashboard = () => {
   const location = useLocation();
+  const isAdmin = true;
 
   const [activeTab, setActiveTab] = useState('offline');
   const [searchQuery, setSearchQuery] = useState('');
@@ -160,7 +161,9 @@ const AdminDashboard = () => {
 
   const fetchAllMessages = async () => {
     try {
-      const response = await fetch(`${BASE_URL}/api/messages`);
+      const response = await fetch(`${BASE_URL}/api/messages`, {
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      });
       const data = await response.json();
       if (!response.ok || !data.success) throw new Error(data.error || 'Failed to load messages');
       setAllMessages(Array.isArray(data.messages) ? data.messages : []);
@@ -351,7 +354,9 @@ const AdminDashboard = () => {
   const triggerManualBackup = async () => {
     setManualBackupLoading(true);
     try {
-      const res = await fetch(`${BASE_URL}/api/backup/manual`);
+      const res = await fetch(`${BASE_URL}/api/backup/manual`, {
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      });
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error || 'Manual backup failed');
       alert(`✅ Manual backup completed. Backup ID: ${data.backupId}`);
@@ -369,7 +374,7 @@ const AdminDashboard = () => {
     try {
       const res = await fetch(`${BASE_URL}/api/backup/restore`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
         body: JSON.stringify({ backupId }),
       });
       const data = await res.json();
@@ -400,7 +405,9 @@ const AdminDashboard = () => {
     setChatVendor(vendor);
     setChatOpen(true);
     try {
-      const response = await fetch(`${BASE_URL}/api/messages/${vendor.vendorId}`);
+      const response = await fetch(`${BASE_URL}/api/messages/${vendor.vendorId}`, {
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      });
       const data = await response.json();
       if (!response.ok || !data.success) throw new Error(data.error || 'Failed to load conversation');
       setChatMessages(Array.isArray(data.messages) ? data.messages : []);
@@ -417,7 +424,7 @@ const AdminDashboard = () => {
     try {
       const response = await fetch(`${BASE_URL}/api/messages/send`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
         body: JSON.stringify({
           vendorId: chatVendor.vendorId,
           sender: 'admin',
@@ -443,7 +450,7 @@ const AdminDashboard = () => {
       {location.pathname === '/dashboard' || location.pathname === '/dashboard/' ? (
         <div className="p-6">
           {/* Analytics Hub Top Row */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-6 gap-4 mb-6">
+          <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4 mb-6">
             <div className="bg-white border border-gray-200 rounded-[12px] p-5 shadow-sm">
               <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">Total Vendors</p>
               <p className="text-2xl font-black text-[#1A1C23] mt-2">{analytics.totalVendors}</p>
@@ -471,12 +478,12 @@ const AdminDashboard = () => {
           </div>
 
           {/* Tab Navigation */}
-          <div className="mb-6 flex flex-wrap gap-3 items-center justify-between">
+          <div className="mb-6 flex overflow-x-auto hide-scrollbar whitespace-nowrap w-full gap-2 pb-2 items-center">
             <div className="flex gap-2 bg-gray-100 p-1.5 rounded-xl">
-              <button onClick={() => setActiveTab('offline')} className={`px-5 py-2.5 rounded-lg text-sm font-bold transition-all ${activeTab === 'offline' ? 'bg-white text-[#1A1C23] shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Directory</button>
-              <button onClick={() => setActiveTab('analytics')} className={`px-5 py-2.5 rounded-lg text-sm font-bold transition-all ${activeTab === 'analytics' ? 'bg-white text-[#1A1C23] shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Visual Analytics</button>
-              <button onClick={() => setActiveTab('activity')} className={`px-5 py-2.5 rounded-lg text-sm font-bold transition-all ${activeTab === 'activity' ? 'bg-white text-[#1A1C23] shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Activity Log</button>
-              <button onClick={() => setActiveTab('backups')} className={`px-5 py-2.5 rounded-lg text-sm font-bold transition-all ${activeTab === 'backups' ? 'bg-white text-[#1A1C23] shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Backups</button>
+              <button onClick={() => setActiveTab('offline')} className={`flex-shrink-0 px-5 py-2.5 rounded-lg text-sm font-bold transition-all ${activeTab === 'offline' ? 'bg-white text-[#1A1C23] shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Directory</button>
+              <button onClick={() => setActiveTab('analytics')} className={`flex-shrink-0 px-5 py-2.5 rounded-lg text-sm font-bold transition-all ${activeTab === 'analytics' ? 'bg-white text-[#1A1C23] shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Visual Analytics</button>
+              <button onClick={() => setActiveTab('activity')} className={`flex-shrink-0 px-5 py-2.5 rounded-lg text-sm font-bold transition-all ${activeTab === 'activity' ? 'bg-white text-[#1A1C23] shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Activity Log</button>
+              <button onClick={() => setActiveTab('backups')} className={`flex-shrink-0 px-5 py-2.5 rounded-lg text-sm font-bold transition-all ${activeTab === 'backups' ? 'bg-white text-[#1A1C23] shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Backups</button>
             </div>
           </div>
 
@@ -604,11 +611,11 @@ const AdminDashboard = () => {
                       <th className="p-4 pl-6 w-[50px]"><input type="checkbox" checked={allFilteredSelected} onChange={toggleSelectAll} className="w-4 h-4 rounded border-gray-300 cursor-pointer" /></th>
                       <th className="p-4">Vendor Name</th>
                       <th className="p-4">Status</th>
-                      <th className="p-4">View</th>
+                      <th className="hidden md:table-cell p-4">View</th>
                       <th className="hidden md:table-cell p-4">Access Details</th>
                       <th className="hidden md:table-cell p-4">Monetization</th>
-                      <th className="p-4">Total Inventory</th>
-                      <th className="hidden md:table-cell p-4">Action</th>
+                      <th className="hidden md:table-cell p-4">Total Inventory</th>
+                      <th className="p-4">Action</th>
                       <th className="hidden md:table-cell p-4 pr-6">Contact</th>
                     </tr>
                   </thead>
@@ -620,7 +627,7 @@ const AdminDashboard = () => {
                         <td className="p-4">
                           <span className={`px-2.5 py-1 rounded-lg text-[10px] font-black uppercase ${vendor.status === 'suspended' ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>{vendor.status}</span>
                         </td>
-                        <td className="p-4 text-xs font-bold text-gray-500 space-y-1">
+                        <td className="hidden md:table-cell p-4 text-xs font-bold text-gray-500 space-y-1">
                           <p>👁️ {vendor.viewCount} Views</p>
                           <p className="hidden md:block">🔗 {vendor.whatsappClicks} Clicks</p>
                         </td>
@@ -637,8 +644,8 @@ const AdminDashboard = () => {
                             {togglingAdvancedVendorId === vendor.docId ? '...' : vendor.advancedEnabled ? 'AI Enabled' : 'AI Locked'}
                           </button>
                         </td>
-                        <td className="p-4"><span className="bg-gray-100 text-gray-600 px-3 py-1.5 rounded-full text-[11px] font-bold">{vendor.totalProducts} Items</span></td>
-                        <td className="hidden md:table-cell p-4"><Link to={vendor.shareableLink} target="_blank" rel="noopener noreferrer" className="inline-block bg-[#1A1C23] text-white px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-wider hover:bg-black transition-all shadow-sm">Manage</Link></td>
+                        <td className="hidden md:table-cell p-4"><span className="bg-gray-100 text-gray-600 px-3 py-1.5 rounded-full text-[11px] font-bold">{vendor.totalProducts} Items</span></td>
+                        <td className="p-4"><Link to={vendor.shareableLink} target="_blank" rel="noopener noreferrer" className="inline-block bg-[#1A1C23] text-white px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-wider hover:bg-black transition-all shadow-sm">Manage</Link></td>
                         <td className="hidden md:table-cell p-4 pr-6">
                           <button onClick={() => openChatForVendor(vendor)} className="p-2.5 rounded-xl bg-blue-100 text-blue-600 hover:bg-blue-600 hover:text-white transition-all shadow-sm relative group">
                             <IoMdChatboxes className="w-5 h-5" />
@@ -702,7 +709,7 @@ const AdminDashboard = () => {
       {/* Admin-to-Vendor Chat Modal */}
       {chatOpen && chatVendor && (
         <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
-          <div className="bg-white rounded-2xl w-full max-w-2xl shadow-2xl border border-gray-200 overflow-hidden flex flex-col h-[70vh] animate-in fade-in zoom-in duration-200">
+          <div className="bg-white rounded-2xl w-full max-w-2xl shadow-2xl border border-gray-200 overflow-hidden flex flex-col h-[50vh] md:h-[600px] animate-in fade-in zoom-in duration-200">
             <div className="p-5 border-b bg-gray-50 flex justify-between items-center">
               <div>
                 <h3 className="text-xl font-black text-[#1A1C23]">Chat: {chatVendor.vendorName}</h3>
@@ -712,13 +719,13 @@ const AdminDashboard = () => {
             </div>
             <div className="p-5 flex-1 overflow-y-auto bg-gray-100 space-y-4 custom-scrollbar">
               {chatMessages.length > 0 ? chatMessages.map((message) => {
-                const mine = message.sender === 'admin';
+                const mine = isAdmin ? message.sender === 'admin' : message.sender === 'vendor';
                 return (
                   <div key={message.id} className={`flex ${mine ? 'justify-end' : 'justify-start'}`}>
-                    <div className={`max-w-[80%] rounded-2xl px-5 py-3 shadow-sm ${mine ? 'bg-blue-600 text-white rounded-br-none' : 'bg-white border border-gray-200 text-[#1A1C23] rounded-bl-none'}`}>
+                    <div className={`max-w-[80%] rounded-2xl px-5 py-3 shadow-sm ${mine ? 'bg-blue-600 text-white rounded-br-none' : 'bg-white border border-gray-200 text-gray-800 rounded-bl-none'}`}>
                       <p className={`text-[10px] font-black uppercase tracking-widest mb-1 ${mine ? 'text-blue-200' : 'text-gray-400'}`}>{mine ? 'You (Admin)' : chatVendor.vendorName}</p>
                       <p className="text-sm whitespace-pre-wrap font-medium leading-relaxed">{message.text}</p>
-                      <p className={`text-[9px] font-bold mt-2 text-right ${mine ? 'text-blue-300' : 'text-gray-400'}`}>{formatTimelineDate(message.timestamp)}</p>
+                      <p className={`text-[9px] font-bold mt-2 ${mine ? 'text-right text-blue-300' : 'text-left text-gray-400'}`}>{formatTimelineDate(message.timestamp)}</p>
                     </div>
                   </div>
                 );
