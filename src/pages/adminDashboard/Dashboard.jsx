@@ -47,6 +47,9 @@ const parseNairaValue = (value) => {
 const formatNaira = (amount) =>
   new Intl.NumberFormat('en-NG', { style: 'currency', currency: 'NGN', maximumFractionDigits: 0 }).format(amount);
 
+const formatCompactNaira = (amount) =>
+  new Intl.NumberFormat('en-NG', { style: 'currency', currency: 'NGN', notation: 'compact', maximumFractionDigits: 1 }).format(amount);
+
 const normalizeLogs = (logs) => ({
   admin: Array.isArray(logs?.admin) ? logs.admin : [],
   vendor: Array.isArray(logs?.vendor) ? logs.vendor : [],
@@ -110,6 +113,10 @@ const AdminDashboard = () => {
   const [savingTutorialVideo, setSavingTutorialVideo] = useState(false);
   const [onboardVendorName, setOnboardVendorName] = useState('');
   const [botNumber, setBotNumber] = useState('');
+  const [driveBackups, setDriveBackups] = useState([]);
+  const [loadingDriveBackups, setLoadingDriveBackups] = useState(false);
+  const [restoringDriveId, setRestoringDriveId] = useState(null);
+  const [uploadRestoreLoading, setUploadRestoreLoading] = useState(false);
 
   const fetchInventory = async () => {
     setLoadingSearch(true);
@@ -258,6 +265,64 @@ const AdminDashboard = () => {
     }
   };
 
+  const fetchDriveBackups = async () => {
+    setLoadingDriveBackups(true);
+    try {
+      const response = await fetch(`${BASE_URL}/api/backup/drive-list`, {
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      });
+      const data = await response.json();
+      if (!response.ok || !data.success) throw new Error(data.error || 'Failed to load drive backups');
+      setDriveBackups(Array.isArray(data.files) ? data.files : []);
+    } catch (error) {
+      alert(`❌ ${error.message}`);
+    } finally {
+      setLoadingDriveBackups(false);
+    }
+  };
+
+  const restoreDriveBackup = async (fileId) => {
+    setRestoringDriveId(fileId);
+    try {
+      const response = await fetch(`${BASE_URL}/api/backup/drive-restore`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        body: JSON.stringify({ fileId }),
+      });
+      const data = await response.json();
+      if (!response.ok || !data.success) throw new Error(data.error || 'Drive restore failed');
+      alert(`✅ Restored ${data.restoredDocuments || 0} documents from Drive backup.`);
+    } catch (error) {
+      alert(`❌ ${error.message}`);
+    } finally {
+      setRestoringDriveId(null);
+    }
+  };
+
+  const uploadAndRestoreLocalBackup = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const formData = new FormData();
+    formData.append('file', file);
+
+    setUploadRestoreLoading(true);
+    try {
+      const response = await fetch(`${BASE_URL}/api/backup/upload-restore`, {
+        method: 'POST',
+        body: formData,
+      });
+      const data = await response.json();
+      if (!response.ok || !data.success) throw new Error(data.error || 'Upload restore failed');
+      alert(`✅ Restored ${data.restoredDocuments || 0} documents from local backup.`);
+    } catch (error) {
+      alert(`❌ ${error.message}`);
+    } finally {
+      event.target.value = '';
+      setUploadRestoreLoading(false);
+    }
+  };
+
   useEffect(() => {
     if (location.pathname === '/dashboard' || location.pathname === '/dashboard/') {
       fetchInventory();
@@ -272,6 +337,12 @@ const AdminDashboard = () => {
     const timer = setInterval(fetchAllMessages, 12000);
     return () => clearInterval(timer);
   }, []);
+
+  useEffect(() => {
+    if (activeTab === 'maintenance') {
+      fetchDriveBackups();
+    }
+  }, [activeTab]);
 
   const filteredOffline = useMemo(
     () => offlineVendors.filter((v) => !searchQuery || v.vendorName?.toLowerCase().includes(searchQuery.toLowerCase())),
@@ -655,63 +726,50 @@ const AdminDashboard = () => {
       {location.pathname === '/dashboard' || location.pathname === '/dashboard/' ? (
         <div className="p-6">
           {/* Analytics Hub Top Row */}
-          <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4 mb-6">
-            <div className="bg-white border border-gray-200 rounded-[12px] p-5 shadow-sm">
-              <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">Total Vendors</p>
-              <p className="text-2xl font-black text-[#1A1C23] mt-2">{analytics.totalVendors}</p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6 gap-4 mb-6">
+            <div className="group bg-gradient-to-br from-white to-slate-50 border border-slate-200/80 rounded-2xl p-5 shadow-sm hover:shadow-md transition-all">
+              <p className="text-[11px] font-extrabold text-slate-500 uppercase tracking-[0.15em]">Total Vendors</p>
+              <p className="text-3xl font-black text-[#12141B] mt-3 leading-none">{analytics.totalVendors}</p>
+              <p className="text-xs text-slate-400 mt-2">Registered storefronts</p>
             </div>
-            <div className="bg-white border border-gray-200 rounded-[12px] p-5 shadow-sm">
-              <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">Inventory Value</p>
-              <p className="text-2xl font-black text-green-600 mt-2">{formatNaira(analytics.totalInventoryValue)}</p>
+            <div className="group bg-gradient-to-br from-emerald-50 via-white to-green-50 border border-emerald-200/70 rounded-2xl p-5 shadow-sm hover:shadow-md transition-all">
+              <p className="text-[11px] font-extrabold text-emerald-700 uppercase tracking-[0.15em]">Inventory Value</p>
+              <p className="text-[clamp(1.2rem,2.1vw,2rem)] font-black text-emerald-700 mt-3 leading-tight break-words">{formatNaira(analytics.totalInventoryValue)}</p>
+              <p className="text-xs text-emerald-600/80 mt-2">~ {formatCompactNaira(analytics.totalInventoryValue)}</p>
             </div>
-            <div className="bg-white border border-gray-200 rounded-[12px] p-5 shadow-sm">
-              <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">Store Views</p>
-              <p className="text-2xl font-black text-blue-600 mt-2">{analytics.totalStoreViews}</p>
+            <div className="group bg-gradient-to-br from-blue-50 via-white to-indigo-50 border border-blue-200/70 rounded-2xl p-5 shadow-sm hover:shadow-md transition-all">
+              <p className="text-[11px] font-extrabold text-blue-700 uppercase tracking-[0.15em]">Store Views</p>
+              <p className="text-3xl font-black text-blue-700 mt-3 leading-none">{analytics.totalStoreViews}</p>
+              <p className="text-xs text-blue-600/80 mt-2">Traffic this period</p>
             </div>
-            <div className="bg-white border border-gray-200 rounded-[12px] p-5 shadow-sm">
-              <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">WA Orders</p>
-              <p className="text-2xl font-black text-emerald-600 mt-2">{analytics.totalWhatsAppOrders}</p>
+            <div className="group bg-gradient-to-br from-teal-50 via-white to-emerald-50 border border-teal-200/70 rounded-2xl p-5 shadow-sm hover:shadow-md transition-all">
+              <p className="text-[11px] font-extrabold text-teal-700 uppercase tracking-[0.15em]">WA Orders</p>
+              <p className="text-3xl font-black text-teal-700 mt-3 leading-none">{analytics.totalWhatsAppOrders}</p>
+              <p className="text-xs text-teal-600/80 mt-2">Buyer intent clicks</p>
             </div>
-            <div className="bg-white border border-gray-200 rounded-[12px] p-5 shadow-sm">
-              <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">Top Device</p>
-              <p className="text-sm font-bold text-[#1A1C23] mt-2 truncate">{analytics.mostTrackedDevice}</p>
+            <div className="group bg-gradient-to-br from-orange-50 via-white to-amber-50 border border-orange-200/70 rounded-2xl p-5 shadow-sm hover:shadow-md transition-all">
+              <p className="text-[11px] font-extrabold text-orange-700 uppercase tracking-[0.15em]">Top Device</p>
+              <p className="text-lg font-black text-[#12141B] mt-3 leading-tight break-words">{analytics.mostTrackedDevice}</p>
+              <p className="text-xs text-orange-600/80 mt-2">Most listed category</p>
             </div>
-            <div className="bg-white border border-gray-200 rounded-[12px] p-5 shadow-sm">
-              <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">Star Vendor</p>
-              <p className="text-sm font-bold text-[#1A1C23] mt-2 truncate">{analytics.topVendor}</p>
+            <div className="group bg-gradient-to-br from-violet-50 via-white to-purple-50 border border-violet-200/70 rounded-2xl p-5 shadow-sm hover:shadow-md transition-all">
+              <p className="text-[11px] font-extrabold text-violet-700 uppercase tracking-[0.15em]">Star Vendor</p>
+              <p className="text-lg font-black text-[#12141B] mt-3 leading-tight break-all">{analytics.topVendor}</p>
+              <p className="text-xs text-violet-600/80 mt-2">Highest WA conversions</p>
             </div>
           </div>
 
           {/* Tab Navigation */}
           <div className="mb-6 flex overflow-x-auto hide-scrollbar whitespace-nowrap w-full gap-2 pb-2 items-center">
-            <div className="flex gap-2 bg-gray-100 p-1.5 rounded-xl">
-              <button onClick={() => setActiveTab('offline')} className={`flex-shrink-0 px-5 py-2.5 rounded-lg text-sm font-bold transition-all ${activeTab === 'offline' ? 'bg-white text-[#1A1C23] shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Directory</button>
-              <button onClick={() => setActiveTab('analytics')} className={`flex-shrink-0 px-5 py-2.5 rounded-lg text-sm font-bold transition-all ${activeTab === 'analytics' ? 'bg-white text-[#1A1C23] shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Visual Analytics</button>
-              <button onClick={() => setActiveTab('activity')} className={`flex-shrink-0 px-5 py-2.5 rounded-lg text-sm font-bold transition-all ${activeTab === 'activity' ? 'bg-white text-[#1A1C23] shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Activity Log</button>
-              <button onClick={() => setActiveTab('backups')} className={`flex-shrink-0 px-5 py-2.5 rounded-lg text-sm font-bold transition-all ${activeTab === 'backups' ? 'bg-white text-[#1A1C23] shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Backups</button>
-              <button onClick={() => setActiveTab('history')} className={`flex-shrink-0 px-5 py-2.5 rounded-lg text-sm font-bold transition-all ${activeTab === 'history' ? 'bg-white text-[#1A1C23] shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>History</button>
-              <button onClick={() => setActiveTab('share')} className={`flex-shrink-0 px-5 py-2.5 rounded-lg text-sm font-bold transition-all ${activeTab === 'share' ? 'bg-white text-[#1A1C23] shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Share</button>
+            <div className="flex gap-2 bg-white border border-gray-200 p-1.5 rounded-2xl shadow-sm">
+              <button onClick={() => setActiveTab('offline')} className={`flex-shrink-0 px-4 py-2.5 rounded-xl text-sm font-bold transition-all ${activeTab === 'offline' ? 'bg-[#1A1C23] text-white shadow-sm' : 'text-gray-600 hover:text-[#1A1C23] hover:bg-gray-100'}`}>Directory</button>
+              <button onClick={() => setActiveTab('analytics')} className={`flex-shrink-0 px-4 py-2.5 rounded-xl text-sm font-bold transition-all ${activeTab === 'analytics' ? 'bg-[#1A1C23] text-white shadow-sm' : 'text-gray-600 hover:text-[#1A1C23] hover:bg-gray-100'}`}>Visual Analytics</button>
+              <button onClick={() => setActiveTab('activity')} className={`flex-shrink-0 px-4 py-2.5 rounded-xl text-sm font-bold transition-all ${activeTab === 'activity' ? 'bg-[#1A1C23] text-white shadow-sm' : 'text-gray-600 hover:text-[#1A1C23] hover:bg-gray-100'}`}>Activity Log</button>
+              <button onClick={() => setActiveTab('backups')} className={`flex-shrink-0 px-4 py-2.5 rounded-xl text-sm font-bold transition-all ${activeTab === 'backups' ? 'bg-[#1A1C23] text-white shadow-sm' : 'text-gray-600 hover:text-[#1A1C23] hover:bg-gray-100'}`}>Backups</button>
+              <button onClick={() => setActiveTab('history')} className={`flex-shrink-0 px-4 py-2.5 rounded-xl text-sm font-bold transition-all ${activeTab === 'history' ? 'bg-[#1A1C23] text-white shadow-sm' : 'text-gray-600 hover:text-[#1A1C23] hover:bg-gray-100'}`}>History</button>
+              <button onClick={() => setActiveTab('promote')} className={`flex-shrink-0 px-4 py-2.5 rounded-xl text-sm font-bold transition-all ${activeTab === 'promote' ? 'bg-[#1A1C23] text-white shadow-sm' : 'text-gray-600 hover:text-[#1A1C23] hover:bg-gray-100'}`}>Promote</button>
+              <button onClick={() => setActiveTab('maintenance')} className={`flex-shrink-0 px-4 py-2.5 rounded-xl text-sm font-bold transition-all ${activeTab === 'maintenance' ? 'bg-[#1A1C23] text-white shadow-sm' : 'text-gray-600 hover:text-[#1A1C23] hover:bg-gray-100'}`}>System Maintenance</button>
             </div>
-          </div>
-
-          <div className="bg-white border border-gray-200 rounded-xl p-4 mb-6">
-            <h3 className="font-black text-[#1A1C23] mb-3">Tutorial Video Manager</h3>
-            <div className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-3">
-              <input
-                value={tutorialVideoUrl}
-                onChange={(e) => setTutorialVideoUrl(e.target.value)}
-                placeholder="Paste YouTube link"
-                className="border border-gray-200 rounded-lg px-3 py-2 text-sm"
-              />
-              <button
-                onClick={saveTutorialVideo}
-                disabled={savingTutorialVideo}
-                className="bg-blue-600 text-white rounded-lg px-4 py-2 text-sm font-bold hover:bg-blue-700 disabled:opacity-50"
-              >
-                {savingTutorialVideo ? 'Saving...' : 'Save Video'}
-              </button>
-            </div>
-            <p className="text-xs text-gray-400 mt-2">Update the tutorial video shown to all vendors on their tips page.</p>
           </div>
 
           {/* Conditional Rendering of Tabs */}
@@ -889,16 +947,81 @@ const AdminDashboard = () => {
                 )}
               </div>
             </div>
-          ) : activeTab === 'share' ? (
-            <div className="bg-emerald-50 border border-emerald-100 rounded-xl p-4">
-              <h3 className="text-sm font-black text-emerald-800 uppercase tracking-wider mb-3">Onboard Vendor</h3>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                <input value={onboardVendorName} onChange={(e) => setOnboardVendorName(e.target.value)} placeholder="Vendor's Name" className="w-full p-3 border rounded-[8px] focus:ring-2 focus:ring-emerald-500 outline-none" />
-                <input value={botNumber} onChange={(e) => setBotNumber(e.target.value)} placeholder="Your Admin Bot Number" className="w-full p-3 border rounded-[8px] focus:ring-2 focus:ring-emerald-500 outline-none" />
-                <button onClick={generateOnboardingLink} className="bg-emerald-600 text-white px-4 py-3 rounded-[8px] font-bold hover:bg-emerald-700 transition-colors">Generate & Copy Link</button>
+          ) : activeTab === 'promote' ? (
+            <div className="space-y-4">
+              <div className="bg-emerald-50 border border-emerald-100 rounded-xl p-4">
+                <h3 className="text-sm font-black text-emerald-800 uppercase tracking-wider mb-3">Onboard Vendor</h3>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  <input value={onboardVendorName} onChange={(e) => setOnboardVendorName(e.target.value)} placeholder="Vendor's Name" className="w-full p-3 border rounded-[8px] focus:ring-2 focus:ring-emerald-500 outline-none" />
+                  <input value={botNumber} onChange={(e) => setBotNumber(e.target.value)} placeholder="Your Admin Bot Number" className="w-full p-3 border rounded-[8px] focus:ring-2 focus:ring-emerald-500 outline-none" />
+                  <button onClick={generateOnboardingLink} className="bg-emerald-600 text-white px-4 py-3 rounded-[8px] font-bold hover:bg-emerald-700 transition-colors">Generate & Copy Link</button>
+                </div>
+                <div className="mt-3 p-3 rounded-lg border border-emerald-100 bg-emerald-50 text-emerald-900 text-xs">
+                  Generates a pre-formatted WhatsApp onboarding link for vendors and copies a shortened version to your clipboard.
+                </div>
               </div>
-              <div className="mt-3 p-3 rounded-lg border border-emerald-100 bg-emerald-50 text-emerald-900 text-xs">
-                Generates a pre-formatted WhatsApp onboarding link for vendors and copies a shortened version to your clipboard.
+
+              <div className="bg-white border border-gray-200 rounded-xl p-4">
+                <h3 className="font-black text-[#1A1C23] mb-3">Tutorial Video Manager</h3>
+                <div className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-3">
+                  <input
+                    value={tutorialVideoUrl}
+                    onChange={(e) => setTutorialVideoUrl(e.target.value)}
+                    placeholder="Paste YouTube link"
+                    className="border border-gray-200 rounded-lg px-3 py-2 text-sm"
+                  />
+                  <button
+                    onClick={saveTutorialVideo}
+                    disabled={savingTutorialVideo}
+                    className="bg-blue-600 text-white rounded-lg px-4 py-2 text-sm font-bold hover:bg-blue-700 disabled:opacity-50"
+                  >
+                    {savingTutorialVideo ? 'Saving...' : 'Save Video'}
+                  </button>
+                </div>
+                <p className="text-xs text-gray-400 mt-2">Update the tutorial video shown to all vendors on their tips page.</p>
+              </div>
+            </div>
+          ) : activeTab === 'maintenance' ? (
+            <div className="bg-white border border-gray-200 rounded-2xl p-5 shadow-sm">
+              <h2 className="text-xl font-black text-[#1A1C23] mb-2">System Maintenance</h2>
+              <p className="text-sm text-gray-500 mb-4">Restore backup snapshots from local JSON or Google Drive versions.</p>
+
+              <div className="mb-5">
+                <label className="inline-flex items-center gap-2 bg-[#1A1C23] text-white px-4 py-2 rounded-lg font-bold text-sm cursor-pointer hover:bg-black">
+                  {uploadRestoreLoading ? 'Uploading...' : 'Upload & Restore from Local JSON'}
+                  <input type="file" accept="application/json,.json" className="hidden" onChange={uploadAndRestoreLocalBackup} disabled={uploadRestoreLoading} />
+                </label>
+              </div>
+
+              <div className="border-t pt-4">
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-sm font-black uppercase tracking-wider text-gray-600">Cloud Backups (Drive)</h3>
+                  <button onClick={fetchDriveBackups} className="text-xs font-bold px-3 py-1.5 bg-gray-100 rounded-lg hover:bg-gray-200">Refresh</button>
+                </div>
+
+                {loadingDriveBackups ? (
+                  <p className="text-sm text-gray-400">Loading cloud backups...</p>
+                ) : driveBackups.length ? (
+                  <div className="space-y-2">
+                    {driveBackups.map((file) => (
+                      <div key={file.id} className="flex flex-col md:flex-row md:items-center md:justify-between gap-2 border border-gray-100 rounded-lg p-3">
+                        <div>
+                          <p className="text-sm font-bold text-[#1A1C23]">{file.name}</p>
+                          <p className="text-xs text-gray-500">{file.createdTime ? new Date(file.createdTime).toLocaleString() : 'Unknown time'}</p>
+                        </div>
+                        <button
+                          onClick={() => restoreDriveBackup(file.id)}
+                          disabled={restoringDriveId === file.id}
+                          className="bg-red-600 text-white px-4 py-2 rounded-lg text-xs font-black uppercase hover:bg-red-700 disabled:opacity-50"
+                        >
+                          {restoringDriveId === file.id ? 'Restoring...' : 'Restore This Version'}
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-sm text-gray-400">No Drive backups found.</p>
+                )}
               </div>
             </div>
           ) : (
