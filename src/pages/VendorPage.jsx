@@ -3,9 +3,15 @@ import { useParams, Link } from 'react-router-dom';
 import { doc, getDoc, updateDoc } from 'firebase/firestore';
 import { db } from '../services/firebase/index.js';
 import { useSelector } from 'react-redux';
+import { BASE_URL } from '../services/constants/apiConstants.js';
 
 const MAX_LOG_ITEMS = 200;
 const THEME_PRESETS = ['#16a34a', '#1d4ed8', '#7c3aed', '#ea580c'];
+
+const HD_IMAGE_STYLE = {
+  imageRendering: '-webkit-optimize-contrast',
+  filter: 'contrast(1.1) brightness(1.03) saturate(1.05)',
+};
 
 const toCsv = (rows) => {
   if (!rows.length) return '';
@@ -73,7 +79,7 @@ const parseEditFromValues = (specification, storage) => ({
 const VendorLogin = ({ vendorName, onSubmit, passwordValue, setPasswordValue, error }) => {
   return (
     <div className="min-h-screen bg-gray-50 flex items-center justify-center p-6">
-      <div className="w-full max-w-md bg-white border border-gray-200 rounded-2xl shadow-xl p-8">
+      <div className="w-[95%] mx-auto max-w-md bg-white border border-gray-200 rounded-2xl shadow-xl p-8">
         <div className="text-center mb-8">
           <div className="w-16 h-16 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center mx-auto mb-4">
             <span className="text-2xl">🔒</span>
@@ -155,6 +161,8 @@ const VendorPage = () => {
   const [storeWhatsappNumberInput, setStoreWhatsappNumberInput] = useState('');
   const [vendorPasswordInput, setVendorPasswordInput] = useState('');
   const [allowedGroups, setAllowedGroups] = useState([]);
+  const [onboardVendorName, setOnboardVendorName] = useState('');
+  const [onboardVendorPhone, setOnboardVendorPhone] = useState('');
 
   // Timeline & Chat State
   const [timelineTab, setTimelineTab] = useState('vendor');
@@ -201,6 +209,14 @@ const VendorPage = () => {
             existingNumbers[1] || '',
             existingNumbers[2] || '',
           ]);
+
+          const storedSessionTime = localStorage.getItem(`vendor_session_${vendorId}`);
+          if (storedSessionTime) {
+            const parsedSessionTime = Number.parseInt(storedSessionTime, 10);
+            if (!Number.isNaN(parsedSessionTime) && Date.now() - parsedSessionTime < 600000) {
+              setIsAuthenticatedVendor(true);
+            }
+          }
         } else {
           setVendorData(null);
         }
@@ -216,7 +232,14 @@ const VendorPage = () => {
 
   const products = vendorData?.products || [];
 
-  const uniqueGroups = useMemo(() => ['All', ...new Set(products.map((p) => p.groupName || 'Direct Message'))], [products]);
+  const uniqueGroups = useMemo(() => {
+    const filteredProducts = products.filter((product) => {
+      const productGroup = product.groupName || 'Direct Message';
+      return allowedGroups.length > 0 ? allowedGroups.includes(productGroup) : true;
+    });
+
+    return ['All', ...new Set(filteredProducts.map((p) => p.groupName || 'Direct Message'))];
+  }, [products, allowedGroups]);
   const sourceGroups = useMemo(() => [...new Set(products.map((p) => p.groupName || 'Direct Message'))], [products]);
   const uniqueCategories = useMemo(() => ['All', ...new Set(products.map((p) => p.Category).filter(Boolean))], [products]);
 
@@ -242,11 +265,13 @@ const VendorPage = () => {
         }
 
         const passesCategory = categoryFilter === 'All' || product.Category === categoryFilter;
-        const passesGroup = groupFilter === 'All' || (product.groupName || 'Direct Message') === groupFilter;
+        const productGroup = product.groupName || 'Direct Message';
+        const passesGroup = groupFilter === 'All' || productGroup === groupFilter;
+        const passesAllowedGroup = allowedGroups.length > 0 ? allowedGroups.includes(productGroup) : true;
 
-        return passesDate && passesCategory && passesGroup;
+        return passesDate && passesCategory && passesGroup && passesAllowedGroup;
       });
-  }, [products, dateFilter, categoryFilter, groupFilter]);
+  }, [products, dateFilter, categoryFilter, groupFilter, allowedGroups]);
 
   const allVisibleRowsSelected = displayData.length > 0 && displayData.every(({ index }) => selectedProductIndexes.includes(index));
 
@@ -259,12 +284,39 @@ const VendorPage = () => {
     if (vendorPasswordEntry === vendorData.vendorPassword) {
       setIsAuthenticatedVendor(true);
       setVendorLoginError('');
+      localStorage.setItem(`vendor_session_${vendorId}`, Date.now().toString());
     } else {
       setVendorLoginError('Incorrect password. Please try again.');
     }
   };
 
   const requiresVendorAuth = Boolean(vendorData?.vendorPassword) && !isAdmin && !isAuthenticatedVendor;
+
+  const generateOnboardingLink = async () => {
+    if (!onboardVendorName.trim() || !onboardVendorPhone.trim()) {
+      alert('Please enter vendor name and phone number.');
+      return;
+    }
+
+    try {
+      const response = await fetch(`${BASE_URL}/api/admin/onboard-vendor`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        body: JSON.stringify({
+          vendorName: onboardVendorName.trim(),
+          phoneNumber: onboardVendorPhone.trim(),
+        }),
+      });
+
+      const data = await response.json();
+      if (!response.ok || !data.success) throw new Error(data.error || 'Could not generate onboarding link');
+
+      await navigator.clipboard.writeText(data.url);
+      alert('✅ Onboarding link generated and copied.');
+    } catch (error) {
+      alert(`❌ ${error.message}`);
+    }
+  };
 
   const handleExport = () => {
     const rows = displayData.map(({ product }) => ({
@@ -451,9 +503,9 @@ const VendorPage = () => {
 
     setRunningAutoFix(true);
     try {
-      const response = await fetch('/api/ai/fix-inventory', {
+      const response = await fetch(`${BASE_URL}/api/ai/fix-inventory`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
         body: JSON.stringify({ products: targetProducts, actionType: aiAction }),
       });
 
@@ -550,7 +602,7 @@ const VendorPage = () => {
 
     const prevGroups = JSON.stringify(previousVendorData.storefrontAllowedGroups || []);
     const nextGroups = JSON.stringify(nextState.storefrontAllowedGroups);
-    if (prevGroups !== nextGroups) actions.push(`Updated Storefront Allowed Groups`);
+    if (prevGroups !== nextGroups) actions.push(`Updated Allowed Inventory Groups`);
 
     if (!actions.length) actions.push('Saved Settings (No Field Changes Detected)');
     return actions;
@@ -558,7 +610,7 @@ const VendorPage = () => {
 
   const handleSaveSettings = async () => {
     const cleanedNumbers = whatsappNumbersInput.map((number) => number.trim()).filter(Boolean).slice(0, 3);
-    const cleanedAllowedGroups = allowedGroups.filter(Boolean);
+    const cleanedAllowedGroups = allowedGroups.map((group) => group.trim()).filter(Boolean);
 
     const nextState = {
       vendorName: vendorNameInput.trim() || vendorData?.vendorName || vendorId,
@@ -678,7 +730,9 @@ const VendorPage = () => {
   const fetchSupportMessages = async () => {
     setSupportLoading(true);
     try {
-      const response = await fetch(`/api/messages/${vendorId}`);
+      const response = await fetch(`${BASE_URL}/api/messages/${vendorId}`, {
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      });
       const data = await response.json();
       if (!response.ok || !data.success) {
         throw new Error(data.error || 'Unable to fetch messages');
@@ -703,9 +757,9 @@ const VendorPage = () => {
 
     setSendingSupportMessage(true);
     try {
-      const response = await fetch('/api/messages/send', {
+      const response = await fetch(`${BASE_URL}/api/messages/send`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
         body: JSON.stringify({
           vendorId,
           sender: isAdmin ? 'admin' : 'vendor',
@@ -753,7 +807,7 @@ const VendorPage = () => {
   };
 
   return (
-    <div className="p-6 max-w-7xl mx-auto bg-[#F9FAFB] min-h-screen">
+    <div className="p-4 md:p-6 max-w-7xl mx-auto bg-[#F9FAFB] min-h-screen">
       {isAdmin && (
         <Link to="/dashboard" className="text-blue-600 font-semibold hover:underline mb-4 inline-block">
           &larr; Back to Directory
@@ -778,12 +832,12 @@ const VendorPage = () => {
       </div>
 
       {/* Main Navigation Tabs */}
-      <div className="mb-4 flex flex-wrap gap-3 bg-gray-100 p-1.5 rounded-xl w-fit">
-        <button onClick={() => setMainTab('settings')} className={`px-6 py-2.5 rounded-lg text-sm font-bold transition-all ${mainTab === 'settings' ? 'bg-white text-[#1A1C23] shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Store Settings</button>
-        <button onClick={() => setMainTab('inventory')} className={`px-6 py-2.5 rounded-lg text-sm font-bold transition-all ${mainTab === 'inventory' ? 'bg-white text-[#1A1C23] shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Inventory</button>
-        <button onClick={() => setMainTab('advanced')} className={`px-6 py-2.5 rounded-lg text-sm font-bold transition-all ${mainTab === 'advanced' ? 'bg-white text-[#1A1C23] shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Advanced Tools</button>
-        <button onClick={() => setMainTab('support')} className={`px-6 py-2.5 rounded-lg text-sm font-bold transition-all ${mainTab === 'support' ? 'bg-white text-[#1A1C23] shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Support Chat</button>
-        <button onClick={() => setMainTab('timeline')} className={`px-6 py-2.5 rounded-lg text-sm font-bold transition-all ${mainTab === 'timeline' ? 'bg-white text-[#1A1C23] shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Store Timeline</button>
+      <div className="mb-4 flex overflow-x-auto hide-scrollbar whitespace-nowrap w-full gap-2 pb-2 bg-gray-100 p-1.5 rounded-xl">
+        <button onClick={() => setMainTab('settings')} className={`flex-shrink-0 px-6 py-2.5 rounded-lg text-sm font-bold transition-all ${mainTab === 'settings' ? 'bg-white text-[#1A1C23] shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Store Settings</button>
+        <button onClick={() => setMainTab('inventory')} className={`flex-shrink-0 px-6 py-2.5 rounded-lg text-sm font-bold transition-all ${mainTab === 'inventory' ? 'bg-white text-[#1A1C23] shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Inventory</button>
+        <button onClick={() => setMainTab('advanced')} className={`flex-shrink-0 px-6 py-2.5 rounded-lg text-sm font-bold transition-all ${mainTab === 'advanced' ? 'bg-white text-[#1A1C23] shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Advanced Tools</button>
+        <button onClick={() => setMainTab('support')} className={`flex-shrink-0 px-6 py-2.5 rounded-lg text-sm font-bold transition-all ${mainTab === 'support' ? 'bg-white text-[#1A1C23] shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Support Chat</button>
+        <button onClick={() => setMainTab('timeline')} className={`flex-shrink-0 px-6 py-2.5 rounded-lg text-sm font-bold transition-all ${mainTab === 'timeline' ? 'bg-white text-[#1A1C23] shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Store Timeline</button>
       </div>
 
       {/* Store Settings Tab */}
@@ -845,7 +899,7 @@ const VendorPage = () => {
             <div>
               <label className="block text-sm font-bold text-gray-700 mb-2">Store Logo (150x150)</label>
               <input type="file" accept="image/*" onChange={handleLogoChange} className="w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100" />
-              {logoBase64 && <img src={logoBase64} alt="Store logo preview" className="w-16 h-16 rounded-full mt-3 border object-cover shadow-sm" />}
+              {logoBase64 && <img src={logoBase64} alt="Store logo preview" style={HD_IMAGE_STYLE} className="w-16 h-16 rounded-full mt-3 border object-cover shadow-sm" />}
             </div>
           </div>
 
@@ -874,7 +928,7 @@ const VendorPage = () => {
           </div>
 
           <div className="mb-6">
-            <label className="block text-sm font-bold text-gray-700 mb-2">Allowed Storefront Groups</label>
+            <label className="block text-sm font-bold text-gray-700 mb-2">Allowed Inventory Groups</label>
             <div className="flex flex-wrap gap-4 p-4 bg-gray-50 rounded-lg border border-gray-100">
               {sourceGroups.map((group) => (
                 <label key={group} className="flex items-center gap-2 cursor-pointer select-none">
@@ -882,6 +936,15 @@ const VendorPage = () => {
                   <span className="text-sm font-medium text-gray-700">{group}</span>
                 </label>
               ))}
+            </div>
+          </div>
+
+          <div className="mb-6 bg-emerald-50 border border-emerald-100 rounded-xl p-4">
+            <h3 className="text-sm font-black text-emerald-800 uppercase tracking-wider mb-3">Onboard Vendor</h3>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <input value={onboardVendorName} onChange={(e) => setOnboardVendorName(e.target.value)} placeholder="Vendor name" className="w-full p-3 border rounded-[8px] focus:ring-2 focus:ring-emerald-500 outline-none" />
+              <input value={onboardVendorPhone} onChange={(e) => setOnboardVendorPhone(e.target.value)} placeholder="Phone number" className="w-full p-3 border rounded-[8px] focus:ring-2 focus:ring-emerald-500 outline-none" />
+              <button onClick={generateOnboardingLink} className="bg-emerald-600 text-white px-4 py-3 rounded-[8px] font-bold hover:bg-emerald-700 transition-colors">Generate & Copy Link</button>
             </div>
           </div>
 
@@ -939,14 +1002,14 @@ const VendorPage = () => {
               <thead className="bg-[#1A1C23] text-white">
                 <tr>
                   <th className="p-4 w-[50px]"><input type="checkbox" checked={allVisibleRowsSelected} onChange={toggleSelectAll} className="w-4 h-4" /></th>
-                  <th className="p-4 text-xs font-bold uppercase tracking-wider">Group</th>
+                  <th className="hidden md:table-cell p-4 text-xs font-bold uppercase tracking-wider">Group</th>
                   <th className="p-4 text-xs font-bold uppercase tracking-wider">Device</th>
-                  <th className="p-4 text-xs font-bold uppercase tracking-wider">Condition</th>
-                  <th className="p-4 text-xs font-bold uppercase tracking-wider">Specification</th>
-                  <th className="p-4 text-xs font-bold uppercase tracking-wider">Storage</th>
+                  <th className="hidden md:table-cell p-4 text-xs font-bold uppercase tracking-wider">Condition</th>
+                  <th className="hidden md:table-cell p-4 text-xs font-bold uppercase tracking-wider">Specification</th>
+                  <th className="hidden md:table-cell p-4 text-xs font-bold uppercase tracking-wider">Storage</th>
                   <th className="p-4 text-xs font-bold uppercase tracking-wider">Price</th>
                   <th className="p-4 text-xs font-bold uppercase tracking-wider">Status</th>
-                  <th className="p-4 text-xs font-bold uppercase tracking-wider">Extracted</th>
+                  <th className="hidden md:table-cell p-4 text-xs font-bold uppercase tracking-wider">Extracted</th>
                   <th className="p-4 text-xs font-bold uppercase tracking-wider">Image</th>
                   <th className="p-4 text-xs font-bold uppercase tracking-wider">Edit</th>
                 </tr>
@@ -955,17 +1018,17 @@ const VendorPage = () => {
                 {displayData.map(({ product, index }) => (
                   <tr key={`${product['Device Type']}-${index}`} className={`hover:bg-blue-50/30 transition-colors ${product.isVisible === false ? 'bg-gray-50 opacity-60 line-through text-gray-400' : ''}`}>
                     <td className="p-4"><input type="checkbox" checked={selectedProductIndexes.includes(index)} onChange={() => toggleProductSelection(index)} className="w-4 h-4" /></td>
-                    <td className="p-4"><span className="text-[10px] font-bold bg-white border px-2 py-1 rounded text-gray-500 whitespace-nowrap">{product.groupName || 'Direct Message'}</span></td>
+                    <td className="hidden md:table-cell p-4"><span className="text-[10px] font-bold bg-white border px-2 py-1 rounded text-gray-500 whitespace-nowrap">{product.groupName || 'Direct Message'}</span></td>
                     <td className="p-4 font-bold text-[#1A1C23]">{product['Device Type'] || 'N/A'}</td>
-                    <td className="p-4"><span className={`text-xs font-bold px-2 py-1 rounded ${product.Condition?.toLowerCase().includes('new') ? 'bg-blue-100 text-blue-700' : 'bg-orange-100 text-orange-700'}`}>{product.Condition || 'N/A'}</span></td>
-                    <td className="p-4 text-sm text-gray-600">{product['SIM Type/Model/Processor'] || 'N/A'}</td>
-                    <td className="p-4 text-sm font-semibold text-gray-700">{product['Storage Capacity/Configuration'] || 'N/A'}</td>
+                    <td className="hidden md:table-cell p-4"><span className={`text-xs font-bold px-2 py-1 rounded ${product.Condition?.toLowerCase().includes('new') ? 'bg-blue-100 text-blue-700' : 'bg-orange-100 text-orange-700'}`}>{product.Condition || 'N/A'}</span></td>
+                    <td className="hidden md:table-cell p-4 text-sm text-gray-600">{product['SIM Type/Model/Processor'] || 'N/A'}</td>
+                    <td className="hidden md:table-cell p-4 text-sm font-semibold text-gray-700">{product['Storage Capacity/Configuration'] || 'N/A'}</td>
                     <td className="p-4 font-black text-green-700 text-lg">{product['Regular price'] || 'N/A'}</td>
                     <td className="p-4"><span className={`px-2 py-1 rounded text-[10px] font-black uppercase ${product.isVisible === false ? 'bg-gray-200 text-gray-500' : 'bg-emerald-100 text-emerald-700'}`}>{product.isVisible === false ? 'Hidden' : 'Visible'}</span></td>
-                    <td className="p-4 text-[11px] text-gray-400 font-medium">{product.DatePosted || 'N/A'}</td>
+                    <td className="hidden md:table-cell p-4 text-[11px] text-gray-400 font-medium">{product.DatePosted || 'N/A'}</td>
                     <td className="p-4">
                       <div className="flex flex-col gap-2">
-                        {product.productImageBase64 && <img src={product.productImageBase64} alt="Product" className="w-10 h-10 object-cover rounded border shadow-sm" />}
+                        {product.productImageBase64 && <img src={product.productImageBase64} alt="Product" style={HD_IMAGE_STYLE} className="w-10 h-10 object-cover rounded border shadow-sm" />}
                         <input id={`product-image-${index}`} type="file" accept="image/*" className="hidden" onChange={(e) => handleProductImageUpload(index, e.target.files?.[0])} />
                         <label htmlFor={`product-image-${index}`} className="cursor-pointer bg-purple-100 text-purple-700 px-3 py-1.5 rounded-md text-[10px] font-black uppercase text-center hover:bg-purple-200">🖼️ Upload</label>
                       </div>
@@ -1059,7 +1122,7 @@ const VendorPage = () => {
 
       {/* Support Chat Hub (Version 3.1) */}
       {mainTab === 'support' && (
-        <div className="bg-white border border-gray-200 rounded-[12px] p-5 mb-6 shadow-sm flex flex-col h-[600px]">
+        <div className="bg-white border border-gray-200 rounded-[12px] p-5 mb-6 shadow-sm flex flex-col h-[50vh] md:h-[600px]">
           <div className="flex items-center justify-between mb-4 border-b pb-4">
             <h2 className="text-xl font-black text-[#1A1C23]">Live Support</h2>
             <button onClick={fetchSupportMessages} className="text-xs font-bold uppercase tracking-wider bg-gray-100 text-gray-600 px-4 py-2 rounded-lg hover:bg-gray-200 transition-colors">Refresh Chat</button>
@@ -1089,7 +1152,7 @@ const VendorPage = () => {
             ) : (
               <div className="h-full flex flex-col items-center justify-center text-gray-400">
                 <span className="text-4xl mb-3">💬</span>
-                <p className="font-bold text-sm">Send a message to the Admin team.</p>
+                <p className="font-bold text-sm">{isAdmin ? 'Send a message to this vendor.' : 'Send a message to the Admin team.'}</p>
               </div>
             )}
           </div>
@@ -1099,7 +1162,7 @@ const VendorPage = () => {
               value={supportInput}
               onChange={(e) => setSupportInput(e.target.value)}
               className="flex-1 border border-gray-200 rounded-xl p-4 text-sm font-medium focus:ring-2 focus:ring-blue-500 outline-none resize-none shadow-sm"
-              placeholder="Type your message here..."
+              placeholder={isAdmin ? 'Type your message to the vendor...' : 'Type your message to the admin...'}
               rows={2}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && !e.shiftKey) {
@@ -1132,6 +1195,12 @@ const VendorPage = () => {
               )
             ))}
           </div>
+          <div className="mb-4 p-4 border border-amber-100 bg-amber-50 rounded-xl">
+            <h3 className="text-sm font-black text-amber-800 uppercase tracking-wider mb-2">Pro Tips</h3>
+            <p className="text-sm text-amber-900 font-medium">Best formatting style for the AI scraper: <span className="font-black">Device | Specs | Condition | Price</span>.</p>
+            <p className="text-xs text-amber-800 mt-2">Using pipe <span className="font-black">|</span> or dash <span className="font-black">-</span> separators helps the AI identify properties with ~99% accuracy.</p>
+          </div>
+
           <div className="space-y-3 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
             {(timelineEntries[timelineTab] || []).map((log, idx) => (
               <div key={idx} className="border-l-4 border-blue-500 pl-4 py-2 bg-gray-50 rounded-r-lg">
@@ -1147,7 +1216,7 @@ const VendorPage = () => {
       {/* Edit Modal */}
       {editingIndex !== null && (
         <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
-          <div className="bg-white w-full max-w-xl rounded-2xl shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200">
+          <div className="bg-white w-[95%] mx-auto max-w-xl rounded-2xl shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200">
             <div className="p-6 bg-gray-50 border-b">
               <h3 className="text-xl font-black text-[#1A1C23]">Edit Product Details</h3>
               <p className="text-sm text-gray-500 font-medium">Manual override for AI-extracted data.</p>

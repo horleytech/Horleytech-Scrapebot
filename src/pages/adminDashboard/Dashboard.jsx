@@ -19,6 +19,7 @@ import {
 } from 'recharts';
 import AdminDashboardLayout from '../../components/layouts/DashboardLayout';
 import { db } from '../../services/firebase/index.js';
+import { BASE_URL } from '../../services/constants/apiConstants.js';
 
 const COLLECTIONS = {
   offline: 'horleyTech_OfflineInventories',
@@ -83,6 +84,7 @@ const formatTimelineDate = (isoDate) => {
 
 const AdminDashboard = () => {
   const location = useLocation();
+  const isAdmin = true;
 
   const [activeTab, setActiveTab] = useState('offline');
   const [searchQuery, setSearchQuery] = useState('');
@@ -106,6 +108,18 @@ const AdminDashboard = () => {
   const [chatMessages, setChatMessages] = useState([]);
   const [chatInput, setChatInput] = useState('');
   const [sendingChat, setSendingChat] = useState(false);
+
+  // Audit, Bulk Edit, Onboarding
+  const [auditLogs, setAuditLogs] = useState([]);
+  const [loadingAuditLogs, setLoadingAuditLogs] = useState(false);
+  const [restoringAuditId, setRestoringAuditId] = useState(null);
+  const [bulkEditOpen, setBulkEditOpen] = useState(false);
+  const [bulkEditLoading, setBulkEditLoading] = useState(false);
+  const [bulkCondition, setBulkCondition] = useState('');
+  const [bulkCategory, setBulkCategory] = useState('');
+  const [bulkPrice, setBulkPrice] = useState('');
+  const [onboardName, setOnboardName] = useState('');
+  const [onboardPhone, setOnboardPhone] = useState('');
 
   const fetchInventory = async () => {
     setLoadingSearch(true);
@@ -159,12 +173,30 @@ const AdminDashboard = () => {
 
   const fetchAllMessages = async () => {
     try {
-      const response = await fetch('/api/messages');
+      const response = await fetch(`${BASE_URL}/api/messages`, {
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      });
       const data = await response.json();
       if (!response.ok || !data.success) throw new Error(data.error || 'Failed to load messages');
       setAllMessages(Array.isArray(data.messages) ? data.messages : []);
     } catch (error) {
       console.error('Unable to fetch global messages:', error);
+    }
+  };
+
+  const fetchAuditLogs = async () => {
+    setLoadingAuditLogs(true);
+    try {
+      const response = await fetch(`${BASE_URL}/api/admin/audit-logs`, {
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      });
+      const data = await response.json();
+      if (!response.ok || !data.success) throw new Error(data.error || 'Failed to load audit logs');
+      setAuditLogs(Array.isArray(data.logs) ? data.logs : []);
+    } catch (error) {
+      console.error('Unable to fetch audit logs:', error);
+    } finally {
+      setLoadingAuditLogs(false);
     }
   };
 
@@ -177,6 +209,7 @@ const AdminDashboard = () => {
 
   useEffect(() => {
     fetchAllMessages();
+    fetchAuditLogs();
     const timer = setInterval(fetchAllMessages, 12000);
     return () => clearInterval(timer);
   }, []);
@@ -350,7 +383,9 @@ const AdminDashboard = () => {
   const triggerManualBackup = async () => {
     setManualBackupLoading(true);
     try {
-      const res = await fetch('/api/backup/manual');
+      const res = await fetch(`${BASE_URL}/api/backup/manual`, {
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      });
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error || 'Manual backup failed');
       alert(`✅ Manual backup completed. Backup ID: ${data.backupId}`);
@@ -366,9 +401,9 @@ const AdminDashboard = () => {
     if (!window.confirm(`Restore backup ${backupId}? This will overwrite the live offline inventory.`)) return;
     setRestoringBackupId(backupId);
     try {
-      const res = await fetch('/api/backup/restore', {
+      const res = await fetch(`${BASE_URL}/api/backup/restore`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
         body: JSON.stringify({ backupId }),
       });
       const data = await res.json();
@@ -399,7 +434,9 @@ const AdminDashboard = () => {
     setChatVendor(vendor);
     setChatOpen(true);
     try {
-      const response = await fetch(`/api/messages/${vendor.vendorId}`);
+      const response = await fetch(`${BASE_URL}/api/messages/${vendor.vendorId}`, {
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      });
       const data = await response.json();
       if (!response.ok || !data.success) throw new Error(data.error || 'Failed to load conversation');
       setChatMessages(Array.isArray(data.messages) ? data.messages : []);
@@ -414,9 +451,9 @@ const AdminDashboard = () => {
 
     setSendingChat(true);
     try {
-      const response = await fetch('/api/messages/send', {
+      const response = await fetch(`${BASE_URL}/api/messages/send`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
         body: JSON.stringify({
           vendorId: chatVendor.vendorId,
           sender: 'admin',
@@ -437,12 +474,149 @@ const AdminDashboard = () => {
     }
   };
 
+  const openBulkEdit = () => {
+    if (!selectedVendorIds.length) {
+      alert('Select at least one vendor first.');
+      return;
+    }
+    setBulkCondition('');
+    setBulkCategory('');
+    setBulkPrice('');
+    setBulkEditOpen(true);
+  };
+
+  const runBulkEdit = async () => {
+    const fields = {};
+    if (bulkCondition.trim()) fields.Condition = bulkCondition.trim();
+    if (bulkCategory.trim()) fields.Category = bulkCategory.trim();
+    if (bulkPrice.trim()) fields['Regular price'] = bulkPrice.trim();
+
+    if (!Object.keys(fields).length) {
+      alert('Please add at least one field update.');
+      return;
+    }
+
+    const selectedVendors = offlineVendors.filter((vendor) => selectedVendorIds.includes(vendor.docId));
+    const productIds = [];
+
+    selectedVendors.forEach((vendor) => {
+      (vendor.products || []).forEach((_product, index) => {
+        productIds.push(`${vendor.docId}::${index}`);
+      });
+    });
+
+    if (!productIds.length) {
+      alert('No products found for selected vendors.');
+      return;
+    }
+
+    setBulkEditLoading(true);
+    try {
+      const response = await fetch(`${BASE_URL}/api/inventory/bulk-edit`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        body: JSON.stringify({ productIds, fields }),
+      });
+      const data = await response.json();
+      if (!response.ok || !data.success) throw new Error(data.error || 'Bulk edit failed');
+      alert(`✅ Updated ${data.updatedProducts || 0} products.`);
+      setBulkEditOpen(false);
+      fetchInventory();
+      fetchAuditLogs();
+    } catch (error) {
+      alert(`❌ ${error.message}`);
+    } finally {
+      setBulkEditLoading(false);
+    }
+  };
+
+  const generateOnboardingLink = async () => {
+    if (!onboardName.trim() || !onboardPhone.trim()) {
+      alert('Enter vendor name and phone number.');
+      return;
+    }
+
+    try {
+      const response = await fetch(`${BASE_URL}/api/admin/onboard-vendor`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        body: JSON.stringify({ vendorName: onboardName.trim(), phoneNumber: onboardPhone.trim() }),
+      });
+      const data = await response.json();
+      if (!response.ok || !data.success) throw new Error(data.error || 'Could not generate onboarding link');
+      await navigator.clipboard.writeText(data.url);
+      alert('✅ Onboarding link generated and copied.');
+    } catch (error) {
+      alert(`❌ ${error.message}`);
+    }
+  };
+
+  const undoAuditAction = async (auditId) => {
+    setRestoringAuditId(auditId);
+    try {
+      const response = await fetch(`${BASE_URL}/api/admin/restore-action`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        body: JSON.stringify({ auditId }),
+      });
+      const data = await response.json();
+      if (!response.ok || !data.success) throw new Error(data.error || 'Undo failed');
+      alert('✅ Action restored successfully.');
+      fetchInventory();
+      fetchAuditLogs();
+    } catch (error) {
+      alert(`❌ ${error.message}`);
+    } finally {
+      setRestoringAuditId(null);
+    }
+  };
+
+  const advancedAnalytics = useMemo(() => {
+    const buckets = {};
+    const heat = { 'Admin edits': 0, 'Vendor WhatsApp updates': 0 };
+    const accuracy = { 'Automated Fixes': 0, 'Manual Edits': 0 };
+
+    offlineVendors.forEach((vendor) => {
+      (vendor.products || []).forEach((product) => {
+        const key = `${product['Device Type'] || 'Unknown'} (${product.Condition || 'Unknown'})`;
+        if (!buckets[key]) buckets[key] = { total: 0, count: 0 };
+        buckets[key].total += parseNairaValue(product['Regular price']);
+        buckets[key].count += 1;
+      });
+
+      const logs = normalizeLogs(vendor.logs);
+      logs.admin.forEach((entry) => {
+        const action = String(entry?.action || '').toLowerCase();
+        if (action.includes('edited')) {
+          heat['Admin edits'] += 1;
+          accuracy['Manual Edits'] += 1;
+        }
+        if (action.includes('ai')) accuracy['Automated Fixes'] += 1;
+      });
+      logs.vendor.forEach((entry) => {
+        const action = String(entry?.action || '').toLowerCase();
+        if (action.includes('whatsapp') || action.includes('updated')) {
+          heat['Vendor WhatsApp updates'] += 1;
+        }
+      });
+    });
+
+    return {
+      priceVariance: Object.entries(buckets).slice(0, 10).map(([name, v]) => ({
+        name,
+        averagePrice: Math.round(v.total / Math.max(v.count, 1)),
+      })),
+      actionHeatmap: Object.entries(heat).map(([type, frequency]) => ({ type, frequency })),
+      scraperAccuracy: Object.entries(accuracy).map(([name, value]) => ({ name, value })),
+    };
+  }, [offlineVendors]);
+
   return (
     <AdminDashboardLayout notificationCount={unreadMessages.length} onNotificationClick={() => setNotificationOpen(true)}>
       {location.pathname === '/dashboard' || location.pathname === '/dashboard/' ? (
         <div className="p-6">
           {/* Analytics Hub Top Row */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4 mb-6">
+          <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4 mb-6">
             <div className="bg-white border border-gray-200 rounded-[12px] p-5 shadow-sm">
               <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">Total Vendors</p>
               <p className="text-2xl font-black text-[#1A1C23] mt-2">{analytics.totalVendors}</p>
@@ -470,12 +644,22 @@ const AdminDashboard = () => {
           </div>
 
           {/* Tab Navigation */}
-          <div className="mb-6 flex flex-wrap gap-3 items-center justify-between">
+          <div className="mb-6 flex overflow-x-auto hide-scrollbar whitespace-nowrap w-full gap-2 pb-2 items-center">
             <div className="flex gap-2 bg-gray-100 p-1.5 rounded-xl">
-              <button onClick={() => setActiveTab('offline')} className={`px-5 py-2.5 rounded-lg text-sm font-bold transition-all ${activeTab === 'offline' ? 'bg-white text-[#1A1C23] shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Directory</button>
-              <button onClick={() => setActiveTab('analytics')} className={`px-5 py-2.5 rounded-lg text-sm font-bold transition-all ${activeTab === 'analytics' ? 'bg-white text-[#1A1C23] shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Visual Analytics</button>
-              <button onClick={() => setActiveTab('activity')} className={`px-5 py-2.5 rounded-lg text-sm font-bold transition-all ${activeTab === 'activity' ? 'bg-white text-[#1A1C23] shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Activity Log</button>
-              <button onClick={() => setActiveTab('backups')} className={`px-5 py-2.5 rounded-lg text-sm font-bold transition-all ${activeTab === 'backups' ? 'bg-white text-[#1A1C23] shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Backups</button>
+              <button onClick={() => setActiveTab('offline')} className={`flex-shrink-0 px-5 py-2.5 rounded-lg text-sm font-bold transition-all ${activeTab === 'offline' ? 'bg-white text-[#1A1C23] shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Directory</button>
+              <button onClick={() => setActiveTab('analytics')} className={`flex-shrink-0 px-5 py-2.5 rounded-lg text-sm font-bold transition-all ${activeTab === 'analytics' ? 'bg-white text-[#1A1C23] shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Visual Analytics</button>
+              <button onClick={() => setActiveTab('activity')} className={`flex-shrink-0 px-5 py-2.5 rounded-lg text-sm font-bold transition-all ${activeTab === 'activity' ? 'bg-white text-[#1A1C23] shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Activity Log</button>
+              <button onClick={() => setActiveTab('backups')} className={`flex-shrink-0 px-5 py-2.5 rounded-lg text-sm font-bold transition-all ${activeTab === 'backups' ? 'bg-white text-[#1A1C23] shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Backups</button>
+              <button onClick={() => setActiveTab('history')} className={`flex-shrink-0 px-5 py-2.5 rounded-lg text-sm font-bold transition-all ${activeTab === 'history' ? 'bg-white text-[#1A1C23] shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>History</button>
+            </div>
+          </div>
+
+          <div className="bg-white border border-gray-200 rounded-xl p-4 mb-6">
+            <h3 className="font-black text-[#1A1C23] mb-3">Onboard Vendor</h3>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <input value={onboardName} onChange={(e) => setOnboardName(e.target.value)} placeholder="Vendor name" className="border border-gray-200 rounded-lg px-3 py-2 text-sm" />
+              <input value={onboardPhone} onChange={(e) => setOnboardPhone(e.target.value)} placeholder="Phone number" className="border border-gray-200 rounded-lg px-3 py-2 text-sm" />
+              <button onClick={generateOnboardingLink} className="bg-emerald-600 text-white rounded-lg px-4 py-2 text-sm font-bold hover:bg-emerald-700">Generate & Copy Link</button>
             </div>
           </div>
 
@@ -527,6 +711,45 @@ const AdminDashboard = () => {
                     <Line type="monotone" dataKey="clicks" stroke="#10b981" strokeWidth={4} dot={{ r: 6, fill: '#10b981' }} activeDot={{ r: 8 }} name="WhatsApp Clicks" />
                   </LineChart>
                 </ResponsiveContainer>
+              </div>
+              <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 mt-8">
+                <div className="h-[320px] border border-gray-100 rounded-2xl p-5 shadow-sm bg-gray-50">
+                  <h3 className="font-bold text-gray-700 mb-4 uppercase tracking-widest text-xs">Price Variance Chart</h3>
+                  <ResponsiveContainer width="100%" height="90%">
+                    <BarChart data={advancedAnalytics.priceVariance}>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                      <XAxis dataKey="name" hide />
+                      <YAxis />
+                      <Tooltip formatter={(value) => [formatNaira(value), 'Average Price']} />
+                      <Bar dataKey="averagePrice" fill="#4f46e5" radius={[6, 6, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+                <div className="h-[320px] border border-gray-100 rounded-2xl p-5 shadow-sm bg-gray-50">
+                  <h3 className="font-bold text-gray-700 mb-4 uppercase tracking-widest text-xs">Action Heatmap</h3>
+                  <ResponsiveContainer width="100%" height="90%">
+                    <BarChart data={advancedAnalytics.actionHeatmap}>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                      <XAxis dataKey="type" />
+                      <YAxis />
+                      <Tooltip />
+                      <Bar dataKey="frequency" fill="#10b981" radius={[6, 6, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+                <div className="h-[320px] border border-gray-100 rounded-2xl p-5 shadow-sm bg-gray-50">
+                  <h3 className="font-bold text-gray-700 mb-4 uppercase tracking-widest text-xs">Scraper Accuracy</h3>
+                  <ResponsiveContainer width="100%" height="90%">
+                    <PieChart>
+                      <Pie data={advancedAnalytics.scraperAccuracy} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={90} label>
+                        {advancedAnalytics.scraperAccuracy.map((entry, index) => (
+                          <Cell key={`scraper-cell-${index}`} fill={CHART_COLORS[index % CHART_COLORS.length]} />
+                        ))}
+                      </Pie>
+                      <Tooltip />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
               </div>
             </div>
           ) : activeTab === 'backups' ? (
@@ -580,6 +803,32 @@ const AdminDashboard = () => {
                 {platformActivityTimeline.length === 0 && <p className="p-10 text-center text-gray-400 font-bold uppercase tracking-widest">No activity logs recorded.</p>}
               </div>
             </div>
+          ) : activeTab === 'history' ? (
+            <div className="bg-white shadow-lg rounded-xl overflow-hidden border border-gray-200">
+              <div className="p-5 border-b bg-gray-50 flex items-center justify-between">
+                <h2 className="text-xl font-black text-[#1A1C23]">Audit Trail</h2>
+                <button onClick={fetchAuditLogs} className="text-xs font-bold uppercase tracking-wider bg-gray-100 px-4 py-2 rounded-lg">Refresh</button>
+              </div>
+              <div className="p-4 space-y-3 max-h-[60vh] overflow-y-auto">
+                {loadingAuditLogs ? (
+                  <p className="text-sm text-gray-400">Loading audit logs...</p>
+                ) : auditLogs.length ? auditLogs.map((log) => (
+                  <div key={log.id} className="border border-gray-200 rounded-xl p-4 bg-white">
+                    <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
+                      <div>
+                        <p className="text-sm font-black text-[#1A1C23]">{log.userRole || 'Unknown'} • {log.method} {log.path}</p>
+                        <p className="text-xs text-gray-500">{formatTimelineDate(log.timestamp)}</p>
+                      </div>
+                      <button onClick={() => undoAuditAction(log.id)} disabled={restoringAuditId === log.id} className="bg-red-600 text-white px-4 py-2 rounded-lg text-xs font-black uppercase disabled:opacity-50">
+                        {restoringAuditId === log.id ? 'Undoing...' : 'Undo'}
+                      </button>
+                    </div>
+                  </div>
+                )) : (
+                  <p className="text-sm text-gray-400">No audit logs found.</p>
+                )}
+              </div>
+            </div>
           ) : (
             <>
               {/* Toolbar */}
@@ -595,6 +844,13 @@ const AdminDashboard = () => {
                 </div>
               </div>
 
+              {selectedVendorIds.length > 0 && (
+                <div className="sticky bottom-4 z-20 bg-[#1A1C23] text-white px-4 py-3 rounded-xl shadow-lg mb-4 flex flex-wrap items-center justify-between gap-3">
+                  <p className="text-sm font-bold">{selectedVendorIds.length} vendors selected</p>
+                  <button onClick={openBulkEdit} className="bg-blue-600 px-4 py-2 rounded-lg text-xs font-black uppercase">Bulk Edit</button>
+                </div>
+              )}
+
               {/* Vendor Directory */}
               <div className="bg-white shadow-lg rounded-xl overflow-hidden border border-gray-200">
                 <table className="w-full text-left">
@@ -603,31 +859,31 @@ const AdminDashboard = () => {
                       <th className="p-4 pl-6 w-[50px]"><input type="checkbox" checked={allFilteredSelected} onChange={toggleSelectAll} className="w-4 h-4 rounded border-gray-300 cursor-pointer" /></th>
                       <th className="p-4">Vendor Name</th>
                       <th className="p-4">Status</th>
-                      <th className="p-4">Stats</th>
-                      <th className="p-4">Access Details</th>
-                      <th className="p-4">Monetization</th>
-                      <th className="p-4">Total Inventory</th>
+                      <th className="hidden md:table-cell p-4">View</th>
+                      <th className="hidden md:table-cell p-4">Access Details</th>
+                      <th className="hidden md:table-cell p-4">Monetization</th>
+                      <th className="hidden md:table-cell p-4">Total Inventory</th>
                       <th className="p-4">Action</th>
-                      <th className="p-4 pr-6">Contact</th>
+                      <th className="hidden md:table-cell p-4 pr-6">Contact</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-50">
                     {filteredOffline.map(vendor => (
                       <tr key={vendor.docId} className="hover:bg-blue-50/30 transition-colors">
                         <td className="p-4 pl-6"><input type="checkbox" checked={selectedVendorIds.includes(vendor.docId)} onChange={() => toggleVendor(vendor.docId)} className="w-4 h-4 rounded border-gray-300 cursor-pointer" /></td>
-                        <td className="p-4 font-bold text-blue-600 hover:text-blue-800"><Link to={vendor.shareableLink}>{vendor.vendorName}</Link></td>
+                        <td className="p-4 font-bold text-blue-600 hover:text-blue-800"><Link to={vendor.shareableLink} target="_blank" rel="noopener noreferrer">{vendor.vendorName}</Link></td>
                         <td className="p-4">
                           <span className={`px-2.5 py-1 rounded-lg text-[10px] font-black uppercase ${vendor.status === 'suspended' ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>{vendor.status}</span>
                         </td>
-                        <td className="p-4 text-xs font-bold text-gray-500 space-y-1">
+                        <td className="hidden md:table-cell p-4 text-xs font-bold text-gray-500 space-y-1">
                           <p>👁️ {vendor.viewCount} Views</p>
-                          <p>🔗 {vendor.whatsappClicks} Clicks</p>
+                          <p className="hidden md:block">🔗 {vendor.whatsappClicks} Clicks</p>
                         </td>
-                        <td className="p-4 text-[11px] text-gray-600 space-y-1">
+                        <td className="hidden md:table-cell p-4 text-[11px] text-gray-600 space-y-1">
                           <p><span className="font-black uppercase text-[9px] text-gray-400 mr-1">Pass:</span><span className="font-mono">{vendor.vendorPassword || 'N/A'}</span></p>
                           <p><span className="font-black uppercase text-[9px] text-gray-400 mr-1">WA:</span>{vendor.storeWhatsappNumber || 'N/A'}</p>
                         </td>
-                        <td className="p-4">
+                        <td className="hidden md:table-cell p-4">
                           <button
                             onClick={() => toggleAdvancedTools(vendor)}
                             disabled={togglingAdvancedVendorId === vendor.docId}
@@ -636,9 +892,9 @@ const AdminDashboard = () => {
                             {togglingAdvancedVendorId === vendor.docId ? '...' : vendor.advancedEnabled ? 'AI Enabled' : 'AI Locked'}
                           </button>
                         </td>
-                        <td className="p-4"><span className="bg-gray-100 text-gray-600 px-3 py-1.5 rounded-full text-[11px] font-bold">{vendor.totalProducts} Items</span></td>
-                        <td className="p-4"><Link to={vendor.shareableLink} className="inline-block bg-[#1A1C23] text-white px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-wider hover:bg-black transition-all shadow-sm">Manage</Link></td>
-                        <td className="p-4 pr-6">
+                        <td className="hidden md:table-cell p-4"><span className="bg-gray-100 text-gray-600 px-3 py-1.5 rounded-full text-[11px] font-bold">{vendor.totalProducts} Items</span></td>
+                        <td className="p-4"><Link to={vendor.shareableLink} target="_blank" rel="noopener noreferrer" className="inline-block bg-[#1A1C23] text-white px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-wider hover:bg-black transition-all shadow-sm">Manage</Link></td>
+                        <td className="hidden md:table-cell p-4 pr-6">
                           <button onClick={() => openChatForVendor(vendor)} className="p-2.5 rounded-xl bg-blue-100 text-blue-600 hover:bg-blue-600 hover:text-white transition-all shadow-sm relative group">
                             <IoMdChatboxes className="w-5 h-5" />
                             {allMessages.some(m => m.vendorId === vendor.vendorId && m.sender === 'vendor' && !m.readByAdmin) && (
@@ -657,6 +913,28 @@ const AdminDashboard = () => {
         </div>
       ) : (
         <Outlet />
+      )}
+
+      {bulkEditOpen && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+          <div className="bg-white w-full max-w-lg rounded-2xl shadow-2xl border border-gray-200 overflow-hidden">
+            <div className="p-5 border-b bg-gray-50 flex items-center justify-between">
+              <h3 className="text-lg font-black text-[#1A1C23]">Bulk Edit Products</h3>
+              <button onClick={() => setBulkEditOpen(false)} className="text-gray-400 hover:text-red-500 text-xl">✕</button>
+            </div>
+            <div className="p-5 grid grid-cols-1 gap-3">
+              <input value={bulkCondition} onChange={(e) => setBulkCondition(e.target.value)} placeholder="Condition (e.g. Used)" className="border border-gray-200 rounded-lg px-3 py-2 text-sm" />
+              <input value={bulkCategory} onChange={(e) => setBulkCategory(e.target.value)} placeholder="Category (e.g. Smartphones)" className="border border-gray-200 rounded-lg px-3 py-2 text-sm" />
+              <input value={bulkPrice} onChange={(e) => setBulkPrice(e.target.value)} placeholder="Price (e.g. ₦350,000)" className="border border-gray-200 rounded-lg px-3 py-2 text-sm" />
+            </div>
+            <div className="p-5 border-t bg-gray-50 flex justify-end gap-3">
+              <button onClick={() => setBulkEditOpen(false)} className="px-4 py-2 rounded-lg border border-gray-200 font-bold text-gray-600">Cancel</button>
+              <button onClick={runBulkEdit} disabled={bulkEditLoading} className="px-4 py-2 rounded-lg bg-blue-600 text-white font-black uppercase disabled:opacity-50">
+                {bulkEditLoading ? 'Applying...' : 'Apply Changes'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Global Notification Modal */}
@@ -701,7 +979,7 @@ const AdminDashboard = () => {
       {/* Admin-to-Vendor Chat Modal */}
       {chatOpen && chatVendor && (
         <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
-          <div className="bg-white rounded-2xl w-full max-w-2xl shadow-2xl border border-gray-200 overflow-hidden flex flex-col h-[70vh] animate-in fade-in zoom-in duration-200">
+          <div className="bg-white rounded-2xl w-full max-w-2xl shadow-2xl border border-gray-200 overflow-hidden flex flex-col h-[50vh] md:h-[600px] animate-in fade-in zoom-in duration-200">
             <div className="p-5 border-b bg-gray-50 flex justify-between items-center">
               <div>
                 <h3 className="text-xl font-black text-[#1A1C23]">Chat: {chatVendor.vendorName}</h3>
@@ -711,13 +989,13 @@ const AdminDashboard = () => {
             </div>
             <div className="p-5 flex-1 overflow-y-auto bg-gray-100 space-y-4 custom-scrollbar">
               {chatMessages.length > 0 ? chatMessages.map((message) => {
-                const mine = message.sender === 'admin';
+                const mine = isAdmin ? message.sender === 'admin' : message.sender === 'vendor';
                 return (
                   <div key={message.id} className={`flex ${mine ? 'justify-end' : 'justify-start'}`}>
-                    <div className={`max-w-[80%] rounded-2xl px-5 py-3 shadow-sm ${mine ? 'bg-blue-600 text-white rounded-br-none' : 'bg-white border border-gray-200 text-[#1A1C23] rounded-bl-none'}`}>
+                    <div className={`max-w-[80%] rounded-2xl px-5 py-3 shadow-sm ${mine ? 'bg-blue-600 text-white rounded-br-none' : 'bg-white border border-gray-200 text-gray-800 rounded-bl-none'}`}>
                       <p className={`text-[10px] font-black uppercase tracking-widest mb-1 ${mine ? 'text-blue-200' : 'text-gray-400'}`}>{mine ? 'You (Admin)' : chatVendor.vendorName}</p>
                       <p className="text-sm whitespace-pre-wrap font-medium leading-relaxed">{message.text}</p>
-                      <p className={`text-[9px] font-bold mt-2 text-right ${mine ? 'text-blue-300' : 'text-gray-400'}`}>{formatTimelineDate(message.timestamp)}</p>
+                      <p className={`text-[9px] font-bold mt-2 ${mine ? 'text-right text-blue-300' : 'text-left text-gray-400'}`}>{formatTimelineDate(message.timestamp)}</p>
                     </div>
                   </div>
                 );

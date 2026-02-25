@@ -10,7 +10,7 @@ import { fileURLToPath } from 'url';
 import OpenAI from 'openai';
 import { processChatFile } from './fileProcessor.js';
 import { saveVendorsToFirebase } from './dataProcessor.js';
-import { initializeBackupJob, runBackup, getAdminFirestore } from './backup.js';
+import { initializeBackupJob, initializeSystemCollections, runBackup, getAdminFirestore } from './backup.js';
 
 dotenv.config();
 
@@ -18,6 +18,7 @@ const PM2_LOG_PATH = '/root/.pm2/logs/index-out.log';
 const OFFLINE_COLLECTION = 'horleyTech_OfflineInventories';
 const BACKUP_COLLECTION = 'horleyTech_Backups';
 const MESSAGE_COLLECTION = 'horleyTech_PlatformMessages';
+const AUDIT_COLLECTION = 'horleyTech_AuditLogs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -51,8 +52,78 @@ const PORT = process.env.PORT || 8000;
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const CATS = "'Smartphones', 'Smartwatches', 'Laptops', 'Sounds', 'Accessories', 'Tablets', 'Gaming', 'Others'";
 
-// Initialize daily backup cron
+// Initialize infrastructure
 initializeBackupJob();
+initializeSystemCollections();
+
+
+const resolveUserRole = (req) => {
+  const headerRole = String(req.headers['x-user-role'] || '').toLowerCase();
+  if (headerRole.includes('admin')) return 'Admin';
+  if (headerRole.includes('vendor')) return 'Vendor';
+
+  const senderRole = String(req.body?.sender || '').toLowerCase();
+  if (senderRole === 'admin') return 'Admin';
+  if (senderRole === 'vendor') return 'Vendor';
+
+  if (req.path.includes('/admin')) return 'Admin';
+  return 'Vendor';
+};
+
+app.use(async (req, res, next) => {
+  const method = req.method.toUpperCase();
+  if (!['POST', 'PUT', 'DELETE'].includes(method)) {
+    return next();
+  }
+
+  const userRole = resolveUserRole(req);
+  let oldData = null;
+  let targetDocId = null;
+
+  try {
+    const firestore = getAdminFirestore();
+    const candidateId = req.body?.vendorDocId || req.body?.vendorId;
+
+    if (candidateId) {
+      const snap = await firestore.collection(OFFLINE_COLLECTION).doc(String(candidateId)).get();
+      if (snap.exists) {
+        oldData = snap.data();
+        targetDocId = snap.id;
+      }
+    }
+
+    if (!oldData && req.body?.backupId && req.path.includes('/backup/restore')) {
+      const currentSnapshot = await firestore.collection(OFFLINE_COLLECTION).get();
+      oldData = currentSnapshot.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }));
+      targetDocId = '__collection_snapshot__';
+    }
+  } catch (error) {
+    console.error('Audit prefetch failed:', error.message);
+  }
+
+  req.auditContext = { oldData, targetDocId, userRole };
+
+  res.on('finish', async () => {
+    if (res.statusCode >= 500) return;
+
+    try {
+      const firestore = getAdminFirestore();
+      await firestore.collection(AUDIT_COLLECTION).add({
+        timestamp: new Date().toISOString(),
+        path: req.path,
+        method,
+        userRole,
+        targetDocId,
+        oldData,
+        newData: req.body || null,
+      });
+    } catch (error) {
+      console.error('Audit write failed:', error.message);
+    }
+  });
+
+  next();
+});
 
 const runBatchInChunks = async (operations, maxPerBatch = 400) => {
   const firestore = getAdminFirestore();
@@ -87,6 +158,175 @@ app.get('/api/logs', (req, res) => {
   } catch (e) {
     res.send('Logs loading...');
   }
+});
+
+// Admin Audit History Endpoint
+app.get('/api/admin/audit-logs', async (req, res) => {
+  const limit = Number.parseInt(req.query.limit, 10) || 200;
+
+  try {
+    const firestore = getAdminFirestore();
+    const snapshot = await firestore
+      .collection(AUDIT_COLLECTION)
+      .orderBy('timestamp', 'desc')
+      .limit(Math.min(limit, 500))
+      .get();
+
+    return res.json({
+      success: true,
+      logs: snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() })),
+    });
+  } catch (error) {
+    return res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Admin Undo Restore-Action Endpoint
+app.post('/api/admin/restore-action', async (req, res) => {
+  const { auditId } = req.body || {};
+
+  if (!auditId) {
+    return res.status(400).json({ success: false, error: 'auditId is required.' });
+  }
+
+  try {
+    const firestore = getAdminFirestore();
+    const auditDoc = await firestore.collection(AUDIT_COLLECTION).doc(String(auditId)).get();
+
+    if (!auditDoc.exists) {
+      return res.status(404).json({ success: false, error: 'Audit log not found.' });
+    }
+
+    const auditData = auditDoc.data();
+
+    if (!auditData?.oldData) {
+      return res.status(400).json({ success: false, error: 'This action has no restorable oldData.' });
+    }
+
+    if (Array.isArray(auditData.oldData) && auditData.targetDocId === '__collection_snapshot__') {
+      const existingSnapshot = await firestore.collection(OFFLINE_COLLECTION).get();
+      const operations = [];
+
+      existingSnapshot.docs.forEach((docSnap) => {
+        operations.push({ type: 'delete', ref: firestore.collection(OFFLINE_COLLECTION).doc(docSnap.id) });
+      });
+
+      auditData.oldData.forEach((vendorDoc) => {
+        const { id, ...vendorData } = vendorDoc || {};
+        if (!id) return;
+        operations.push({
+          type: 'set',
+          ref: firestore.collection(OFFLINE_COLLECTION).doc(id),
+          data: vendorData,
+        });
+      });
+
+      await runBatchInChunks(operations);
+
+      return res.json({ success: true, restored: auditData.oldData.length, mode: 'collection' });
+    }
+
+    const targetDocId = auditData.targetDocId || auditData.oldData.vendorId || auditData.oldData.docId;
+    if (!targetDocId) {
+      return res.status(400).json({ success: false, error: 'Could not resolve target vendor document.' });
+    }
+
+    await firestore.collection(OFFLINE_COLLECTION).doc(String(targetDocId)).set(auditData.oldData, { merge: false });
+
+    return res.json({ success: true, restored: 1, vendorDocId: targetDocId });
+  } catch (error) {
+    console.error('❌ Restore action error:', error);
+    return res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Bulk Inventory Edit Endpoint
+app.post('/api/inventory/bulk-edit', async (req, res) => {
+  const { productIds, fields } = req.body || {};
+
+  if (!Array.isArray(productIds) || productIds.length === 0) {
+    return res.status(400).json({ success: false, error: 'productIds array is required.' });
+  }
+
+  if (!fields || typeof fields !== 'object' || Array.isArray(fields)) {
+    return res.status(400).json({ success: false, error: 'fields object is required.' });
+  }
+
+  try {
+    const firestore = getAdminFirestore();
+    const updatesByVendor = new Map();
+
+    productIds.forEach((rawId) => {
+      const token = String(rawId);
+      const separator = token.includes('::') ? '::' : token.includes('|') ? '|' : null;
+      if (!separator) return;
+
+      const [vendorDocId, indexText] = token.split(separator);
+      const productIndex = Number.parseInt(indexText, 10);
+
+      if (!vendorDocId || Number.isNaN(productIndex) || productIndex < 0) return;
+
+      if (!updatesByVendor.has(vendorDocId)) {
+        updatesByVendor.set(vendorDocId, new Set());
+      }
+
+      updatesByVendor.get(vendorDocId).add(productIndex);
+    });
+
+    if (!updatesByVendor.size) {
+      return res.status(400).json({ success: false, error: 'No valid productIds were provided.' });
+    }
+
+    const batch = firestore.batch();
+    let updatedProducts = 0;
+
+    for (const [vendorDocId, indexSet] of updatesByVendor.entries()) {
+      const vendorRef = firestore.collection(OFFLINE_COLLECTION).doc(vendorDocId);
+      const vendorSnap = await vendorRef.get();
+
+      if (!vendorSnap.exists) continue;
+
+      const vendorData = vendorSnap.data();
+      const products = Array.isArray(vendorData.products) ? [...vendorData.products] : [];
+
+      indexSet.forEach((index) => {
+        if (!products[index]) return;
+        products[index] = { ...products[index], ...fields };
+        updatedProducts += 1;
+      });
+
+      batch.update(vendorRef, {
+        products,
+        lastUpdated: new Date().toISOString(),
+      });
+    }
+
+    await batch.commit();
+
+    return res.json({ success: true, updatedProducts });
+  } catch (error) {
+    console.error('❌ Bulk edit error:', error);
+    return res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Vendor Onboarding Link Generator
+app.post('/api/admin/onboard-vendor', async (req, res) => {
+  const { vendorName, phoneNumber } = req.body || {};
+
+  if (!vendorName || !phoneNumber) {
+    return res.status(400).json({ success: false, error: 'vendorName and phoneNumber are required.' });
+  }
+
+  const cleanedNumber = String(phoneNumber).replace(/[^0-9]/g, '');
+  if (!cleanedNumber) {
+    return res.status(400).json({ success: false, error: 'phoneNumber must include digits.' });
+  }
+
+  const message = `Hello! I am ${String(vendorName).trim()}. Please onboard me. My product format will be: [Device] | [Specs] | [Condition] | [Price]`;
+  const url = `https://wa.me/${cleanedNumber}?text=${encodeURIComponent(message)}`;
+
+  return res.json({ success: true, url, message });
 });
 
 // Admin Manual Backup Endpoint

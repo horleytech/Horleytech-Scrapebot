@@ -6,6 +6,7 @@ import admin from 'firebase-admin';
 
 const BACKUP_COLLECTION = 'horleyTech_OfflineInventories';
 const BACKUP_HISTORY_COLLECTION = 'horleyTech_Backups';
+const AUDIT_COLLECTION = 'horleyTech_AuditLogs';
 
 const ensureAdminInitialized = () => {
   if (!admin.apps.length) {
@@ -61,6 +62,26 @@ const uploadFileToDrive = async (filePath, fileName) => {
     },
     fields: 'id, name',
   });
+};
+
+
+export const initializeSystemCollections = async () => {
+  try {
+    const firestore = getAdminFirestore();
+    await firestore.collection(AUDIT_COLLECTION).doc('__meta').set({
+      initializedAt: new Date().toISOString(),
+      note: 'Audit log metadata doc',
+    }, { merge: true });
+
+    await firestore.collection(BACKUP_HISTORY_COLLECTION).doc('__meta').set({
+      initializedAt: new Date().toISOString(),
+      note: 'Backup history metadata doc',
+    }, { merge: true });
+
+    console.log('✅ System collections initialized.');
+  } catch (error) {
+    console.error('❌ Failed to initialize system collections:', error.message);
+  }
 };
 
 export const runBackup = async () => {
