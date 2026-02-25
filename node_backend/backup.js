@@ -50,20 +50,30 @@ const uploadFileToDrive = async (filePath, fileName) => {
 
   const drive = google.drive({ version: 'v3', auth });
 
-  await drive.files.create({
-    requestBody: {
-      name: fileName,
-      parents: [driveFolderId],
-      mimeType: 'application/json',
-    },
-    media: {
-      mimeType: 'application/json',
-      body: fs.createReadStream(filePath),
-    },
-    fields: 'id, name',
-  });
-};
+  try {
+    console.log(`☁️ Starting Google Drive upload for ${fileName} -> folder ${driveFolderId}`);
 
+    await drive.files.create({
+      requestBody: {
+        name: fileName,
+        parents: [driveFolderId],
+        mimeType: 'application/json',
+      },
+      media: {
+        mimeType: 'application/json',
+        body: fs.createReadStream(filePath),
+      },
+      fields: 'id, name',
+    });
+  } catch (error) {
+    const detailedMessage = error?.response?.data
+      ? JSON.stringify(error.response.data)
+      : (error?.stack || error?.message || String(error));
+
+    console.error(`❌ Google Drive upload failed for ${fileName}: ${detailedMessage}`);
+    throw error;
+  }
+};
 
 export const initializeSystemCollections = async () => {
   try {
@@ -138,11 +148,11 @@ export const runBackup = async () => {
 };
 
 export const initializeBackupJob = () => {
-  cron.schedule('0 2 * * *', async () => {
+  cron.schedule('0 2 * * 0', async () => {
     await runBackup();
   }, {
     timezone: 'Africa/Lagos',
   });
 
-  console.log('🕑 Daily backup cron initialized (2:00 AM Africa/Lagos).');
+  console.log('🕑 Weekly backup cron initialized (Sundays at 2:00 AM Africa/Lagos).');
 };
