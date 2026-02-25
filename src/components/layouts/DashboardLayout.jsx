@@ -22,7 +22,7 @@ function classNames(...classes) {
   return classes.filter(Boolean).join(' ');
 }
 
-export default function MenteeDashboardLayout({ children }) {
+export default function MenteeDashboardLayout({ children, notificationCount = 0, onNotificationClick }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
@@ -182,9 +182,14 @@ export default function MenteeDashboardLayout({ children }) {
 
               <div className="flex self-stretch justify-end flex-1 gap-x-4 lg:gap-x-6">
                 <div className="flex items-center gap-x-4 lg:gap-x-6">
-                  <button type="button" className="-m-2.5 p-2.5 text-gray-400 hover:text-gray-500">
+                  <button type="button" className="-m-2.5 p-2.5 text-gray-400 hover:text-gray-500 relative" onClick={onNotificationClick}>
                     <span className="sr-only">View notifications</span>
                     <IoMdNotifications className="w-6 h-6 text-black" aria-hidden="true" />
+                    {notificationCount > 0 && (
+                      <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] px-1 rounded-full bg-red-600 text-white text-[10px] font-bold flex items-center justify-center">
+                        {notificationCount > 99 ? '99+' : notificationCount}
+                      </span>
+                    )}
                   </button>
 
                   <div className="hidden lg:block lg:h-6 lg:w-px lg:bg-gray-200" aria-hidden="true" />

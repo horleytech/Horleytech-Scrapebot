@@ -17,6 +17,7 @@ dotenv.config();
 const PM2_LOG_PATH = '/root/.pm2/logs/index-out.log';
 const OFFLINE_COLLECTION = 'horleyTech_OfflineInventories';
 const BACKUP_COLLECTION = 'horleyTech_Backups';
+const MESSAGE_COLLECTION = 'horleyTech_PlatformMessages';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -154,6 +155,116 @@ app.post('/api/backup/restore', async (req, res) => {
   } catch (error) {
     console.error('❌ Restore error:', error);
     return res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Admin-Vendor Chat Messaging Endpoints (Version 3.1)
+app.post('/api/messages/send', async (req, res) => {
+  const { vendorId, sender, recipient, text } = req.body || {};
+
+  if (!vendorId || !sender || !recipient || !text?.trim()) {
+    return res.status(400).json({ success: false, error: 'vendorId, sender, recipient and text are required.' });
+  }
+
+  try {
+    const firestore = getAdminFirestore();
+    const payload = {
+      vendorId: String(vendorId),
+      sender: String(sender),
+      recipient: String(recipient),
+      text: String(text).trim(),
+      timestamp: new Date().toISOString(),
+      createdAt: Date.now(),
+      readByAdmin: sender !== 'vendor',
+    };
+
+    const docRef = await firestore.collection(MESSAGE_COLLECTION).add(payload);
+    return res.json({ success: true, message: { id: docRef.id, ...payload } });
+  } catch (error) {
+    console.error('❌ Send message error:', error);
+    return res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+app.get('/api/messages', async (_req, res) => {
+  try {
+    const firestore = getAdminFirestore();
+    const snapshot = await firestore.collection(MESSAGE_COLLECTION).orderBy('createdAt', 'desc').limit(200).get();
+    const messages = snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }));
+    return res.json({ success: true, messages });
+  } catch (error) {
+    console.error('❌ Fetch all messages error:', error);
+    return res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+app.get('/api/messages/:vendorId', async (req, res) => {
+  const { vendorId } = req.params;
+
+  if (!vendorId) {
+    return res.status(400).json({ success: false, error: 'vendorId is required.' });
+  }
+
+  try {
+    const firestore = getAdminFirestore();
+    const snapshot = await firestore.collection(MESSAGE_COLLECTION).where('vendorId', '==', vendorId).orderBy('createdAt', 'asc').get();
+    const messages = snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }));
+
+    const unreadVendorMessages = snapshot.docs.filter((docSnap) => {
+      const data = docSnap.data();
+      return data.sender === 'vendor' && !data.readByAdmin;
+    });
+
+    if (unreadVendorMessages.length > 0) {
+      const batch = firestore.batch();
+      unreadVendorMessages.forEach((docSnap) => {
+        batch.update(docSnap.ref, { readByAdmin: true });
+      });
+      await batch.commit();
+    }
+
+    return res.json({ success: true, messages });
+  } catch (error) {
+    console.error('❌ Fetch vendor messages error:', error);
+    return res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// AI Auto-Setup/Fixer Endpoint (Version 3.1)
+app.post('/api/ai/fix-inventory', async (req, res) => {
+  const products = Array.isArray(req.body?.products) ? req.body.products : null;
+
+  if (!products) {
+    return res.status(400).json({ success: false, error: 'products array is required.' });
+  }
+
+  try {
+    const systemPrompt = `You are a data cleaner. Standardize the following electronics inventory list. Fix typos in 'Device Type', ensure 'Storage Capacity/Configuration' is formatted like '128GB' or '8GB/256GB', and ensure 'SIM Type/Model/Processor' is clear. Return the exact JSON structure provided.`;
+
+    const aiResponse = await openai.chat.completions.create({
+      model: 'gpt-4o-mini',
+      messages: [
+        { role: 'system', content: systemPrompt },
+        {
+          role: 'user',
+          content: JSON.stringify(products),
+        },
+      ],
+      temperature: 0,
+    });
+
+    const rawContent = aiResponse.choices?.[0]?.message?.content || '[]';
+    const cleanJson = rawContent.replace(/```json/gi, '').replace(/```/g, '').trim();
+    const parsed = JSON.parse(cleanJson);
+
+    if (!Array.isArray(parsed)) {
+      return res.status(500).json({ success: false, error: 'AI response was not an array.' });
+    }
+
+    return res.json({ success: true, products: parsed });
+  } catch (error) {
+    console.error('❌ AI fix inventory error:', error);
+    return res.status(500).json({ success: false, error: error.message || 'AI fix failed.' });
   }
 });
 

@@ -21,6 +21,28 @@ const appendRollingLog = (logs, channel, entry) => {
   };
 };
 
+// Utility to generate theme shades dynamically
+const lightenHex = (hex, amount = 0.18) => {
+  if (!hex || typeof hex !== 'string') return '#22c55e';
+  const safeHex = hex.replace('#', '').trim();
+  const normalized = safeHex.length === 3
+    ? safeHex.split('').map((char) => `${char}${char}`).join('')
+    : safeHex;
+
+  if (!/^[0-9A-Fa-f]{6}$/.test(normalized)) return '#22c55e';
+
+  const base = Number.parseInt(normalized, 16);
+  const r = (base >> 16) & 255;
+  const g = (base >> 8) & 255;
+  const b = base & 255;
+
+  const nextR = Math.min(255, Math.round(r + (255 - r) * amount));
+  const nextG = Math.min(255, Math.round(g + (255 - g) * amount));
+  const nextB = Math.min(255, Math.round(b + (255 - b) * amount));
+
+  return `#${[nextR, nextG, nextB].map((v) => v.toString(16).padStart(2, '0')).join('')}`;
+};
+
 const StoreFront = () => {
   const { vendorId } = useParams();
   const [vendorData, setVendorData] = useState(null);
@@ -57,7 +79,6 @@ const StoreFront = () => {
       : null;
 
     return products.filter((product) => {
-      // Must be visible
       const isVisible = product?.isVisible !== false;
       if (!isVisible) return false;
 
@@ -153,6 +174,7 @@ const StoreFront = () => {
   }
 
   const themeColor = vendorData.themeColor || '#16a34a';
+  const lighterTheme = lightenHex(themeColor, 0.22);
 
   return (
     <div className="min-h-screen bg-gray-50 py-8 px-4 md:px-8">
@@ -205,14 +227,19 @@ const StoreFront = () => {
             <tbody className="divide-y divide-gray-100">
               {visibleProducts.length > 0 ? (
                 visibleProducts.map((product, index) => (
-                  <tr key={index} className="hover:bg-gray-50 transition-colors group">
+                  <tr 
+                    key={index} 
+                    className="transition-colors group"
+                    onMouseEnter={(e) => e.currentTarget.style.backgroundColor = `${lighterTheme}1A`}
+                    onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                  >
                     <td className="px-6 py-5">
                       <div className="flex items-center gap-3">
-                        {product.imageBase64 && (
+                        {product.productImageBase64 && (
                           <img 
-                            src={product.imageBase64} 
+                            src={product.productImageBase64} 
                             alt="" 
-                            className="w-12 h-12 rounded-lg object-cover bg-gray-100 shadow-sm"
+                            className="w-12 h-12 rounded-lg object-cover bg-gray-100 shadow-sm border border-gray-200"
                           />
                         )}
                         <span className="font-bold text-[#1A1C23] text-sm">{product['Device Type'] || 'N/A'}</span>
