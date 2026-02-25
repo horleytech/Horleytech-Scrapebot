@@ -3,6 +3,7 @@ import { useParams, Link } from 'react-router-dom';
 import { doc, getDoc, updateDoc } from 'firebase/firestore';
 import { db } from '../services/firebase/index.js';
 import { useSelector } from 'react-redux';
+import { BASE_URL } from '../services/constants/apiConstants.js';
 
 const MAX_LOG_ITEMS = 200;
 const THEME_PRESETS = ['#16a34a', '#1d4ed8', '#7c3aed', '#ea580c'];
@@ -451,7 +452,7 @@ const VendorPage = () => {
 
     setRunningAutoFix(true);
     try {
-      const response = await fetch('/api/ai/fix-inventory', {
+      const response = await fetch(`${BASE_URL}/api/ai/fix-inventory`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ products: targetProducts, actionType: aiAction }),
@@ -558,7 +559,7 @@ const VendorPage = () => {
 
   const handleSaveSettings = async () => {
     const cleanedNumbers = whatsappNumbersInput.map((number) => number.trim()).filter(Boolean).slice(0, 3);
-    const cleanedAllowedGroups = allowedGroups.filter(Boolean);
+    const cleanedAllowedGroups = allowedGroups.map((group) => group.trim()).filter(Boolean);
 
     const nextState = {
       vendorName: vendorNameInput.trim() || vendorData?.vendorName || vendorId,
@@ -678,7 +679,7 @@ const VendorPage = () => {
   const fetchSupportMessages = async () => {
     setSupportLoading(true);
     try {
-      const response = await fetch(`/api/messages/${vendorId}`);
+      const response = await fetch(`${BASE_URL}/api/messages/${vendorId}`);
       const data = await response.json();
       if (!response.ok || !data.success) {
         throw new Error(data.error || 'Unable to fetch messages');
@@ -703,7 +704,7 @@ const VendorPage = () => {
 
     setSendingSupportMessage(true);
     try {
-      const response = await fetch('/api/messages/send', {
+      const response = await fetch(`${BASE_URL}/api/messages/send`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
