@@ -10,8 +10,8 @@ const BACKUP_HISTORY_COLLECTION = 'horleyTech_Backups';
 const ensureAdminInitialized = () => {
   if (!admin.apps.length) {
     try {
-      // 1. Read the service account file synchronously
-      const serviceAccountPath = path.join(process.cwd(), 'node_backend', 'serviceAccountKey.json');
+      // Look for the exact file you already created!
+      const serviceAccountPath = path.join(process.cwd(), 'node_backend', 'firebase-credentials.json');
       
       if (!fs.existsSync(serviceAccountPath)) {
         throw new Error(`Missing service account file at: ${serviceAccountPath}`);
@@ -19,7 +19,7 @@ const ensureAdminInitialized = () => {
 
       const serviceAccount = JSON.parse(fs.readFileSync(serviceAccountPath, 'utf8'));
 
-      // 2. Initialize Firebase with full privileges
+      // Initialize Firebase with full privileges directly from the file
       admin.initializeApp({
         credential: admin.credential.cert(serviceAccount)
       });
