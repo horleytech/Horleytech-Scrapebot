@@ -118,8 +118,6 @@ const AdminDashboard = () => {
   const [bulkCondition, setBulkCondition] = useState('');
   const [bulkCategory, setBulkCategory] = useState('');
   const [bulkPrice, setBulkPrice] = useState('');
-  const [onboardName, setOnboardName] = useState('');
-  const [onboardPhone, setOnboardPhone] = useState('');
   const [tutorialVideoUrl, setTutorialVideoUrl] = useState('');
   const [savingTutorialVideo, setSavingTutorialVideo] = useState(false);
 
@@ -574,27 +572,6 @@ const AdminDashboard = () => {
     }
   };
 
-  const generateOnboardingLink = async () => {
-    if (!onboardName.trim() || !onboardPhone.trim()) {
-      alert('Enter vendor name and phone number.');
-      return;
-    }
-
-    try {
-      const response = await fetch(`${BASE_URL}/api/admin/onboard-vendor`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-        body: JSON.stringify({ vendorName: onboardName.trim(), phoneNumber: onboardPhone.trim() }),
-      });
-      const data = await response.json();
-      if (!response.ok || !data.success) throw new Error(data.error || 'Could not generate onboarding link');
-      await navigator.clipboard.writeText(data.url);
-      alert('✅ Onboarding link generated and copied.');
-    } catch (error) {
-      alert(`❌ ${error.message}`);
-    }
-  };
-
   const undoAuditAction = async (auditId) => {
     if (!window.confirm('Are you sure you want to proceed? This will change the live user experience/data.')) return;
     setRestoringAuditId(auditId);
@@ -719,14 +696,7 @@ const AdminDashboard = () => {
             <p className="text-xs text-gray-400 mt-2">Update the tutorial video shown to all vendors on their tips page.</p>
           </div>
 
-          <div className="bg-white border border-gray-200 rounded-xl p-4 mb-6">
-            <h3 className="font-black text-[#1A1C23] mb-3">Onboard Vendor</h3>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-              <input value={onboardName} onChange={(e) => setOnboardName(e.target.value)} placeholder="Vendor name" className="border border-gray-200 rounded-lg px-3 py-2 text-sm" />
-              <input value={onboardPhone} onChange={(e) => setOnboardPhone(e.target.value)} placeholder="Phone number" className="border border-gray-200 rounded-lg px-3 py-2 text-sm" />
-              <button onClick={generateOnboardingLink} className="bg-emerald-600 text-white rounded-lg px-4 py-2 text-sm font-bold hover:bg-emerald-700">Generate & Copy Link</button>
-            </div>
-          </div>
+
 
           {/* Conditional Rendering of Tabs */}
           {activeTab === 'analytics' ? (
