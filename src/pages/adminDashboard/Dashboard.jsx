@@ -3,19 +3,7 @@ import { Outlet, useLocation, Link } from 'react-router-dom';
 import { collection, getDocs, doc, writeBatch, query, orderBy, updateDoc } from 'firebase/firestore';
 import { IoMdChatboxes } from 'react-icons/io';
 import {
-  PieChart,
-  Pie,
-  Cell,
-  Tooltip,
-  ResponsiveContainer,
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  LineChart,
-  Line,
-  Legend,
+  PieChart, Pie, Cell, Tooltip, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, LineChart, Line, Legend,
 } from 'recharts';
 import AdminDashboardLayout from '../../components/layouts/DashboardLayout';
 import { db } from '../../services/firebase/index.js';
@@ -253,9 +241,10 @@ const AdminDashboard = () => {
       const response = await fetch(`${BASE_URL}/api/admin/onboard-vendor`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        // 🔥 PERFECT FIX: Changed phoneNumber to adminNumber to match backend
         body: JSON.stringify({
           vendorName: onboardVendorName.trim(),
-          phoneNumber: botNumber.trim(),
+          adminNumber: botNumber.trim(), 
         }),
       });
       const data = await response.json();
@@ -263,9 +252,7 @@ const AdminDashboard = () => {
       const tinyUrlRes = await fetch(`https://tinyurl.com/api-create.php?url=${encodeURIComponent(data.url)}`);
       const shortUrl = await tinyUrlRes.text();
       await navigator.clipboard.writeText(shortUrl);
-      alert(`✅ Shortened link copied to clipboard:
-
-${shortUrl}`);
+      alert(`✅ Shortened link copied to clipboard:\n\n${shortUrl}`);
     } catch (error) {
       alert(`❌ ${error.message}`);
     }
@@ -726,8 +713,6 @@ ${shortUrl}`);
             </div>
             <p className="text-xs text-gray-400 mt-2">Update the tutorial video shown to all vendors on their tips page.</p>
           </div>
-
-
 
           {/* Conditional Rendering of Tabs */}
           {activeTab === 'analytics' ? (
