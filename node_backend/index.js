@@ -50,6 +50,7 @@ const PORT = process.env.PORT || 8000;
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const CATS = "'Smartphones', 'Smartwatches', 'Laptops', 'Sounds', 'Accessories', 'Tablets', 'Gaming', 'Others'";
 
+// Initialize daily backup cron
 initializeBackupJob();
 
 const runBatchInChunks = async (operations, maxPerBatch = 400) => {
@@ -63,7 +64,6 @@ const runBatchInChunks = async (operations, maxPerBatch = 400) => {
       if (operation.type === 'delete') {
         batch.delete(operation.ref);
       }
-
       if (operation.type === 'set') {
         batch.set(operation.ref, operation.data, { merge: false });
       }
@@ -87,31 +87,30 @@ app.get('/api/logs', (req, res) => {
   }
 });
 
+// Admin Manual Backup Endpoint
 app.get('/api/backup/manual', async (req, res) => {
   try {
     const result = await runBackup();
-
     if (!result.success) {
       return res.status(500).json({ success: false, error: result.error || 'Manual backup failed.' });
     }
-
     return res.json({ success: true, backupId: result.backupId, totalDocuments: result.totalDocuments });
   } catch (error) {
     return res.status(500).json({ success: false, error: error.message });
   }
 });
 
+// Admin Database Restore Endpoint
 app.post('/api/backup/restore', async (req, res) => {
   const { backupId } = req.body || {};
-
   if (!backupId) {
     return res.status(400).json({ success: false, error: 'backupId is required.' });
   }
 
   try {
     const firestore = getAdminFirestore();
-
     const backupDoc = await firestore.collection(BACKUP_COLLECTION).doc(backupId).get();
+    
     if (!backupDoc.exists) {
       return res.status(404).json({ success: false, error: 'Backup version not found.' });
     }
@@ -119,6 +118,7 @@ app.post('/api/backup/restore', async (req, res) => {
     const payload = backupDoc.data();
     const backupDocuments = Array.isArray(payload.documents) ? payload.documents : [];
 
+    // Clear current collection
     const existingSnapshot = await firestore.collection(OFFLINE_COLLECTION).get();
     const operations = [];
 
@@ -129,6 +129,7 @@ app.post('/api/backup/restore', async (req, res) => {
       });
     });
 
+    // Populate with backup data
     backupDocuments.forEach((vendorDoc) => {
       const { id, ...vendorData } = vendorDoc;
       if (!id) return;

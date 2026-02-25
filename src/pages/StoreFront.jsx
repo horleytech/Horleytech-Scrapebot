@@ -15,6 +15,7 @@ const StoreFront = () => {
         const docSnap = await getDoc(docRef);
 
         if (docSnap.exists()) {
+          // Increment view count immediately on visit
           await updateDoc(docRef, { viewCount: increment(1) });
           const updatedSnap = await getDoc(docRef);
           setVendorData(updatedSnap.data());
@@ -38,9 +39,11 @@ const StoreFront = () => {
       : null;
 
     return products.filter((product) => {
+      // Must be visible
       const isVisible = product?.isVisible !== false;
       if (!isVisible) return false;
 
+      // Filter by allowed groups if set
       if (allowedGroups && allowedGroups.length > 0) {
         const productGroup = product?.groupName || 'Direct Message';
         return allowedGroups.includes(productGroup);
@@ -56,7 +59,7 @@ const StoreFront = () => {
       .filter((number) => number);
 
     if (!configuredNumbers.length) {
-      return vendorId;
+      return vendorId; // Fallback to vendorId as phone number
     }
 
     const randomIndex = Math.floor(Math.random() * configuredNumbers.length);
@@ -112,7 +115,7 @@ const StoreFront = () => {
   return (
     <div className="min-h-screen bg-gray-50 py-8 px-4 md:px-8">
       <div className="max-w-7xl mx-auto">
-        <div className="mb-6 p-5 rounded-2xl text-white" style={{ backgroundColor: themeColor }}>
+        <div className="mb-6 p-5 rounded-2xl text-white shadow-lg transition-all" style={{ backgroundColor: themeColor }}>
           <div className="flex items-center gap-4">
             {vendorData.logoBase64 ? (
               <img
@@ -121,46 +124,60 @@ const StoreFront = () => {
                 className="w-16 h-16 rounded-full border-2 border-white object-cover bg-white"
               />
             ) : (
-              <div className="w-16 h-16 rounded-full border-2 border-white bg-white/20" />
+              <div className="w-16 h-16 rounded-full border-2 border-white bg-white/20 flex items-center justify-center text-2xl font-bold">
+                {vendorData.vendorName ? vendorData.vendorName[0].toUpperCase() : 'V'}
+              </div>
             )}
             <div>
-              <h1 className="text-3xl font-bold">{vendorData.vendorName || vendorId} Storefront</h1>
+              <h1 className="text-3xl font-bold">{vendorData.vendorName || vendorId}</h1>
               {vendorData.address && <p className="text-white/90 mt-1">📍 {vendorData.address}</p>}
-              <p className="text-white/90 mt-1">Showing {visibleProducts.length} available items.</p>
+              <p className="text-white/90 mt-1 text-sm">Showing {visibleProducts.length} available items.</p>
             </div>
           </div>
         </div>
 
-        <div className="overflow-x-auto bg-white rounded-2xl shadow border border-gray-100">
-          <table className="min-w-full text-left">
+        <div className="overflow-x-auto bg-white rounded-2xl shadow-xl border border-gray-100">
+          <table className="min-w-full text-left border-collapse">
             <thead className="text-white" style={{ backgroundColor: themeColor }}>
               <tr>
-                <th className="px-5 py-4 text-sm font-semibold">Group</th>
+                <th className="px-5 py-4 text-sm font-semibold first:rounded-tl-2xl">Group</th>
                 <th className="px-5 py-4 text-sm font-semibold">Device</th>
                 <th className="px-5 py-4 text-sm font-semibold">Condition</th>
                 <th className="px-5 py-4 text-sm font-semibold">Specification</th>
                 <th className="px-5 py-4 text-sm font-semibold">Storage</th>
                 <th className="px-5 py-4 text-sm font-semibold">Price</th>
-                <th className="px-5 py-4 text-sm font-semibold">Order</th>
+                <th className="px-5 py-4 text-sm font-semibold last:rounded-tr-2xl">Order</th>
               </tr>
             </thead>
-            <tbody>
+            <tbody className="divide-y divide-gray-100">
               {visibleProducts.length > 0 ? (
                 visibleProducts.map((product, index) => (
-                  <tr key={`${product['Device Type']}-${index}`} className="border-b border-gray-100 hover:bg-green-50/30">
-                    <td className="px-5 py-4 text-xs">{product.groupName || 'Direct Message'}</td>
-                    <td className="px-5 py-4 font-medium text-[#1A1C23]">{product['Device Type'] || 'N/A'}</td>
-                    <td className="px-5 py-4 text-gray-600">{product.Condition || 'N/A'}</td>
-                    <td className="px-5 py-4 text-gray-600">
-                      {(product['Storage Capacity/Configuration'] || 'N/A')} | {(product['SIM Type/Model/Processor'] || 'N/A')}
+                  <tr key={`${product['Device Type']}-${index}`} className="hover:bg-gray-50 transition-colors">
+                    <td className="px-5 py-4 text-xs font-medium text-gray-500">{product.groupName || 'Direct Message'}</td>
+                    <td className="px-5 py-4 font-bold text-[#1A1C23]">{product['Device Type'] || 'N/A'}</td>
+                    <td className="px-5 py-4">
+                      <span className={`px-2.5 py-1 rounded-full text-xs font-semibold ${
+                        product.Condition?.toLowerCase().includes('new') 
+                          ? 'bg-blue-50 text-blue-600' 
+                          : 'bg-orange-50 text-orange-600'
+                      }`}>
+                        {product.Condition || 'N/A'}
+                      </span>
                     </td>
-                    <td className="px-5 py-4 text-gray-600">{product['Storage Capacity/Configuration'] || 'N/A'}</td>
-                    <td className="px-5 py-4 font-bold text-green-700">{product['Regular price'] || 'N/A'}</td>
+                    <td className="px-5 py-4 text-gray-600 text-sm">
+                      {product['SIM Type/Model/Processor'] || 'N/A'}
+                    </td>
+                    <td className="px-5 py-4 text-gray-600 text-sm font-medium">
+                      {product['Storage Capacity/Configuration'] || 'N/A'}
+                    </td>
+                    <td className="px-5 py-4 font-black text-lg" style={{ color: themeColor }}>
+                      {product['Regular price'] || 'N/A'}
+                    </td>
                     <td className="px-5 py-4">
                       <button
                         onClick={() => handleWhatsAppClick(product)}
                         style={{ backgroundColor: themeColor }}
-                        className="inline-flex items-center text-white px-4 py-2 rounded-lg font-semibold hover:opacity-90 transition-colors"
+                        className="inline-flex items-center text-white px-5 py-2.5 rounded-xl font-bold shadow-sm hover:brightness-90 transition-all active:scale-95 whitespace-nowrap"
                       >
                         Order via WhatsApp
                       </button>
@@ -169,8 +186,11 @@ const StoreFront = () => {
                 ))
               ) : (
                 <tr>
-                  <td colSpan="7" className="px-5 py-10 text-center text-gray-500">
-                    No products are currently available for this store.
+                  <td colSpan="7" className="px-5 py-16 text-center">
+                    <div className="flex flex-col items-center">
+                      <span className="text-4xl mb-3">📦</span>
+                      <p className="text-gray-500 font-medium text-lg">No products match your current filters.</p>
+                    </div>
                   </td>
                 </tr>
               )}
