@@ -59,9 +59,8 @@ const StoreFront = () => {
   const [loadingDriveBackups, setLoadingDriveBackups] = useState(false);
   const [restoringDriveId, setRestoringDriveId] = useState(null);
   const [uploadRestoreLoading, setUploadRestoreLoading] = useState(false);
-  const [onboardName, setOnboardName] = useState('');
-  const [adminNumber, setAdminNumber] = useState('');
-  const [generatingOnboarding, setGeneratingOnboarding] = useState(false);
+  const [onboardVendorName, setOnboardVendorName] = useState('');
+  const [botNumber, setBotNumber] = useState('');
 
   useEffect(() => {
     const fetchStore = async () => {
@@ -161,34 +160,27 @@ const StoreFront = () => {
     const link = `https://wa.me/${number}?text=${encodeURIComponent(message)}`;
     window.open(link, '_blank', 'noopener,noreferrer');
   };
-
-
   const generateOnboardingLink = async () => {
-    if (!onboardName.trim() || !adminNumber.trim()) {
-      alert("Please enter Vendor's Name and Your Bot/Admin Number.");
+    if (!onboardVendorName.trim() || !botNumber.trim()) {
+      alert('Please enter vendor name and bot number.');
       return;
     }
-
-    setGeneratingOnboarding(true);
     try {
       const response = await fetch(`${BASE_URL}/api/admin/onboard-vendor`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-        body: JSON.stringify({
-          vendorName: onboardName.trim(),
-          adminNumber: adminNumber.trim(),
-        }),
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        body: JSON.stringify({ vendorName: onboardVendorName.trim(), phoneNumber: botNumber.trim() }),
       });
-
       const data = await response.json();
-      if (!response.ok || !data.success) throw new Error(data.error || 'Could not generate onboarding link');
+      if (!response.ok || !data.success) throw new Error(data.error);
+      const tinyUrlRes = await fetch(`https://tinyurl.com/api-create.php?url=${encodeURIComponent(data.url)}`);
+      const shortUrl = await tinyUrlRes.text();
+      await navigator.clipboard.writeText(shortUrl);
+      alert(`✅ Shortened link copied to clipboard:
 
-      await navigator.clipboard.writeText(data.url);
-      alert('✅ Onboarding link generated and copied.');
+${shortUrl}`);
     } catch (error) {
       alert(`❌ ${error.message}`);
-    } finally {
-      setGeneratingOnboarding(false);
     }
   };
 
@@ -485,34 +477,6 @@ const StoreFront = () => {
         </div>
 
 
-        <div className={`mb-6 rounded-2xl border p-5 shadow-sm ${isDarkLayout ? 'bg-[#181818] border-[#2b2b2b]' : 'bg-white border-gray-200'}`}>
-          <h2 className={`text-lg font-black mb-2 ${isDarkLayout ? 'text-gray-100' : 'text-[#1A1C23]'}`}>Onboard Vendor</h2>
-          <p className={`text-sm mb-4 ${isDarkLayout ? 'text-gray-400' : 'text-gray-500'}`}>
-            Generate a clean WhatsApp onboarding link routed to your central bot/admin number.
-          </p>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-            <input
-              value={onboardName}
-              onChange={(e) => setOnboardName(e.target.value)}
-              placeholder="Vendor's Name"
-              className={`rounded-lg px-3 py-2 text-sm border ${isDarkLayout ? 'bg-[#202020] border-[#303030] text-gray-100 placeholder:text-gray-500' : 'border-gray-200 text-[#1A1C23]'}`}
-            />
-            <input
-              value={adminNumber}
-              onChange={(e) => setAdminNumber(e.target.value)}
-              placeholder="Your Bot/Admin Number"
-              className={`rounded-lg px-3 py-2 text-sm border ${isDarkLayout ? 'bg-[#202020] border-[#303030] text-gray-100 placeholder:text-gray-500' : 'border-gray-200 text-[#1A1C23]'}`}
-            />
-            <button
-              onClick={generateOnboardingLink}
-              disabled={generatingOnboarding}
-              className="bg-emerald-600 text-white rounded-lg px-4 py-2 text-sm font-bold hover:bg-emerald-700 disabled:opacity-50"
-            >
-              {generatingOnboarding ? 'Generating...' : 'Generate & Copy Link'}
-            </button>
-          </div>
-        </div>
-
         {renderProductsByLayout()}
 
         {isAdmin && (
@@ -556,6 +520,36 @@ const StoreFront = () => {
               ) : (
                 <p className="text-sm text-gray-400">No Drive backups found.</p>
               )}
+            </div>
+          </div>
+        )}
+
+
+        {isAdmin && (
+          <div className={`mt-8 rounded-2xl border p-5 shadow-sm ${isDarkLayout ? 'bg-[#181818] border-[#2b2b2b]' : 'bg-white border-gray-200'}`}>
+            <h2 className={`text-lg font-black mb-2 ${isDarkLayout ? 'text-gray-100' : 'text-[#1A1C23]'}`}>Onboard Vendor</h2>
+            <p className={`text-sm mb-4 ${isDarkLayout ? 'text-gray-400' : 'text-gray-500'}`}>
+              Generate a clean WhatsApp onboarding link routed to your admin bot number.
+            </p>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <input
+                value={onboardVendorName}
+                onChange={(e) => setOnboardVendorName(e.target.value)}
+                placeholder="Vendor's Name"
+                className={`rounded-lg px-3 py-2 text-sm border ${isDarkLayout ? 'bg-[#202020] border-[#303030] text-gray-100 placeholder:text-gray-500' : 'border-gray-200 text-[#1A1C23]'}`}
+              />
+              <input
+                value={botNumber}
+                onChange={(e) => setBotNumber(e.target.value)}
+                placeholder="Your Admin Bot Number"
+                className={`rounded-lg px-3 py-2 text-sm border ${isDarkLayout ? 'bg-[#202020] border-[#303030] text-gray-100 placeholder:text-gray-500' : 'border-gray-200 text-[#1A1C23]'}`}
+              />
+              <button
+                onClick={generateOnboardingLink}
+                className="bg-emerald-600 text-white rounded-lg px-4 py-2 text-sm font-bold hover:bg-emerald-700"
+              >
+                Generate & Copy Link
+              </button>
             </div>
           </div>
         )}

@@ -190,8 +190,6 @@ const VendorPage = () => {
   const [storeWhatsappNumberInput, setStoreWhatsappNumberInput] = useState('');
   const [vendorPasswordInput, setVendorPasswordInput] = useState('');
   const [allowedGroups, setAllowedGroups] = useState([]);
-  const [onboardVendorName, setOnboardVendorName] = useState('');
-  const [onboardVendorPhone, setOnboardVendorPhone] = useState('');
   const [tutorialVideoUrl, setTutorialVideoUrl] = useState('');
 
   // Timeline & Chat State
@@ -325,32 +323,6 @@ const VendorPage = () => {
   };
 
   const requiresVendorAuth = Boolean(vendorData?.vendorPassword) && !isAdmin && !isAuthenticatedVendor;
-
-  const generateOnboardingLink = async () => {
-    if (!onboardVendorName.trim() || !onboardVendorPhone.trim()) {
-      alert('Please enter vendor name and phone number.');
-      return;
-    }
-
-    try {
-      const response = await fetch(`${BASE_URL}/api/admin/onboard-vendor`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-        body: JSON.stringify({
-          vendorName: onboardVendorName.trim(),
-          phoneNumber: onboardVendorPhone.trim(),
-        }),
-      });
-
-      const data = await response.json();
-      if (!response.ok || !data.success) throw new Error(data.error || 'Could not generate onboarding link');
-
-      await navigator.clipboard.writeText(data.url);
-      alert('✅ Onboarding link generated and copied.');
-    } catch (error) {
-      alert(`❌ ${error.message}`);
-    }
-  };
 
   const fetchTutorialVideo = async () => {
     try {
@@ -887,6 +859,7 @@ const VendorPage = () => {
         <button onClick={() => setMainTab('advanced')} className={`flex-shrink-0 px-6 py-2.5 rounded-lg text-sm font-bold transition-all ${mainTab === 'advanced' ? 'bg-white text-[#1A1C23] shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Advanced Tools</button>
         <button onClick={() => setMainTab('support')} className={`flex-shrink-0 px-6 py-2.5 rounded-lg text-sm font-bold transition-all ${mainTab === 'support' ? 'bg-white text-[#1A1C23] shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Support Chat</button>
         <button onClick={() => setMainTab('timeline')} className={`flex-shrink-0 px-6 py-2.5 rounded-lg text-sm font-bold transition-all ${mainTab === 'timeline' ? 'bg-white text-[#1A1C23] shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Store Timeline</button>
+        <button onClick={() => setMainTab('tips')} className={`flex-shrink-0 px-6 py-2.5 rounded-lg text-sm font-bold transition-all ${mainTab === 'tips' ? 'bg-white text-[#1A1C23] shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Tips</button>
       </div>
 
       {/* Store Settings Tab */}
@@ -985,18 +958,6 @@ const VendorPage = () => {
                   <span className="text-sm font-medium text-gray-700">{group}</span>
                 </label>
               ))}
-            </div>
-          </div>
-
-          <div className="mb-6 bg-emerald-50 border border-emerald-100 rounded-xl p-4">
-            <h3 className="text-sm font-black text-emerald-800 uppercase tracking-wider mb-3">Onboard Vendor</h3>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-              <input value={onboardVendorName} onChange={(e) => setOnboardVendorName(e.target.value)} placeholder="Vendor name" className="w-full p-3 border rounded-[8px] focus:ring-2 focus:ring-emerald-500 outline-none" />
-              <input value={onboardVendorPhone} onChange={(e) => setOnboardVendorPhone(e.target.value)} placeholder="Phone number" className="w-full p-3 border rounded-[8px] focus:ring-2 focus:ring-emerald-500 outline-none" />
-              <button onClick={generateOnboardingLink} className="bg-emerald-600 text-white px-4 py-3 rounded-[8px] font-bold hover:bg-emerald-700 transition-colors">Generate & Copy Link</button>
-            </div>
-            <div className="mt-3 p-3 rounded-lg border border-emerald-100 bg-emerald-50 text-emerald-900 text-xs">
-              Generates a pre-formatted WhatsApp message link. When a vendor clicks this, it automatically teaches them how to use the scraper.
             </div>
           </div>
 
@@ -1247,6 +1208,22 @@ const VendorPage = () => {
               )
             ))}
           </div>
+
+          <div className="space-y-3 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
+            {(timelineEntries[timelineTab] || []).map((log, idx) => (
+              <div key={idx} className="border-l-4 border-blue-500 pl-4 py-2 bg-gray-50 rounded-r-lg">
+                <p className="font-bold text-sm text-[#1A1C23]">{log.action}</p>
+                <p className="text-[10px] font-bold text-gray-400 mt-1 uppercase tracking-wider">{formatTimelineDate(log.date)}</p>
+              </div>
+            ))}
+            {(timelineEntries[timelineTab] || []).length === 0 && <p className="text-gray-400 text-sm italic">No logs found in this category.</p>}
+          </div>
+        </div>
+      )}
+
+
+      {mainTab === 'tips' && (
+        <div className="bg-white border border-gray-200 rounded-[12px] p-5 shadow-sm">
           <div className="mb-4 p-4 border border-amber-100 bg-amber-50 rounded-xl">
             <h3 className="text-sm font-black text-amber-800 uppercase tracking-wider mb-2">Pro Tips</h3>
             <p className="text-sm text-amber-900 font-medium">Best formatting style for the AI scraper: <span className="font-black">Product | Specs | Condition | Price</span>.</p>
@@ -1269,16 +1246,6 @@ const VendorPage = () => {
             ) : (
               <p className="text-xs text-blue-700 font-medium">No tutorial video has been configured yet. Please contact admin.</p>
             )}
-          </div>
-
-          <div className="space-y-3 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
-            {(timelineEntries[timelineTab] || []).map((log, idx) => (
-              <div key={idx} className="border-l-4 border-blue-500 pl-4 py-2 bg-gray-50 rounded-r-lg">
-                <p className="font-bold text-sm text-[#1A1C23]">{log.action}</p>
-                <p className="text-[10px] font-bold text-gray-400 mt-1 uppercase tracking-wider">{formatTimelineDate(log.date)}</p>
-              </div>
-            ))}
-            {(timelineEntries[timelineTab] || []).length === 0 && <p className="text-gray-400 text-sm italic">No logs found in this category.</p>}
           </div>
         </div>
       )}
