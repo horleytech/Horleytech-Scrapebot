@@ -1,8 +1,13 @@
 import fs from 'fs';
 import path from 'path';
+import { fileURLToPath } from 'url'; // Required for absolute pathing
 import cron from 'node-cron';
 import { google } from 'googleapis';
 import admin from 'firebase-admin';
+
+// Replicate __dirname for ES Modules
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const BACKUP_COLLECTION = 'horleyTech_OfflineInventories';
 const BACKUP_HISTORY_COLLECTION = 'horleyTech_Backups';
@@ -10,21 +15,29 @@ const AUDIT_COLLECTION = 'horleyTech_AuditLogs';
 
 const ensureAdminInitialized = () => {
   if (!admin.apps.length) {
-    const projectId = process.env.FIREBASE_PROJECT_ID;
-    const clientEmail = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
-    const privateKey = process.env.GOOGLE_PRIVATE_KEY?.replace(/\\n/g, '\n');
+    try {
+      /**
+       * PERFECT PATH LOGIC:
+       * Since backup.js and firebase-credentials.json are in the same folder,
+       * we look for the file relative to this script, not the terminal path.
+       */
+      const serviceAccountPath = path.join(__dirname, 'firebase-credentials.json');
 
-    if (!projectId || !clientEmail || !privateKey) {
-      throw new Error('Missing Firebase admin env vars (FIREBASE_PROJECT_ID/GOOGLE_SERVICE_ACCOUNT_EMAIL/GOOGLE_PRIVATE_KEY).');
+      if (!fs.existsSync(serviceAccountPath)) {
+        throw new Error(`Credential file missing at: ${serviceAccountPath}`);
+      }
+
+      const serviceAccount = JSON.parse(fs.readFileSync(serviceAccountPath, 'utf8'));
+
+      admin.initializeApp({
+        credential: admin.credential.cert(serviceAccount)
+      });
+      
+      console.log('✅ Firebase Admin Initialized Successfully via local JSON.');
+    } catch (error) {
+      console.error('❌ Firebase Init Error:', error.message);
+      throw error;
     }
-
-    admin.initializeApp({
-      credential: admin.credential.cert({
-        projectId,
-        clientEmail,
-        privateKey,
-      }),
-    });
   }
 };
 
@@ -39,7 +52,8 @@ const getDriveClient = () => {
   const driveFolderId = process.env.GOOGLE_DRIVE_FOLDER_ID;
 
   if (!serviceAccountEmail || !serviceAccountPrivateKey || !driveFolderId) {
-    throw new Error('Missing Google Drive env vars (GOOGLE_SERVICE_ACCOUNT_EMAIL/GOOGLE_PRIVATE_KEY/GOOGLE_DRIVE_FOLDER_ID).');
+    console.warn('⚠️ Google Drive variables missing in .env. Skipping Drive upload.');
+    return null;
   }
 
   const auth = new google.auth.JWT({
@@ -54,7 +68,9 @@ const getDriveClient = () => {
 };
 
 const uploadFileToDrive = async (filePath, fileName) => {
-  const { drive, driveFolderId } = getDriveClient();
+  const client = getDriveClient();
+  if (!client) return;
+  const { drive, driveFolderId } = client;
 
   try {
     console.log(`☁️ Starting Google Drive upload for ${fileName} -> folder ${driveFolderId}`);
@@ -116,7 +132,9 @@ export const restoreInventoryFromBackupPayload = async (payload) => {
 };
 
 export const listBackupsFromDrive = async () => {
-  const { drive, driveFolderId } = getDriveClient();
+  const client = getDriveClient();
+  if (!client) return [];
+  const { drive, driveFolderId } = client;
 
   const query = `'${driveFolderId}' in parents and mimeType='application/json' and trashed=false`;
   const response = await drive.files.list({
@@ -134,7 +152,9 @@ export const downloadAndRestoreFromDrive = async (fileId) => {
     throw new Error('fileId is required.');
   }
 
-  const { drive } = getDriveClient();
+  const client = getDriveClient();
+  if (!client) throw new Error('Drive client not configured.');
+  const { drive } = client;
 
   const response = await drive.files.get(
     { fileId, alt: 'media' },
@@ -175,7 +195,9 @@ export const runBackup = async () => {
   const timestamp = new Date().toISOString();
   const safeTimestamp = timestamp.replace(/[:.]/g, '-');
   const fileName = `offline-inventory-backup-${safeTimestamp}.json`;
-  const backupDir = path.join(process.cwd(), 'node_backend', 'backups');
+  
+  // Save local backups in a folder relative to this script
+  const backupDir = path.join(__dirname, 'backups');
   const localPath = path.join(backupDir, fileName);
 
   try {
@@ -199,12 +221,13 @@ export const runBackup = async () => {
 
     fs.writeFileSync(localPath, JSON.stringify(payload, null, 2));
 
+    // Async upload to Drive
     await uploadFileToDrive(localPath, fileName);
 
-    // Save history record to Firebase for the Dashboard to display
+    // Save history record to Firebase
     await firestore.collection(BACKUP_HISTORY_COLLECTION).doc(safeTimestamp).set(payload);
 
-    console.log(`✅ Backup uploaded and saved to Firebase: ${fileName}`);
+    console.log(`✅ Backup Successful: ${fileName}`);
 
     return {
       success: true,
@@ -212,12 +235,13 @@ export const runBackup = async () => {
       totalDocuments: payload.totalDocuments,
     };
   } catch (error) {
-    console.error('❌ Backup job failed:', error.message);
+    console.error('❌ Backup failed:', error.message);
     return {
       success: false,
       error: error.message,
     };
   } finally {
+    // Cleanup local temp file
     if (fs.existsSync(localPath)) {
       fs.unlinkSync(localPath);
     }
@@ -226,6 +250,7 @@ export const runBackup = async () => {
 
 export const initializeBackupJob = () => {
   cron.schedule('0 2 * * 0', async () => {
+    console.log('🎬 Starting scheduled weekly backup...');
     await runBackup();
   }, {
     timezone: 'Africa/Lagos',

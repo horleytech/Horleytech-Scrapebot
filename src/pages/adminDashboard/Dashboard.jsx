@@ -484,7 +484,7 @@ const AdminDashboard = () => {
       const data = await response.json();
       if (!response.ok || !data.success) throw new Error(data.error || 'Failed to load conversation');
       setChatMessages(Array.isArray(data.messages) ? data.messages : []);
-      fetchAllMessages(); // Refresh global unread count
+      fetchAllMessages(); 
     } catch (error) {
       alert(`❌ ${error.message}`);
     }
