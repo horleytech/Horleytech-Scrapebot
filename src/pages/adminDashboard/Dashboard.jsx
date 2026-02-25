@@ -19,11 +19,9 @@ import {
 } from 'recharts';
 import AdminDashboardLayout from '../../components/layouts/DashboardLayout';
 import { db } from '../../services/firebase/index.js';
-import AnalyticsPage from './AnalyticsPage';
 
 const COLLECTIONS = {
   offline: 'horleyTech_OfflineInventories',
-  online: 'horleyTech_OnlineInventories',
   backups: 'horleyTech_Backups',
 };
 
@@ -74,10 +72,12 @@ const formatTimelineDate = (isoDate) => {
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const target = new Date(date.getFullYear(), date.getMonth(), date.getDate());
   const diffDays = Math.round((today - target) / (1000 * 60 * 60 * 24));
+
   const timeText = date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 
   if (diffDays === 0) return `Today at ${timeText}`;
   if (diffDays === 1) return `Yesterday at ${timeText}`;
+
   return date.toLocaleString();
 };
 
@@ -86,9 +86,7 @@ const AdminDashboard = () => {
 
   const [activeTab, setActiveTab] = useState('offline');
   const [searchQuery, setSearchQuery] = useState('');
-  const [sourceTab, setSourceTab] = useState('offline');
   const [offlineVendors, setOfflineVendors] = useState([]);
-  const [onlineProducts, setOnlineProducts] = useState([]);
   const [backups, setBackups] = useState([]);
   const [loadingSearch, setLoadingSearch] = useState(false);
   const [loadingBackups, setLoadingBackups] = useState(false);
@@ -96,8 +94,11 @@ const AdminDashboard = () => {
   const [bulkUpdating, setBulkUpdating] = useState(false);
   const [manualBackupLoading, setManualBackupLoading] = useState(false);
   const [restoringBackupId, setRestoringBackupId] = useState(null);
+  
+  // Advanced Tools Toggle State
   const [togglingAdvancedVendorId, setTogglingAdvancedVendorId] = useState(null);
 
+  // Messaging State
   const [allMessages, setAllMessages] = useState([]);
   const [notificationOpen, setNotificationOpen] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
@@ -109,51 +110,33 @@ const AdminDashboard = () => {
   const fetchInventory = async () => {
     setLoadingSearch(true);
     try {
-      const querySnapshot = await getDocs(collection(db, COLLECTIONS[sourceTab]));
-
-      if (sourceTab === 'offline') {
-        const vendors = [];
-        querySnapshot.forEach((docSnap) => {
-          const data = docSnap.data();
-          vendors.push({
-            docId: docSnap.id,
-            vendorId: data.vendorId || docSnap.id,
-            vendorName: data.vendorName || data.vendorId || docSnap.id,
-            totalProducts: data.products ? data.products.length : 0,
-            inventoryValue: Array.isArray(data.products)
-              ? data.products.reduce((sum, p) => sum + parseNairaValue(p['Regular price']), 0)
-              : 0,
-            lastUpdated: data.lastUpdated,
-            shareableLink: data.shareableLink || `/vendor/${docSnap.id}`,
-            status: data.status || 'active',
-            viewCount: data.viewCount || 0,
-            whatsappClicks: data.whatsappClicks || 0,
-            vendorPassword: data.vendorPassword || '',
-            storeWhatsappNumber: data.storeWhatsappNumber || '',
-            advancedEnabled: Boolean(data.advancedEnabled),
-            products: data.products || [],
-            logs: normalizeLogs(data.logs),
-          });
+      const querySnapshot = await getDocs(collection(db, COLLECTIONS.offline));
+      const vendors = [];
+      querySnapshot.forEach((docSnap) => {
+        const data = docSnap.data();
+        vendors.push({
+          docId: docSnap.id,
+          vendorId: data.vendorId || docSnap.id,
+          vendorName: data.vendorName || data.vendorId || docSnap.id,
+          totalProducts: data.products ? data.products.length : 0,
+          inventoryValue: Array.isArray(data.products)
+            ? data.products.reduce((sum, p) => sum + parseNairaValue(p['Regular price']), 0)
+            : 0,
+          lastUpdated: data.lastUpdated,
+          shareableLink: data.shareableLink || `/vendor/${docSnap.id}`,
+          status: data.status || 'active',
+          viewCount: data.viewCount || 0,
+          whatsappClicks: data.whatsappClicks || 0,
+          vendorPassword: data.vendorPassword || '',
+          storeWhatsappNumber: data.storeWhatsappNumber || '',
+          advancedEnabled: Boolean(data.advancedEnabled),
+          products: data.products || [],
+          logs: normalizeLogs(data.logs),
         });
+      });
 
-        setOfflineVendors(vendors);
-        setSelectedVendorIds([]);
-      } else {
-        const globalItems = [];
-        querySnapshot.forEach((docSnap) => {
-          const vendorData = docSnap.data();
-          if (Array.isArray(vendorData.products)) {
-            vendorData.products.forEach((product) => {
-              globalItems.push({
-                ...product,
-                vendorName: vendorData.vendorName || vendorData.vendorId,
-                vendorLink: vendorData.shareableLink,
-              });
-            });
-          }
-        });
-        setOnlineProducts(globalItems);
-      }
+      setOfflineVendors(vendors);
+      setSelectedVendorIds([]);
     } catch (error) {
       console.error('Error fetching inventory:', error);
     } finally {
@@ -190,7 +173,7 @@ const AdminDashboard = () => {
       fetchInventory();
       fetchBackups();
     }
-  }, [sourceTab, location.pathname]);
+  }, [location.pathname]);
 
   useEffect(() => {
     fetchAllMessages();
@@ -201,20 +184,6 @@ const AdminDashboard = () => {
   const filteredOffline = useMemo(
     () => offlineVendors.filter((v) => !searchQuery || v.vendorName?.toLowerCase().includes(searchQuery.toLowerCase())),
     [offlineVendors, searchQuery]
-  );
-
-  const filteredOnline = useMemo(
-    () =>
-      onlineProducts.filter((product) => {
-        if (!searchQuery) return true;
-        const term = searchQuery.toLowerCase();
-        return (
-          product['Device Type']?.toLowerCase().includes(term) ||
-          product.Category?.toLowerCase().includes(term) ||
-          product.vendorName?.toLowerCase().includes(term)
-        );
-      }),
-    [onlineProducts, searchQuery]
   );
 
   const platformActivityTimeline = useMemo(() => {
@@ -230,7 +199,6 @@ const AdminDashboard = () => {
         });
       });
     });
-
     return allEntries.sort((a, b) => new Date(b.date) - new Date(a.date)).slice(0, 50);
   }, [offlineVendors]);
 
@@ -249,17 +217,9 @@ const AdminDashboard = () => {
     });
 
     const mostTrackedDevice = Object.entries(deviceFrequency).sort((a, b) => b[1] - a[1])[0]?.[0] || 'N/A';
-    const topVendor =
-      [...offlineVendors].sort((a, b) => (b.whatsappClicks || 0) - (a.whatsappClicks || 0))[0]?.vendorName || 'N/A';
+    const topVendor = [...offlineVendors].sort((a, b) => (b.whatsappClicks || 0) - (a.whatsappClicks || 0))[0]?.vendorName || 'N/A';
 
-    return {
-      totalVendors,
-      totalInventoryValue,
-      totalStoreViews,
-      totalWhatsAppOrders,
-      mostTrackedDevice,
-      topVendor,
-    };
+    return { totalVendors, totalInventoryValue, totalStoreViews, totalWhatsAppOrders, mostTrackedDevice, topVendor };
   }, [offlineVendors]);
 
   const insightCharts = useMemo(() => {
@@ -277,9 +237,9 @@ const AdminDashboard = () => {
         categoryCount[category] = (categoryCount[category] || 0) + 1;
 
         const price = parseNairaValue(product['Regular price']);
-        if (price < 100000) priceDensityMap['< ₦100k'] += 1;
-        else if (price <= 500000) priceDensityMap['₦100k - ₦500k'] += 1;
-        else priceDensityMap['₦500k+'] += 1;
+        if (price > 0 && price < 100000) priceDensityMap['< ₦100k'] += 1;
+        else if (price >= 100000 && price <= 500000) priceDensityMap['₦100k - ₦500k'] += 1;
+        else if (price > 500000) priceDensityMap['₦500k+'] += 1;
       });
 
       const customerLogs = normalizeLogs(vendor.logs).customer || [];
@@ -376,20 +336,12 @@ const AdminDashboard = () => {
       });
 
       await batch.commit();
-
-      setOfflineVendors((prev) =>
-        prev.map((vendor) =>
-          selectedVendorIds.includes(vendor.docId)
-            ? { ...vendor, status, lastUpdated: new Date().toISOString() }
-            : vendor
-        )
-      );
-
+      fetchInventory();
       setSelectedVendorIds([]);
       alert(`✅ ${status === 'suspended' ? 'Suspended' : 'Activated'} selected vendors successfully.`);
     } catch (error) {
       console.error('Bulk vendor status update failed:', error);
-      alert('❌ Could not update selected vendors. Please try again.');
+      alert('❌ Could not update selected vendors.');
     } finally {
       setBulkUpdating(false);
     }
@@ -412,7 +364,6 @@ const AdminDashboard = () => {
 
   const restoreBackup = async (backupId) => {
     if (!window.confirm(`Restore backup ${backupId}? This will overwrite the live offline inventory.`)) return;
-
     setRestoringBackupId(backupId);
     try {
       const res = await fetch('/api/backup/restore', {
@@ -420,10 +371,8 @@ const AdminDashboard = () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ backupId }),
       });
-
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error || 'Restore failed');
-
       alert(`✅ Restore complete. Restored ${data.restoredDocuments} records.`);
       fetchInventory();
     } catch (error) {
@@ -434,30 +383,27 @@ const AdminDashboard = () => {
   };
 
   const handleExport = () => {
-    if (sourceTab === 'offline') {
-      downloadCsv('offline-vendors.csv', filteredOffline);
-    } else {
-      const rows = filteredOnline.map((product) => ({
-        Vendor: product.vendorName || '',
-        Source: product.groupName || '',
-        DeviceType: product['Device Type'] || '',
-        Condition: product.Condition || '',
-        Price: product['Regular price'] || '',
-        Link: product.Link || '',
-      }));
-      downloadCsv('online-inventory.csv', rows);
-    }
+    const rows = filteredOffline.map(v => ({
+      Vendor: v.vendorName,
+      Status: v.status,
+      Views: v.viewCount,
+      Orders: v.whatsappClicks,
+      Products: v.totalProducts,
+      Value: v.inventoryValue,
+      Password: v.vendorPassword
+    }));
+    downloadCsv('platform-directory.csv', rows);
   };
 
   const openChatForVendor = async (vendor) => {
     setChatVendor(vendor);
     setChatOpen(true);
-
     try {
       const response = await fetch(`/api/messages/${vendor.vendorId}`);
       const data = await response.json();
       if (!response.ok || !data.success) throw new Error(data.error || 'Failed to load conversation');
       setChatMessages(Array.isArray(data.messages) ? data.messages : []);
+      fetchAllMessages(); // Refresh global unread count
     } catch (error) {
       alert(`❌ ${error.message}`);
     }
@@ -480,6 +426,7 @@ const AdminDashboard = () => {
       });
       const data = await response.json();
       if (!response.ok || !data.success) throw new Error(data.error || 'Message failed');
+      
       setChatInput('');
       setChatMessages((prev) => [...prev, data.message]);
       fetchAllMessages();
@@ -493,228 +440,217 @@ const AdminDashboard = () => {
   return (
     <AdminDashboardLayout notificationCount={unreadMessages.length} onNotificationClick={() => setNotificationOpen(true)}>
       {location.pathname === '/dashboard' || location.pathname === '/dashboard/' ? (
-        <div>
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 mb-6">
-            <div className="bg-white border border-gray-200 rounded-[12px] p-5 shadow-sm"><p className="text-sm text-gray-500">Total Vendors</p><p className="text-3xl font-bold text-[#1A1C23] mt-2">{analytics.totalVendors}</p></div>
-            <div className="bg-white border border-gray-200 rounded-[12px] p-5 shadow-sm"><p className="text-sm text-gray-500">Total Inventory Value</p><p className="text-3xl font-bold text-[#1A1C23] mt-2">{formatNaira(analytics.totalInventoryValue)}</p></div>
-            <div className="bg-white border border-gray-200 rounded-[12px] p-5 shadow-sm"><p className="text-sm text-gray-500">Total Store Views</p><p className="text-3xl font-bold text-[#1A1C23] mt-2">{analytics.totalStoreViews}</p></div>
-            <div className="bg-white border border-gray-200 rounded-[12px] p-5 shadow-sm"><p className="text-sm text-gray-500">Total WhatsApp Orders Initiated</p><p className="text-3xl font-bold text-[#1A1C23] mt-2">{analytics.totalWhatsAppOrders}</p></div>
-            <div className="bg-white border border-gray-200 rounded-[12px] p-5 shadow-sm"><p className="text-sm text-gray-500">Most Tracked Device</p><p className="text-xl font-bold text-[#1A1C23] mt-2">{analytics.mostTrackedDevice}</p></div>
-            <div className="bg-white border border-gray-200 rounded-[12px] p-5 shadow-sm"><p className="text-sm text-gray-500">Top Performing Vendor</p><p className="text-xl font-bold text-[#1A1C23] mt-2">{analytics.topVendor}</p></div>
-          </div>
-
-          <div className="mb-4 flex flex-wrap gap-3 items-center justify-between">
-            <div className="flex gap-3">
-              <button onClick={() => setActiveTab('offline')} className={`px-4 py-2 rounded-lg font-semibold ${activeTab === 'offline' ? 'bg-[#1A1C23] text-white' : 'bg-white border border-gray-300 text-gray-700'}`}>Offline Vendors</button>
-              <button onClick={() => setActiveTab('backups')} className={`px-4 py-2 rounded-lg font-semibold ${activeTab === 'backups' ? 'bg-[#1A1C23] text-white' : 'bg-white border border-gray-300 text-gray-700'}`}>Database Backups</button>
-              <button onClick={() => setActiveTab('activity')} className={`px-4 py-2 rounded-lg font-semibold ${activeTab === 'activity' ? 'bg-[#1A1C23] text-white' : 'bg-white border border-gray-300 text-gray-700'}`}>Activity Log</button>
+        <div className="p-6">
+          {/* Analytics Hub Top Row */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4 mb-6">
+            <div className="bg-white border border-gray-200 rounded-[12px] p-5 shadow-sm">
+              <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">Total Vendors</p>
+              <p className="text-2xl font-black text-[#1A1C23] mt-2">{analytics.totalVendors}</p>
             </div>
-            <button
-              onClick={() => setActiveTab('analytics')}
-              className="bg-indigo-600 text-white px-4 py-2 rounded-lg font-semibold hover:bg-indigo-700"
-            >
-              📊 View Global Platform Analytics
-            </button>
+            <div className="bg-white border border-gray-200 rounded-[12px] p-5 shadow-sm">
+              <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">Inventory Value</p>
+              <p className="text-2xl font-black text-green-600 mt-2">{formatNaira(analytics.totalInventoryValue)}</p>
+            </div>
+            <div className="bg-white border border-gray-200 rounded-[12px] p-5 shadow-sm">
+              <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">Store Views</p>
+              <p className="text-2xl font-black text-blue-600 mt-2">{analytics.totalStoreViews}</p>
+            </div>
+            <div className="bg-white border border-gray-200 rounded-[12px] p-5 shadow-sm">
+              <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">WA Orders</p>
+              <p className="text-2xl font-black text-emerald-600 mt-2">{analytics.totalWhatsAppOrders}</p>
+            </div>
+            <div className="bg-white border border-gray-200 rounded-[12px] p-5 shadow-sm">
+              <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">Top Device</p>
+              <p className="text-sm font-bold text-[#1A1C23] mt-2 truncate">{analytics.mostTrackedDevice}</p>
+            </div>
+            <div className="bg-white border border-gray-200 rounded-[12px] p-5 shadow-sm">
+              <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">Star Vendor</p>
+              <p className="text-sm font-bold text-[#1A1C23] mt-2 truncate">{analytics.topVendor}</p>
+            </div>
           </div>
 
+          {/* Tab Navigation */}
+          <div className="mb-6 flex flex-wrap gap-3 items-center justify-between">
+            <div className="flex gap-2 bg-gray-100 p-1.5 rounded-xl">
+              <button onClick={() => setActiveTab('offline')} className={`px-5 py-2.5 rounded-lg text-sm font-bold transition-all ${activeTab === 'offline' ? 'bg-white text-[#1A1C23] shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Directory</button>
+              <button onClick={() => setActiveTab('analytics')} className={`px-5 py-2.5 rounded-lg text-sm font-bold transition-all ${activeTab === 'analytics' ? 'bg-white text-[#1A1C23] shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Visual Analytics</button>
+              <button onClick={() => setActiveTab('activity')} className={`px-5 py-2.5 rounded-lg text-sm font-bold transition-all ${activeTab === 'activity' ? 'bg-white text-[#1A1C23] shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Activity Log</button>
+              <button onClick={() => setActiveTab('backups')} className={`px-5 py-2.5 rounded-lg text-sm font-bold transition-all ${activeTab === 'backups' ? 'bg-white text-[#1A1C23] shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Backups</button>
+            </div>
+          </div>
+
+          {/* Conditional Rendering of Tabs */}
           {activeTab === 'analytics' ? (
-            <AnalyticsPage vendors={offlineVendors} />
+            <div className="bg-white shadow-lg rounded-xl overflow-hidden mb-10 p-6 border border-gray-200">
+              <h2 className="text-2xl font-black text-[#1A1C23] mb-8">📊 Platform Data Insights</h2>
+              <div className="grid grid-cols-1 xl:grid-cols-2 gap-8 mb-8">
+                {/* Pie Chart: Category Mix */}
+                <div className="h-[380px] border border-gray-100 rounded-2xl p-5 shadow-sm bg-gray-50">
+                  <h3 className="font-bold text-gray-700 mb-4 uppercase tracking-widest text-xs">Category Distribution</h3>
+                  <ResponsiveContainer width="100%" height="90%">
+                    <PieChart>
+                      <Pie data={insightCharts.categoryMix} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={110} label>
+                        {insightCharts.categoryMix.map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={CHART_COLORS[index % CHART_COLORS.length]} />
+                        ))}
+                      </Pie>
+                      <Tooltip formatter={(value) => [`${value} Items`, 'Stock']} />
+                      <Legend verticalAlign="bottom" height={36} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
+
+                {/* Bar Chart: Price Density */}
+                <div className="h-[380px] border border-gray-100 rounded-2xl p-5 shadow-sm bg-gray-50">
+                  <h3 className="font-bold text-gray-700 mb-4 uppercase tracking-widest text-xs">Inventory Price Density</h3>
+                  <ResponsiveContainer width="100%" height="90%">
+                    <BarChart data={insightCharts.priceDensity} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                      <XAxis dataKey="range" tick={{ fontSize: 12 }} />
+                      <YAxis tick={{ fontSize: 12 }} />
+                      <Tooltip cursor={{ fill: 'transparent' }} />
+                      <Bar dataKey="count" fill="#3b82f6" radius={[6, 6, 0, 0]} name="Products in Range" />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+
+              {/* Line Chart: Lead Velocity */}
+              <div className="h-[400px] border border-gray-100 rounded-2xl p-5 shadow-sm bg-gray-50">
+                <h3 className="font-bold text-gray-700 mb-4 uppercase tracking-widest text-xs">Lead Velocity (WhatsApp Clicks - Last 7 Days)</h3>
+                <ResponsiveContainer width="100%" height="90%">
+                  <LineChart data={insightCharts.leadVelocity} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                    <XAxis dataKey="day" tick={{ fontSize: 12 }} />
+                    <YAxis allowDecimals={false} tick={{ fontSize: 12 }} />
+                    <Tooltip />
+                    <Line type="monotone" dataKey="clicks" stroke="#10b981" strokeWidth={4} dot={{ r: 6, fill: '#10b981' }} activeDot={{ r: 8 }} name="WhatsApp Clicks" />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
           ) : activeTab === 'backups' ? (
-            <div className="bg-white shadow rounded-[10px] overflow-hidden mb-10">
-              <div className="p-4 bg-gray-50 border-b border-[#DDDCF9] flex flex-wrap justify-between items-center gap-3">
-                <h2 className="text-[18px] font-bold text-[#1A1C23]">Backup Version History ({backups.length})</h2>
-                <button onClick={triggerManualBackup} disabled={manualBackupLoading} className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-blue-700 disabled:opacity-50">{manualBackupLoading ? 'Running Backup...' : 'Trigger Manual Backup'}</button>
+            <div className="bg-white shadow-lg rounded-xl overflow-hidden border border-gray-200">
+              <div className="p-5 bg-gray-50 border-b flex justify-between items-center gap-4">
+                <h2 className="text-lg font-bold text-[#1A1C23]">Backup Version History ({backups.length})</h2>
+                <button onClick={triggerManualBackup} disabled={manualBackupLoading} className="bg-blue-600 text-white px-5 py-2.5 rounded-lg text-sm font-bold hover:bg-blue-700 transition-all shadow-md disabled:opacity-50">
+                  {manualBackupLoading ? 'Backing up...' : 'Trigger Manual Backup'}
+                </button>
               </div>
               <table className="w-full text-left">
-                <thead className="h-[60px] border-b border-b-[#DDDCF9] bg-white text-[#1A1C23] font-bold"><tr><th className="p-4 pl-6">Backup ID</th><th className="p-4">Created At</th><th className="p-4">Documents</th><th className="p-4">Action</th></tr></thead>
-                <tbody>
-                  {backups.length > 0 ? backups.map((backup) => (
-                    <tr key={backup.id} className="hover:bg-gray-50 border-b border-gray-100">
-                      <td className="p-4 pl-6 text-sm font-semibold text-[#1A1C23]">{backup.id}</td>
-                      <td className="p-4 text-sm text-gray-600">{backup.createdAt ? new Date(backup.createdAt).toLocaleString() : 'N/A'}</td>
-                      <td className="p-4 text-sm font-semibold">{backup.totalDocuments || 0}</td>
-                      <td className="p-4"><button onClick={() => restoreBackup(backup.id)} disabled={restoringBackupId === backup.id} className="bg-red-600 text-white px-3 py-2 rounded-lg text-sm font-semibold hover:bg-red-700 disabled:opacity-50">{restoringBackupId === backup.id ? 'Restoring...' : 'Restore This Version'}</button></td>
+                <thead className="bg-white text-gray-400 text-[11px] font-black uppercase tracking-widest border-b">
+                  <tr>
+                    <th className="p-4 pl-6">Backup ID</th>
+                    <th className="p-4">Created At</th>
+                    <th className="p-4">Total Docs</th>
+                    <th className="p-4">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {backups.map(backup => (
+                    <tr key={backup.id} className="hover:bg-gray-50">
+                      <td className="p-4 pl-6 text-sm font-mono text-blue-600">{backup.id}</td>
+                      <td className="p-4 text-sm text-gray-600 font-medium">{backup.createdAt ? new Date(backup.createdAt).toLocaleString() : 'N/A'}</td>
+                      <td className="p-4 text-sm font-bold text-gray-800">{backup.totalDocuments || 0} Vendors</td>
+                      <td className="p-4">
+                        <button onClick={() => restoreBackup(backup.id)} disabled={restoringBackupId === backup.id} className="bg-red-50 text-red-600 px-4 py-2 rounded-lg text-xs font-black uppercase hover:bg-red-600 hover:text-white transition-all disabled:opacity-50">
+                          {restoringBackupId === backup.id ? 'Restoring...' : 'Restore Version'}
+                        </button>
+                      </td>
                     </tr>
-                  )) : (
-                    <tr><td colSpan="4" className="p-6 text-center text-gray-500">{loadingBackups ? 'Loading backups...' : 'No backups found.'}</td></tr>
-                  )}
+                  ))}
                 </tbody>
               </table>
             </div>
           ) : activeTab === 'activity' ? (
-            <>
-              <div className="bg-white shadow rounded-[10px] overflow-hidden mb-10">
-                <div className="p-4 bg-gray-50 border-b border-[#DDDCF9]"><h2 className="text-[18px] font-bold text-[#1A1C23]">Platform Activity Timeline (Newest 50)</h2></div>
-                <div className="p-4">
-                  {platformActivityTimeline.length > 0 ? (
-                    <div className="space-y-3">
-                      {platformActivityTimeline.map((entry, index) => (
-                        <div key={`${entry.vendorId}-${entry.date}-${index}`} className="border rounded-lg p-3 bg-gray-50">
-                          <div className="flex items-center justify-between gap-3">
-                            <p className="font-semibold text-[#1A1C23]">{entry.action}</p>
-                            <span className={`text-xs px-2 py-1 rounded-full font-bold ${entry.channel === 'admin' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'}`}>
-                              {entry.channel.toUpperCase()}
-                            </span>
-                          </div>
-                          <p className="text-sm text-gray-600 mt-1">{entry.vendorName} ({entry.vendorId})</p>
-                          <p className="text-xs text-gray-500 mt-1">{formatTimelineDate(entry.date)}</p>
-                        </div>
-                      ))}
+            <div className="bg-white shadow-lg rounded-xl overflow-hidden border border-gray-200">
+              <div className="p-5 bg-gray-50 border-b">
+                <h2 className="text-lg font-bold text-[#1A1C23]">Global Platform Activity (Newest 50)</h2>
+              </div>
+              <div className="p-5 space-y-4 max-h-[600px] overflow-y-auto custom-scrollbar">
+                {platformActivityTimeline.map((entry, idx) => (
+                  <div key={idx} className="border-l-4 border-blue-500 pl-4 py-3 bg-gray-50 rounded-r-lg shadow-sm">
+                    <div className="flex justify-between items-start">
+                      <p className="font-bold text-sm text-[#1A1C23] max-w-[80%]">{entry.action}</p>
+                      <span className={`text-[9px] px-2 py-1 rounded-md font-black uppercase tracking-wider ${entry.channel === 'admin' ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700'}`}>{entry.channel}</span>
                     </div>
-                  ) : (
-                    <p className="text-gray-500">No activity logs available yet.</p>
-                  )}
-                </div>
-              </div>
-
-              <div className="bg-white shadow rounded-[10px] overflow-hidden mb-10 p-5">
-                <h2 className="text-[20px] font-bold text-[#1A1C23] mb-5">📊 Key Platform Insights</h2>
-                <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 mb-6">
-                  <div className="h-[320px] border rounded-xl p-4">
-                    <h3 className="font-semibold mb-3">Category Mix</h3>
-                    <ResponsiveContainer width="100%" height="90%">
-                      <PieChart>
-                        <Pie data={insightCharts.categoryMix} dataKey="value" nameKey="name" outerRadius={110} label>
-                          {insightCharts.categoryMix.map((entry, index) => (
-                            <Cell key={`${entry.name}-${index}`} fill={CHART_COLORS[index % CHART_COLORS.length]} />
-                          ))}
-                        </Pie>
-                        <Tooltip />
-                        <Legend />
-                      </PieChart>
-                    </ResponsiveContainer>
+                    <p className="text-[11px] font-bold text-gray-400 mt-2 uppercase tracking-wider">{entry.vendorName} • {formatTimelineDate(entry.date)}</p>
                   </div>
-
-                  <div className="h-[320px] border rounded-xl p-4">
-                    <h3 className="font-semibold mb-3">Price Density</h3>
-                    <ResponsiveContainer width="100%" height="90%">
-                      <BarChart data={insightCharts.priceDensity}>
-                        <CartesianGrid strokeDasharray="3 3" />
-                        <XAxis dataKey="range" />
-                        <YAxis />
-                        <Tooltip />
-                        <Bar dataKey="count" fill="#2563eb" radius={[8, 8, 0, 0]} />
-                      </BarChart>
-                    </ResponsiveContainer>
-                  </div>
-                </div>
-
-                <div className="h-[320px] border rounded-xl p-4">
-                  <h3 className="font-semibold mb-3">Lead Velocity (Last 7 Days)</h3>
-                  <ResponsiveContainer width="100%" height="90%">
-                    <LineChart data={insightCharts.leadVelocity}>
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="day" />
-                      <YAxis allowDecimals={false} />
-                      <Tooltip />
-                      <Line type="monotone" dataKey="clicks" stroke="#16a34a" strokeWidth={3} />
-                    </LineChart>
-                  </ResponsiveContainer>
-                </div>
+                ))}
+                {platformActivityTimeline.length === 0 && <p className="p-10 text-center text-gray-400 font-bold uppercase tracking-widest">No activity logs recorded.</p>}
               </div>
-            </>
+            </div>
           ) : (
             <>
-              <div className="bg-white shadow rounded-[10px] overflow-hidden mb-10">
-                <div className="p-4 bg-gray-50 border-b border-[#DDDCF9] flex flex-wrap items-center justify-between gap-3">
-                  <div className="flex gap-2">
-                    <button onClick={() => setSourceTab('offline')} className={`px-3 py-2 rounded-md text-sm font-semibold ${sourceTab === 'offline' ? 'bg-[#1A1C23] text-white' : 'bg-white border border-gray-300 text-gray-700'}`}>WhatsApp Directory</button>
-                    <button onClick={() => setSourceTab('online')} className={`px-3 py-2 rounded-md text-sm font-semibold ${sourceTab === 'online' ? 'bg-[#1A1C23] text-white' : 'bg-white border border-gray-300 text-gray-700'}`}>Online Inventory</button>
-                  </div>
-
-                  {sourceTab === 'offline' && (
-                    <div className="flex gap-2">
-                      <button onClick={() => bulkUpdateStatus('suspended')} disabled={bulkUpdating || !selectedVendorIds.length} className="bg-red-600 text-white px-3 py-2 rounded-md text-sm font-semibold disabled:opacity-50">Suspend Selected</button>
-                      <button onClick={() => bulkUpdateStatus('active')} disabled={bulkUpdating || !selectedVendorIds.length} className="bg-emerald-600 text-white px-3 py-2 rounded-md text-sm font-semibold disabled:opacity-50">Activate Selected</button>
-                    </div>
-                  )}
-
-                  <div className="flex items-center gap-2">
-                    <input value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="border rounded-md px-3 py-2 text-sm" placeholder="Search..." />
-                    <button onClick={handleExport} className="bg-[#1A1C23] text-white px-3 py-2 rounded-md text-sm">Export CSV</button>
-                  </div>
+              {/* Toolbar */}
+              <div className="flex flex-col xl:flex-row gap-4 mb-6">
+                <div className="flex-1 relative">
+                  <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400">🔍</span>
+                  <input type="text" placeholder="Search for a WhatsApp Vendor..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full pl-12 pr-4 py-4 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm shadow-sm font-medium" />
                 </div>
-
-                <div className="p-4 border-b border-[#DDDCF9]">
-                  <h2 className="text-[18px] font-bold text-[#1A1C23]">{sourceTab === 'offline' ? `WhatsApp Directory (${filteredOffline.length} Vendors)` : `Scraped Products (${filteredOnline.length} Items)`}</h2>
+                <div className="flex gap-3">
+                  <button onClick={() => bulkUpdateStatus('suspended')} disabled={!selectedVendorIds.length || bulkUpdating} className="bg-red-600 text-white px-6 py-2 rounded-xl text-xs font-black uppercase tracking-wider hover:bg-red-700 disabled:opacity-50 shadow-md transition-all">Suspend</button>
+                  <button onClick={() => bulkUpdateStatus('active')} disabled={!selectedVendorIds.length || bulkUpdating} className="bg-emerald-600 text-white px-6 py-2 rounded-xl text-xs font-black uppercase tracking-wider hover:bg-emerald-700 disabled:opacity-50 shadow-md transition-all">Activate</button>
+                  <button onClick={handleExport} className="bg-gray-800 text-white px-6 py-2 rounded-xl text-xs font-black uppercase tracking-wider hover:bg-black shadow-md transition-all">Export</button>
                 </div>
+              </div>
 
-                <table className="w-full table rounded-[10px] text-left">
-                  {sourceTab === 'offline' ? (
-                    <>
-                      <thead className="h-[60px] border-b border-b-[#DDDCF9] bg-white text-[#1A1C23] font-bold">
-                        <tr>
-                          <th className="p-4 pl-6 w-[50px]"><input type="checkbox" checked={allFilteredSelected} onChange={toggleSelectAll} aria-label="Select all vendors" /></th>
-                          <th className="p-4 pl-6">Vendor Name</th>
-                          <th className="p-4">Status</th>
-                          <th className="p-4">Views</th>
-                          <th className="p-4">WA Clicks</th>
-                          <th className="p-4">Access Detail</th>
-                          <th className="p-4">Advanced Tools</th>
-                          <th className="p-4">Total Inventory</th>
-                          <th className="p-4">Last Updated</th>
-                          <th className="p-4">Action</th>
-                          <th className="p-4">Message</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {filteredOffline.length > 0 ? filteredOffline.map((vendor) => (
-                          <tr key={vendor.docId} className="hover:bg-gray-50 border-b border-gray-100">
-                            <td className="p-4 pl-6"><input type="checkbox" checked={selectedVendorIds.includes(vendor.docId)} onChange={() => toggleVendor(vendor.docId)} aria-label={`Select ${vendor.vendorName}`} /></td>
-                            <td className="p-4 pl-6 font-bold text-blue-600">{vendor.vendorName}</td>
-                            <td className="p-4"><span className={`px-3 py-1 rounded-full text-xs font-bold ${vendor.status === 'suspended' ? 'bg-red-100 text-red-800' : 'bg-emerald-100 text-emerald-800'}`}>{vendor.status === 'suspended' ? 'Suspended' : 'Active'}</span></td>
-                            <td className="p-4 font-semibold text-[#1A1C23]">{vendor.viewCount || 0}</td>
-                            <td className="p-4 font-semibold text-[#1A1C23]">{vendor.whatsappClicks || 0}</td>
-                            <td className="p-4 text-xs text-gray-700">
-                              <p><span className="font-semibold">Password:</span> {vendor.vendorPassword || 'Not set'}</p>
-                              <p><span className="font-semibold">Primary WA:</span> {vendor.storeWhatsappNumber || 'Not set'}</p>
-                            </td>
-                            <td className="p-4">
-                              <button
-                                onClick={() => toggleAdvancedTools(vendor)}
-                                disabled={togglingAdvancedVendorId === vendor.docId}
-                                className={`px-3 py-1.5 rounded-full text-xs font-bold ${vendor.advancedEnabled ? 'bg-emerald-100 text-emerald-800' : 'bg-gray-200 text-gray-700'} disabled:opacity-50`}
-                              >
-                                {togglingAdvancedVendorId === vendor.docId
-                                  ? 'Updating...'
-                                  : vendor.advancedEnabled
-                                    ? 'Enabled'
-                                    : 'Disabled'}
-                              </button>
-                            </td>
-                            <td className="p-4"><span className="bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-xs font-bold">{vendor.totalProducts} Items</span></td>
-                            <td className="p-4 text-gray-500">{vendor.lastUpdated ? new Date(vendor.lastUpdated).toLocaleDateString() : 'N/A'}</td>
-                            <td className="p-4"><Link to={vendor.shareableLink} className="bg-[#1A1C23] text-white px-4 py-2 rounded-[8px] text-sm hover:bg-gray-800 transition">View Inventory</Link></td>
-                            <td className="p-4">
-                              <button onClick={() => openChatForVendor(vendor)} className="p-2 rounded-lg bg-indigo-100 text-indigo-700 hover:bg-indigo-200" title="Message Vendor">
-                                <IoMdChatboxes className="w-5 h-5" />
-                              </button>
-                            </td>
-                          </tr>
-                        )) : (
-                          <tr><td colSpan="11" className="p-6 text-center text-gray-500">{loadingSearch ? 'Loading vendors...' : 'No vendors found.'}</td></tr>
-                        )}
-                      </tbody>
-                    </>
-                  ) : (
-                    <>
-                      <thead className="h-[60px] border-b border-b-[#DDDCF9] bg-white text-[#1A1C23] font-bold"><tr><th className="p-4 pl-6">Store</th><th className="p-4">Device Type</th><th className="p-4">Condition</th><th className="p-4">Price</th><th className="p-4">Link</th></tr></thead>
-                      <tbody>
-                        {filteredOnline.length > 0 ? filteredOnline.map((product, index) => (
-                          <tr key={index} className="hover:bg-gray-50 border-b border-gray-100">
-                            <td className="p-4 pl-6 font-bold">{product.vendorName}</td>
-                            <td className="p-4 text-sm">{product['Device Type']}</td>
-                            <td className="p-4 text-sm text-gray-600">{product.Condition}</td>
-                            <td className="p-4 font-semibold text-green-700">{product['Regular price']}</td>
-                            <td className="p-4">{product.Link ? <a href={product.Link} target="_blank" rel="noreferrer" className="text-blue-500 underline text-sm">View Item</a> : 'N/A'}</td>
-                          </tr>
-                        )) : (
-                          <tr><td colSpan="5" className="p-6 text-center text-gray-500">{loadingSearch ? 'Loading products...' : 'No products found.'}</td></tr>
-                        )}
-                      </tbody>
-                    </>
-                  )}
+              {/* Vendor Directory */}
+              <div className="bg-white shadow-lg rounded-xl overflow-hidden border border-gray-200">
+                <table className="w-full text-left">
+                  <thead className="bg-gray-50 border-b border-gray-100">
+                    <tr className="text-gray-400 text-[11px] font-black uppercase tracking-widest">
+                      <th className="p-4 pl-6 w-[50px]"><input type="checkbox" checked={allFilteredSelected} onChange={toggleSelectAll} className="w-4 h-4 rounded border-gray-300 cursor-pointer" /></th>
+                      <th className="p-4">Vendor Name</th>
+                      <th className="p-4">Status</th>
+                      <th className="p-4">Stats</th>
+                      <th className="p-4">Access Details</th>
+                      <th className="p-4">Monetization</th>
+                      <th className="p-4">Total Inventory</th>
+                      <th className="p-4">Action</th>
+                      <th className="p-4 pr-6">Contact</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-50">
+                    {filteredOffline.map(vendor => (
+                      <tr key={vendor.docId} className="hover:bg-blue-50/30 transition-colors">
+                        <td className="p-4 pl-6"><input type="checkbox" checked={selectedVendorIds.includes(vendor.docId)} onChange={() => toggleVendor(vendor.docId)} className="w-4 h-4 rounded border-gray-300 cursor-pointer" /></td>
+                        <td className="p-4 font-bold text-blue-600 hover:text-blue-800"><Link to={vendor.shareableLink}>{vendor.vendorName}</Link></td>
+                        <td className="p-4">
+                          <span className={`px-2.5 py-1 rounded-lg text-[10px] font-black uppercase ${vendor.status === 'suspended' ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>{vendor.status}</span>
+                        </td>
+                        <td className="p-4 text-xs font-bold text-gray-500 space-y-1">
+                          <p>👁️ {vendor.viewCount} Views</p>
+                          <p>🔗 {vendor.whatsappClicks} Clicks</p>
+                        </td>
+                        <td className="p-4 text-[11px] text-gray-600 space-y-1">
+                          <p><span className="font-black uppercase text-[9px] text-gray-400 mr-1">Pass:</span><span className="font-mono">{vendor.vendorPassword || 'N/A'}</span></p>
+                          <p><span className="font-black uppercase text-[9px] text-gray-400 mr-1">WA:</span>{vendor.storeWhatsappNumber || 'N/A'}</p>
+                        </td>
+                        <td className="p-4">
+                          <button
+                            onClick={() => toggleAdvancedTools(vendor)}
+                            disabled={togglingAdvancedVendorId === vendor.docId}
+                            className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all ${vendor.advancedEnabled ? 'bg-indigo-100 text-indigo-700 hover:bg-indigo-200' : 'bg-gray-100 text-gray-400 hover:bg-gray-200'} disabled:opacity-50`}
+                          >
+                            {togglingAdvancedVendorId === vendor.docId ? '...' : vendor.advancedEnabled ? 'AI Enabled' : 'AI Locked'}
+                          </button>
+                        </td>
+                        <td className="p-4"><span className="bg-gray-100 text-gray-600 px-3 py-1.5 rounded-full text-[11px] font-bold">{vendor.totalProducts} Items</span></td>
+                        <td className="p-4"><Link to={vendor.shareableLink} className="inline-block bg-[#1A1C23] text-white px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-wider hover:bg-black transition-all shadow-sm">Manage</Link></td>
+                        <td className="p-4 pr-6">
+                          <button onClick={() => openChatForVendor(vendor)} className="p-2.5 rounded-xl bg-blue-100 text-blue-600 hover:bg-blue-600 hover:text-white transition-all shadow-sm relative group">
+                            <IoMdChatboxes className="w-5 h-5" />
+                            {allMessages.some(m => m.vendorId === vendor.vendorId && m.sender === 'vendor' && !m.readByAdmin) && (
+                              <span className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full border-2 border-white animate-pulse"></span>
+                            )}
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
                 </table>
+                {filteredOffline.length === 0 && <div className="p-20 text-center text-gray-400 font-bold uppercase tracking-widest">No vendors found.</div>}
               </div>
             </>
           )}
@@ -723,50 +659,96 @@ const AdminDashboard = () => {
         <Outlet />
       )}
 
+      {/* Global Notification Modal */}
       {notificationOpen && (
-        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl w-full max-w-2xl shadow-xl border border-gray-200">
-            <div className="p-4 border-b flex justify-between items-center">
-              <h3 className="text-lg font-bold">Vendor Notification Hub</h3>
-              <button onClick={() => setNotificationOpen(false)} className="text-gray-500 hover:text-black">✕</button>
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl w-full max-w-2xl shadow-2xl border border-gray-200 overflow-hidden animate-in fade-in zoom-in duration-200">
+            <div className="p-5 border-b bg-gray-50 flex justify-between items-center">
+              <h3 className="text-xl font-black text-[#1A1C23]">Vendor Messages</h3>
+              <button onClick={() => setNotificationOpen(false)} className="text-gray-400 hover:text-red-500 font-bold text-xl transition-colors">✕</button>
             </div>
-            <div className="p-4 max-h-[65vh] overflow-y-auto space-y-3">
+            <div className="p-6 max-h-[65vh] overflow-y-auto bg-gray-100 space-y-4">
               {unreadMessages.length > 0 ? unreadMessages.map((message) => (
-                <div key={message.id} className="border rounded-lg p-3 bg-red-50">
-                  <p className="text-sm font-semibold text-[#1A1C23]">{message.vendorId}</p>
-                  <p className="text-sm text-gray-700 mt-1">{message.text}</p>
-                  <p className="text-xs text-gray-500 mt-1">{formatTimelineDate(message.timestamp)}</p>
+                <div key={message.id} className="border border-blue-100 rounded-xl p-4 bg-white shadow-sm relative overflow-hidden">
+                  <div className="absolute left-0 top-0 bottom-0 w-1 bg-blue-500"></div>
+                  <div className="flex justify-between items-start mb-2">
+                    <p className="text-sm font-black text-[#1A1C23]">{message.vendorId}</p>
+                    <p className="text-[10px] font-bold text-gray-400 uppercase">{formatTimelineDate(message.timestamp)}</p>
+                  </div>
+                  <p className="text-sm text-gray-700 font-medium">{message.text}</p>
+                  <button 
+                    onClick={() => {
+                      setNotificationOpen(false);
+                      const vendor = offlineVendors.find(v => v.vendorId === message.vendorId);
+                      if(vendor) openChatForVendor(vendor);
+                    }} 
+                    className="mt-3 text-xs font-bold text-blue-600 hover:text-blue-800 uppercase tracking-widest"
+                  >
+                    Reply to Vendor &rarr;
+                  </button>
                 </div>
-              )) : <p className="text-sm text-gray-500">No new vendor messages.</p>}
+              )) : (
+                <div className="text-center py-10">
+                  <span className="text-5xl block mb-4 grayscale opacity-50">📭</span>
+                  <p className="text-gray-400 font-bold uppercase tracking-widest">Inbox is zero.</p>
+                </div>
+              )}
             </div>
           </div>
         </div>
       )}
 
+      {/* Admin-to-Vendor Chat Modal */}
       {chatOpen && chatVendor && (
-        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl w-full max-w-2xl shadow-xl border border-gray-200">
-            <div className="p-4 border-b flex justify-between items-center">
-              <h3 className="text-lg font-bold">Chat with {chatVendor.vendorName}</h3>
-              <button onClick={() => setChatOpen(false)} className="text-gray-500 hover:text-black">✕</button>
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl w-full max-w-2xl shadow-2xl border border-gray-200 overflow-hidden flex flex-col h-[70vh] animate-in fade-in zoom-in duration-200">
+            <div className="p-5 border-b bg-gray-50 flex justify-between items-center">
+              <div>
+                <h3 className="text-xl font-black text-[#1A1C23]">Chat: {chatVendor.vendorName}</h3>
+                <p className="text-xs font-bold text-gray-400 uppercase tracking-widest mt-1">ID: {chatVendor.vendorId}</p>
+              </div>
+              <button onClick={() => setChatOpen(false)} className="text-gray-400 hover:text-red-500 font-bold text-xl transition-colors">✕</button>
             </div>
-            <div className="p-4 max-h-[55vh] overflow-y-auto space-y-3 bg-gray-50">
-              {chatMessages.map((message) => {
+            <div className="p-5 flex-1 overflow-y-auto bg-gray-100 space-y-4 custom-scrollbar">
+              {chatMessages.length > 0 ? chatMessages.map((message) => {
                 const mine = message.sender === 'admin';
                 return (
                   <div key={message.id} className={`flex ${mine ? 'justify-end' : 'justify-start'}`}>
-                    <div className={`max-w-[80%] rounded-xl px-4 py-2 ${mine ? 'bg-[#1A1C23] text-white' : 'bg-white border border-gray-200 text-[#1A1C23]'}`}>
-                      <p className="text-xs opacity-80 mb-1 font-semibold">{message.sender === 'admin' ? 'Admin' : chatVendor.vendorName}</p>
-                      <p className="text-sm whitespace-pre-wrap">{message.text}</p>
-                      <p className="text-[11px] opacity-70 mt-1">{formatTimelineDate(message.timestamp)}</p>
+                    <div className={`max-w-[80%] rounded-2xl px-5 py-3 shadow-sm ${mine ? 'bg-blue-600 text-white rounded-br-none' : 'bg-white border border-gray-200 text-[#1A1C23] rounded-bl-none'}`}>
+                      <p className={`text-[10px] font-black uppercase tracking-widest mb-1 ${mine ? 'text-blue-200' : 'text-gray-400'}`}>{mine ? 'You (Admin)' : chatVendor.vendorName}</p>
+                      <p className="text-sm whitespace-pre-wrap font-medium leading-relaxed">{message.text}</p>
+                      <p className={`text-[9px] font-bold mt-2 text-right ${mine ? 'text-blue-300' : 'text-gray-400'}`}>{formatTimelineDate(message.timestamp)}</p>
                     </div>
                   </div>
                 );
-              })}
+              }) : (
+                 <div className="h-full flex flex-col items-center justify-center text-gray-400">
+                  <span className="text-4xl mb-3">💬</span>
+                  <p className="font-bold text-sm uppercase tracking-widest">Start the conversation</p>
+                </div>
+              )}
             </div>
-            <div className="p-4 border-t flex gap-2">
-              <textarea value={chatInput} onChange={(e) => setChatInput(e.target.value)} className="flex-1 border rounded-lg p-3 min-h-[64px]" placeholder="Type your reply..." />
-              <button onClick={sendAdminChat} disabled={sendingChat || !chatInput.trim()} className="bg-indigo-600 text-white px-4 py-2 rounded-lg h-fit disabled:opacity-50">{sendingChat ? 'Sending...' : 'Send'}</button>
+            <div className="p-5 border-t bg-white flex gap-3">
+              <textarea 
+                value={chatInput} 
+                onChange={(e) => setChatInput(e.target.value)} 
+                className="flex-1 border border-gray-200 rounded-xl p-4 text-sm font-medium focus:ring-2 focus:ring-blue-500 outline-none resize-none shadow-sm" 
+                placeholder="Type your reply to the vendor..." 
+                rows={2}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    sendAdminChat();
+                  }
+                }}
+              />
+              <button 
+                onClick={sendAdminChat} 
+                disabled={sendingChat || !chatInput.trim()} 
+                className="bg-[#1A1C23] text-white px-8 rounded-xl font-black uppercase tracking-wider disabled:opacity-50 hover:bg-black transition-all shadow-md"
+              >
+                {sendingChat ? '...' : 'Send'}
+              </button>
             </div>
           </div>
         </div>

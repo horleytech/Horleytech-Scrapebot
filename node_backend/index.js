@@ -51,6 +51,7 @@ const PORT = process.env.PORT || 8000;
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const CATS = "'Smartphones', 'Smartwatches', 'Laptops', 'Sounds', 'Accessories', 'Tablets', 'Gaming', 'Others'";
 
+// Initialize daily backup cron
 initializeBackupJob();
 
 const runBatchInChunks = async (operations, maxPerBatch = 400) => {
@@ -88,6 +89,7 @@ app.get('/api/logs', (req, res) => {
   }
 });
 
+// Admin Manual Backup Endpoint
 app.get('/api/backup/manual', async (req, res) => {
   try {
     const result = await runBackup();
@@ -102,6 +104,7 @@ app.get('/api/backup/manual', async (req, res) => {
   }
 });
 
+// Admin Database Restore Endpoint
 app.post('/api/backup/restore', async (req, res) => {
   const { backupId } = req.body || {};
 
@@ -120,6 +123,7 @@ app.post('/api/backup/restore', async (req, res) => {
     const payload = backupDoc.data();
     const backupDocuments = Array.isArray(payload.documents) ? payload.documents : [];
 
+    // Clear current collection
     const existingSnapshot = await firestore.collection(OFFLINE_COLLECTION).get();
     const operations = [];
 
@@ -130,6 +134,7 @@ app.post('/api/backup/restore', async (req, res) => {
       });
     });
 
+    // Populate with backup data
     backupDocuments.forEach((vendorDoc) => {
       const { id, ...vendorData } = vendorDoc;
       if (!id) return;
@@ -153,6 +158,7 @@ app.post('/api/backup/restore', async (req, res) => {
   }
 });
 
+// Admin-Vendor Chat Messaging Endpoints (Version 3.1)
 app.post('/api/messages/send', async (req, res) => {
   const { vendorId, sender, recipient, text } = req.body || {};
 
@@ -224,6 +230,7 @@ app.get('/api/messages/:vendorId', async (req, res) => {
   }
 });
 
+// AI Auto-Setup/Fixer Endpoint (Version 3.1)
 app.post('/api/ai/fix-inventory', async (req, res) => {
   const products = Array.isArray(req.body?.products) ? req.body.products : null;
 
