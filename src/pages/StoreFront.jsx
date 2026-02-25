@@ -59,8 +59,6 @@ const StoreFront = () => {
   const [loadingDriveBackups, setLoadingDriveBackups] = useState(false);
   const [restoringDriveId, setRestoringDriveId] = useState(null);
   const [uploadRestoreLoading, setUploadRestoreLoading] = useState(false);
-  const [onboardVendorName, setOnboardVendorName] = useState('');
-  const [botNumber, setBotNumber] = useState('');
 
   useEffect(() => {
     const fetchStore = async () => {
@@ -115,19 +113,16 @@ const StoreFront = () => {
       .map((number) => String(number || '').trim())
       .filter(Boolean);
 
-    // 1. Pick random staff number if they exist
     if (configuredStaffNumbers.length > 0) {
       const randomIndex = Math.floor(Math.random() * configuredStaffNumbers.length);
       return configuredStaffNumbers[randomIndex];
     }
 
-    // 2. Fallback to Primary Store Number
     const primaryNumber = String(vendorData?.storeWhatsappNumber || '').trim();
     if (primaryNumber) {
       return primaryNumber;
     }
 
-    // 3. Final fallback to vendorId
     return vendorId;
   };
 
@@ -159,28 +154,6 @@ const StoreFront = () => {
     const message = `Hi, I am interested in the ${product['Device Type'] || 'device'} (${product.Condition || 'N/A'}, ${product['Storage Capacity/Configuration'] || 'N/A'}) for ${product['Regular price'] || 'N/A'} listed on your store.`;
     const link = `https://wa.me/${number}?text=${encodeURIComponent(message)}`;
     window.open(link, '_blank', 'noopener,noreferrer');
-  };
-  const generateOnboardingLink = async () => {
-    if (!onboardVendorName.trim() || !botNumber.trim()) {
-      alert('Please enter vendor name and bot number.');
-      return;
-    }
-    try {
-      const response = await fetch(`${BASE_URL}/api/admin/onboard-vendor`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-        // 🔥 FIX: Changed 'phoneNumber' to 'adminNumber' to perfectly match the backend
-        body: JSON.stringify({ vendorName: onboardVendorName.trim(), adminNumber: botNumber.trim() }),
-      });
-      const data = await response.json();
-      if (!response.ok || !data.success) throw new Error(data.error);
-      const tinyUrlRes = await fetch(`https://tinyurl.com/api-create.php?url=${encodeURIComponent(data.url)}`);
-      const shortUrl = await tinyUrlRes.text();
-      await navigator.clipboard.writeText(shortUrl);
-      alert(`✅ Shortened link copied to clipboard:\n\n${shortUrl}`);
-    } catch (error) {
-      alert(`❌ ${error.message}`);
-    }
   };
 
   const fetchDriveBackups = async () => {
@@ -371,7 +344,7 @@ const StoreFront = () => {
           <div className="p-4 space-y-2">
             <h3 className={`font-black text-lg ${isDarkLayout ? 'text-gray-100' : 'text-[#1A1C23]'}`}>{product['Device Type'] || 'N/A'}</h3>
             <p className={`text-xs uppercase font-bold ${isDarkLayout ? 'text-gray-400' : 'text-gray-500'}`}>{product.Condition || 'N/A'}</p>
-            <p className={`text-sm ${isDarkLayout ? 'text-gray-300' : 'text-gray-600'}`}>{product['SIM Type/Model/Processor'] || 'N/A'}</p>
+            <p className={`text-sm ${isDarkLayout ? 'text-gray-300' : 'text-gray-600'}`}>{product['SIM Type/Model/Processor'] || 'N/A'}}</p>
             <p className={`text-sm font-semibold ${isDarkLayout ? 'text-gray-300' : 'text-gray-600'}`}>{product['Storage Capacity/Configuration'] || 'N/A'}</p>
             <div className="flex items-center justify-between pt-2">
               <span className="font-black text-lg" style={{ color: themeColor }}>{product['Regular price'] || 'N/A'}</span>
@@ -437,7 +410,6 @@ const StoreFront = () => {
   return (
     <div className={pageClassName}>
       <div className="max-w-7xl mx-auto">
-        {/* Header with Chrome-style Gradient and Description */}
         <div
           className="mb-6 p-6 rounded-2xl text-white shadow-xl transition-all"
           style={{
@@ -474,7 +446,6 @@ const StoreFront = () => {
             </div>
           </div>
         </div>
-
 
         {renderProductsByLayout()}
 
@@ -519,36 +490,6 @@ const StoreFront = () => {
               ) : (
                 <p className="text-sm text-gray-400">No Drive backups found.</p>
               )}
-            </div>
-          </div>
-        )}
-
-
-        {isAdmin && (
-          <div className={`mt-8 rounded-2xl border p-5 shadow-sm ${isDarkLayout ? 'bg-[#181818] border-[#2b2b2b]' : 'bg-white border-gray-200'}`}>
-            <h2 className={`text-lg font-black mb-2 ${isDarkLayout ? 'text-gray-100' : 'text-[#1A1C23]'}`}>Onboard Vendor</h2>
-            <p className={`text-sm mb-4 ${isDarkLayout ? 'text-gray-400' : 'text-gray-500'}`}>
-              Generate a clean WhatsApp onboarding link routed to your admin bot number.
-            </p>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-              <input
-                value={onboardVendorName}
-                onChange={(e) => setOnboardVendorName(e.target.value)}
-                placeholder="Vendor's Name"
-                className={`rounded-lg px-3 py-2 text-sm border ${isDarkLayout ? 'bg-[#202020] border-[#303030] text-gray-100 placeholder:text-gray-500' : 'border-gray-200 text-[#1A1C23]'}`}
-              />
-              <input
-                value={botNumber}
-                onChange={(e) => setBotNumber(e.target.value)}
-                placeholder="Your Admin Bot Number"
-                className={`rounded-lg px-3 py-2 text-sm border ${isDarkLayout ? 'bg-[#202020] border-[#303030] text-gray-100 placeholder:text-gray-500' : 'border-gray-200 text-[#1A1C23]'}`}
-              />
-              <button
-                onClick={generateOnboardingLink}
-                className="bg-emerald-600 text-white rounded-lg px-4 py-2 text-sm font-bold hover:bg-emerald-700"
-              >
-                Generate & Copy Link
-              </button>
             </div>
           </div>
         )}
