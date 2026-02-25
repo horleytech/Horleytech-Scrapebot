@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { BASE_URL } from '../../services/constants/apiConstants.js';
 
 const UploadData = () => {
   const [file, setFile] = useState(null);
@@ -22,7 +23,7 @@ const UploadData = () => {
 
     try {
       // THE FIX: Uses the Vercel Proxy source path to bypass security blocks
-      const response = await fetch('/process', {
+      const response = await fetch(`${BASE_URL}/process`, {
         method: 'POST',
         body: formData,
       });
