@@ -10,23 +10,28 @@ const BACKUP_HISTORY_COLLECTION = 'horleyTech_Backups';
 const ensureAdminInitialized = () => {
   if (!admin.apps.length) {
     try {
-      // Look for the exact file you already created!
-      const serviceAccountPath = path.join(process.cwd(), 'node_backend', 'firebase-credentials.json');
+      // This logic checks if we are already in the node_backend folder or not
+      const currentDir = process.cwd();
+      let serviceAccountPath = path.join(currentDir, 'firebase-credentials.json');
+
+      // If the file isn't found in the current folder, check if it's inside a node_backend subfolder
+      if (!fs.existsSync(serviceAccountPath)) {
+        serviceAccountPath = path.join(currentDir, 'node_backend', 'firebase-credentials.json');
+      }
       
       if (!fs.existsSync(serviceAccountPath)) {
-        throw new Error(`Missing service account file at: ${serviceAccountPath}`);
+        throw new Error(`Firebase key not found. Tried: ${serviceAccountPath}`);
       }
 
       const serviceAccount = JSON.parse(fs.readFileSync(serviceAccountPath, 'utf8'));
 
-      // Initialize Firebase with full privileges directly from the file
       admin.initializeApp({
         credential: admin.credential.cert(serviceAccount)
       });
       
-      console.log('✅ Firebase Admin Initialized Successfully.');
+      console.log('✅ Firebase Admin Initialized Successfully!');
     } catch (error) {
-      console.error('❌ Failed to initialize Firebase Admin:', error.message);
+      console.error('❌ Firebase Init Error:', error.message);
       throw error;
     }
   }
@@ -43,7 +48,7 @@ const uploadFileToDrive = async (filePath, fileName) => {
   const driveFolderId = process.env.GOOGLE_DRIVE_FOLDER_ID;
 
   if (!serviceAccountEmail || !serviceAccountPrivateKey || !driveFolderId) {
-    console.warn('⚠️ Google Drive variables missing. Skipping Drive upload.');
+    console.warn('⚠️ Google Drive variables missing in .env. Skipping Drive upload.');
     return;
   }
 
@@ -99,10 +104,9 @@ export const runBackup = async () => {
 
     await uploadFileToDrive(localPath, fileName);
 
-    // Save history record to Firebase for the Dashboard to display
     await firestore.collection(BACKUP_HISTORY_COLLECTION).doc(safeTimestamp).set(payload);
 
-    console.log(`✅ Backup uploaded and saved to Firebase: ${fileName}`);
+    console.log(`✅ Backup Successful: ${fileName}`);
 
     return {
       success: true,
@@ -110,7 +114,7 @@ export const runBackup = async () => {
       totalDocuments: payload.totalDocuments,
     };
   } catch (error) {
-    console.error('❌ Backup job failed:', error.message);
+    console.error('❌ Backup failed:', error.message);
     return {
       success: false,
       error: error.message,
