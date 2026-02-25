@@ -17,4 +17,13 @@ export default defineConfig({
     }),
     tailwindcssPlugin(),
   ],
+  server: {
+    proxy: {
+      '/api': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+        secure: false,
+      },
+    },
+  },
 });

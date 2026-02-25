@@ -230,41 +230,74 @@ app.get('/api/messages/:vendorId', async (req, res) => {
   }
 });
 
-// AI Auto-Setup/Fixer Endpoint (Version 3.1)
+// AI Auto-Setup/Fixer Endpoint (Version 3.3)
 app.post('/api/ai/fix-inventory', async (req, res) => {
+  const { actionType } = req.body || {};
   const products = Array.isArray(req.body?.products) ? req.body.products : null;
 
   if (!products) {
     return res.status(400).json({ success: false, error: 'products array is required.' });
   }
 
+  const normalizedActionType = actionType === 'images' ? 'images' : 'fix';
+
   try {
-    const systemPrompt = `You are a data cleaner. Standardize the following electronics inventory list. Fix typos in 'Device Type', ensure 'Storage Capacity/Configuration' is formatted like '128GB' or '8GB/256GB', and ensure 'SIM Type/Model/Processor' is clear. Return the exact JSON structure provided.`;
+    if (normalizedActionType === 'fix') {
+      const systemPrompt = `You are a data cleaner. Standardize the following electronics inventory list. Fix typos in 'Device Type', ensure 'Storage Capacity/Configuration' is formatted like '128GB' or '8GB/256GB', and ensure 'SIM Type/Model/Processor' is clear. Return the exact JSON structure provided.`;
 
-    const aiResponse = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
-      messages: [
-        { role: 'system', content: systemPrompt },
-        {
-          role: 'user',
-          content: JSON.stringify(products),
-        },
-      ],
-      temperature: 0,
-    });
+      const aiResponse = await openai.chat.completions.create({
+        model: 'gpt-4o-mini',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          {
+            role: 'user',
+            content: JSON.stringify(products),
+          },
+        ],
+        temperature: 0,
+      });
 
-    const rawContent = aiResponse.choices?.[0]?.message?.content || '[]';
-    const cleanJson = rawContent.replace(/```json/gi, '').replace(/```/g, '').trim();
-    const parsed = JSON.parse(cleanJson);
+      const rawContent = aiResponse.choices?.[0]?.message?.content || '[]';
+      const cleanJson = rawContent.replace(/```json/gi, '').replace(/```/g, '').trim();
+      const parsed = JSON.parse(cleanJson);
 
-    if (!Array.isArray(parsed)) {
-      return res.status(500).json({ success: false, error: 'AI response was not an array.' });
+      if (!Array.isArray(parsed)) {
+        return res.status(500).json({ success: false, error: 'AI response was not an array.' });
+      }
+
+      return res.json({ success: true, products: parsed });
     }
 
-    return res.json({ success: true, products: parsed });
+    const imageProcessedProducts = [];
+
+    for (const product of products) {
+      const nextProduct = { ...product };
+
+      try {
+        const imagePrompt = `A professional, realistic, studio-quality product photo of a ${product['Device Type'] || 'device'} ${product.Condition || ''} on a pure white background.`;
+
+        const imageResponse = await openai.images.generate({
+          model: 'dall-e-2',
+          prompt: imagePrompt,
+          size: '256x256',
+          response_format: 'b64_json',
+        });
+
+        const responseB64 = imageResponse?.data?.[0]?.b64_json;
+        if (responseB64) {
+          nextProduct.productImageBase64 = `data:image/png;base64,${responseB64}`;
+        }
+      } catch (imageError) {
+        console.error(`❌ AI image generation failed for ${product['Device Type'] || 'Unknown Device'}:`, imageError.message || imageError);
+      }
+
+      imageProcessedProducts.push(nextProduct);
+    }
+
+    return res.json({ success: true, products: imageProcessedProducts });
   } catch (error) {
     console.error('❌ AI fix inventory error:', error);
-    return res.status(500).json({ success: false, error: error.message || 'AI fix failed.' });
+    return res.status(500).json({ success: false, error: error.message || 'AI processing failed.' });
   }
 });
 
