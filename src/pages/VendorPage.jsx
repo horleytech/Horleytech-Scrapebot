@@ -1110,7 +1110,7 @@ const VendorPage = () => {
             ) : (
               <div className="h-full flex flex-col items-center justify-center text-gray-400">
                 <span className="text-4xl mb-3">💬</span>
-                <p className="font-bold text-sm">Send a message to the Admin team.</p>
+                <p className="font-bold text-sm">{isAdmin ? 'Send a message to this vendor.' : 'Send a message to the Admin team.'}</p>
               </div>
             )}
           </div>
@@ -1120,7 +1120,7 @@ const VendorPage = () => {
               value={supportInput}
               onChange={(e) => setSupportInput(e.target.value)}
               className="flex-1 border border-gray-200 rounded-xl p-4 text-sm font-medium focus:ring-2 focus:ring-blue-500 outline-none resize-none shadow-sm"
-              placeholder="Type your message here..."
+              placeholder={isAdmin ? 'Type your message to the vendor...' : 'Type your message to the admin...'}
               rows={2}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && !e.shiftKey) {

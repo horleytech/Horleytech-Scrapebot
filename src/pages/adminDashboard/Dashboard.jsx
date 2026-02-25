@@ -719,7 +719,7 @@ const AdminDashboard = () => {
             </div>
             <div className="p-5 flex-1 overflow-y-auto bg-gray-100 space-y-4 custom-scrollbar">
               {chatMessages.length > 0 ? chatMessages.map((message) => {
-                const mine = message.sender === 'admin';
+                const mine = isAdmin ? message.sender === 'admin' : message.sender === 'vendor';
                 return (
                   <div key={message.id} className={`flex ${mine ? 'justify-end' : 'justify-start'}`}>
                     <div className={`max-w-[80%] rounded-2xl px-5 py-3 shadow-sm ${mine ? 'bg-blue-600 text-white rounded-br-none' : 'bg-white border border-gray-200 text-gray-800 rounded-bl-none'}`}>
