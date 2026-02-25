@@ -3,6 +3,24 @@ import { useParams } from 'react-router-dom';
 import { doc, getDoc, updateDoc, increment } from 'firebase/firestore';
 import { db } from '../services/firebase/index.js';
 
+const MAX_LOG_ITEMS = 200;
+
+// Helper to ensure log structure exists
+const normalizeLogs = (logs) => ({
+  admin: Array.isArray(logs?.admin) ? logs.admin : [],
+  vendor: Array.isArray(logs?.vendor) ? logs.vendor : [],
+  customer: Array.isArray(logs?.customer) ? logs.customer : [],
+});
+
+// Helper to push a log to a specific channel while maintaining a rolling limit of 200
+const appendRollingLog = (logs, channel, entry) => {
+  const normalized = normalizeLogs(logs);
+  return {
+    ...normalized,
+    [channel]: [...normalized[channel], entry].slice(-MAX_LOG_ITEMS),
+  };
+};
+
 const StoreFront = () => {
   const { vendorId } = useParams();
   const [vendorData, setVendorData] = useState(null);
@@ -43,7 +61,7 @@ const StoreFront = () => {
       const isVisible = product?.isVisible !== false;
       if (!isVisible) return false;
 
-      // Filter by allowed groups if set
+      // Filter by allowed groups if set in vendor settings
       if (allowedGroups && allowedGroups.length > 0) {
         const productGroup = product?.groupName || 'Direct Message';
         return allowedGroups.includes(productGroup);
@@ -56,10 +74,10 @@ const StoreFront = () => {
   const pickStaffNumber = () => {
     const configuredNumbers = (vendorData?.whatsappNumbers || [])
       .map((number) => String(number || '').trim())
-      .filter((number) => number);
+      .filter((num) => num !== '');
 
     if (!configuredNumbers.length) {
-      return vendorId; // Fallback to vendorId as phone number
+      return vendorId; // Fallback to vendorId if no staff numbers configured
     }
 
     const randomIndex = Math.floor(Math.random() * configuredNumbers.length);
@@ -67,11 +85,29 @@ const StoreFront = () => {
   };
 
   const handleWhatsAppClick = async (product) => {
+    const vendorRef = doc(db, 'horleyTech_OfflineInventories', vendorId);
+    const previousLogs = normalizeLogs(vendorData?.logs);
+    const logEntry = {
+      action: `Customer clicked WhatsApp Order for ${product['Device Type'] || 'Unknown Device'}`,
+      date: new Date().toISOString(),
+    };
+
     try {
-      const vendorRef = doc(db, 'horleyTech_OfflineInventories', vendorId);
-      await updateDoc(vendorRef, { whatsappClicks: increment(1) });
+      // Update Click Counter and append a Rolling Activity Log (Version 2.0)
+      const nextLogs = appendRollingLog(previousLogs, 'customer', logEntry);
+      await updateDoc(vendorRef, {
+        whatsappClicks: increment(1),
+        logs: nextLogs,
+      });
+
+      // Update local state to reflect the click and the log instantly
+      setVendorData((prev) => ({
+        ...prev,
+        whatsappClicks: (prev?.whatsappClicks || 0) + 1,
+        logs: nextLogs,
+      }));
     } catch (error) {
-      console.error('Failed to update WhatsApp clicks:', error);
+      console.error('Failed to update WhatsApp clicks/logs:', error);
     }
 
     const number = pickStaffNumber();

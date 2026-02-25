@@ -42,10 +42,30 @@ const formatNaira = (amount) =>
     amount
   );
 
+const normalizeLogs = (logs) => ({
+  admin: Array.isArray(logs?.admin) ? logs.admin : [],
+  vendor: Array.isArray(logs?.vendor) ? logs.vendor : [],
+  customer: Array.isArray(logs?.customer) ? logs.customer : [],
+});
+
+const formatTimelineDate = (isoDate) => {
+  const date = new Date(isoDate);
+  if (Number.isNaN(date.getTime())) return isoDate;
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const target = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  const diffDays = Math.round((today - target) / (1000 * 60 * 60 * 24));
+  const timeText = date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+
+  if (diffDays === 0) return `Today at ${timeText}`;
+  if (diffDays === 1) return `Yesterday at ${timeText}`;
+  return date.toLocaleString();
+};
+
 const AdminDashboard = () => {
   const location = useLocation();
 
-  const [activeTab, setActiveTab] = useState('offline'); // 'offline' or 'backups'
+  const [activeTab, setActiveTab] = useState('offline'); // 'offline', 'backups', or 'activity'
   const [searchQuery, setSearchQuery] = useState('');
   const [offlineVendors, setOfflineVendors] = useState([]);
   const [backups, setBackups] = useState([]);
@@ -77,6 +97,7 @@ const AdminDashboard = () => {
           viewCount: data.viewCount || 0,
           whatsappClicks: data.whatsappClicks || 0,
           products: data.products || [],
+          logs: normalizeLogs(data.logs),
         });
       });
       setOfflineVendors(vendors);
@@ -120,11 +141,27 @@ const AdminDashboard = () => {
     [offlineVendors, searchQuery]
   );
 
+  const platformActivityTimeline = useMemo(() => {
+    const allEntries = [];
+    offlineVendors.forEach((vendor) => {
+      const logs = normalizeLogs(vendor.logs);
+      [...logs.admin, ...logs.vendor].forEach((entry) => {
+        allEntries.push({
+          ...entry,
+          vendorId: vendor.vendorId,
+          vendorName: vendor.vendorName,
+          channel: logs.admin.includes(entry) ? 'admin' : 'vendor',
+        });
+      });
+    });
+    return allEntries.sort((a, b) => new Date(b.date) - new Date(a.date)).slice(0, 50);
+  }, [offlineVendors]);
+
   const analytics = useMemo(() => {
     const totalVendors = offlineVendors.length;
-    const totalInventoryValue = offlineVendors.reduce((sum, vendor) => sum + (vendor.inventoryValue || 0), 0);
-    const totalStoreViews = offlineVendors.reduce((sum, vendor) => sum + (vendor.viewCount || 0), 0);
-    const totalWhatsAppOrders = offlineVendors.reduce((sum, vendor) => sum + (vendor.whatsappClicks || 0), 0);
+    const totalInventoryValue = offlineVendors.reduce((sum, v) => sum + (v.inventoryValue || 0), 0);
+    const totalStoreViews = offlineVendors.reduce((sum, v) => sum + (v.viewCount || 0), 0);
+    const totalWhatsAppOrders = offlineVendors.reduce((sum, v) => sum + (v.whatsappClicks || 0), 0);
 
     const deviceFrequency = {};
     offlineVendors.forEach((vendor) => {
@@ -134,20 +171,10 @@ const AdminDashboard = () => {
       });
     });
 
-    const mostTrackedDevice =
-      Object.entries(deviceFrequency).sort((a, b) => b[1] - a[1])[0]?.[0] || 'N/A';
+    const mostTrackedDevice = Object.entries(deviceFrequency).sort((a, b) => b[1] - a[1])[0]?.[0] || 'N/A';
+    const topVendor = [...offlineVendors].sort((a, b) => (b.whatsappClicks || 0) - (a.whatsappClicks || 0))[0]?.vendorName || 'N/A';
 
-    const topVendor =
-      [...offlineVendors].sort((a, b) => (b.whatsappClicks || 0) - (a.whatsappClicks || 0))[0]?.vendorName || 'N/A';
-
-    return {
-      totalVendors,
-      totalInventoryValue,
-      totalStoreViews,
-      totalWhatsAppOrders,
-      mostTrackedDevice,
-      topVendor,
-    };
+    return { totalVendors, totalInventoryValue, totalStoreViews, totalWhatsAppOrders, mostTrackedDevice, topVendor };
   }, [offlineVendors]);
 
   const allFilteredSelected =
@@ -174,31 +201,19 @@ const AdminDashboard = () => {
       alert('Please select at least one vendor first.');
       return;
     }
-
     setBulkUpdating(true);
     try {
       const batch = writeBatch(db);
       selectedVendorIds.forEach((vendorDocId) => {
         const vendorRef = doc(db, COLLECTIONS.offline, vendorDocId);
-        batch.update(vendorRef, {
-          status,
-          lastUpdated: new Date().toISOString(),
-        });
+        batch.update(vendorRef, { status, lastUpdated: new Date().toISOString() });
       });
       await batch.commit();
-
-      setOfflineVendors((prev) =>
-        prev.map((vendor) =>
-          selectedVendorIds.includes(vendor.docId)
-            ? { ...vendor, status, lastUpdated: new Date().toISOString() }
-            : vendor
-        )
-      );
+      fetchInventory();
       setSelectedVendorIds([]);
-      alert(`✅ ${status === 'suspended' ? 'Suspended' : 'Activated'} selected vendors successfully.`);
+      alert(`✅ Vendors updated to ${status}.`);
     } catch (error) {
-      console.error('Bulk vendor status update failed:', error);
-      alert('❌ Could not update selected vendors.');
+      console.error('Update failed:', error);
     } finally {
       setBulkUpdating(false);
     }
@@ -210,7 +225,7 @@ const AdminDashboard = () => {
       const res = await fetch('/api/backup/manual');
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error || 'Manual backup failed');
-      alert(`✅ Manual backup completed. Backup ID: ${data.backupId}`);
+      alert(`✅ Backup completed: ${data.backupId}`);
       fetchBackups();
     } catch (error) {
       alert(`❌ ${error.message}`);
@@ -220,7 +235,7 @@ const AdminDashboard = () => {
   };
 
   const restoreBackup = async (backupId) => {
-    if (!window.confirm(`Restore backup ${backupId}? This will overwrite the live offline inventory.`)) return;
+    if (!window.confirm(`Restore backup ${backupId}? This overwrites live data.`)) return;
     setRestoringBackupId(backupId);
     try {
       const res = await fetch('/api/backup/restore', {
@@ -230,7 +245,7 @@ const AdminDashboard = () => {
       });
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error || 'Restore failed');
-      alert(`✅ Restore complete. Restored ${data.restoredDocuments} records.`);
+      alert(`✅ Restore complete. ${data.restoredDocuments} vendors restored.`);
       fetchInventory();
     } catch (error) {
       alert(`❌ ${error.message}`);
@@ -241,77 +256,69 @@ const AdminDashboard = () => {
 
   const handleExport = () => {
     const rows = filteredOffline.map(v => ({
-        Vendor: v.vendorName,
-        Status: v.status,
-        Views: v.viewCount,
-        Orders: v.whatsappClicks,
-        Products: v.totalProducts,
-        LastUpdated: v.lastUpdated
+      Vendor: v.vendorName,
+      Status: v.status,
+      Views: v.viewCount,
+      Orders: v.whatsappClicks,
+      Products: v.totalProducts,
+      Value: v.inventoryValue
     }));
-    downloadCsv('whatsapp-vendors.csv', rows);
+    downloadCsv('whatsapp-directory.csv', rows);
   };
 
   return (
     <AdminDashboardLayout>
       {location.pathname === '/dashboard' || location.pathname === '/dashboard/' ? (
         <div className="p-6">
-          {/* Analytics Hub */}
+          {/* Analytics Grid */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4 mb-8">
-            <div className="bg-white border border-gray-200 rounded-[12px] p-5 shadow-sm">
-              <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">Total Vendors</p>
+            <div className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm">
+              <p className="text-xs font-bold text-gray-500 uppercase">Total Vendors</p>
               <p className="text-2xl font-black text-[#1A1C23] mt-2">{analytics.totalVendors}</p>
             </div>
-            <div className="bg-white border border-gray-200 rounded-[12px] p-5 shadow-sm">
-              <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">Inventory Value</p>
+            <div className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm">
+              <p className="text-xs font-bold text-gray-500 uppercase">Inventory Value</p>
               <p className="text-2xl font-black text-green-600 mt-2">{formatNaira(analytics.totalInventoryValue)}</p>
             </div>
-            <div className="bg-white border border-gray-200 rounded-[12px] p-5 shadow-sm">
-              <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">Store Views</p>
+            <div className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm">
+              <p className="text-xs font-bold text-gray-500 uppercase">Store Views</p>
               <p className="text-2xl font-black text-blue-600 mt-2">{analytics.totalStoreViews}</p>
             </div>
-            <div className="bg-white border border-gray-200 rounded-[12px] p-5 shadow-sm">
-              <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">WA Orders</p>
+            <div className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm">
+              <p className="text-xs font-bold text-gray-500 uppercase">WA Orders</p>
               <p className="text-2xl font-black text-emerald-600 mt-2">{analytics.totalWhatsAppOrders}</p>
             </div>
-            <div className="bg-white border border-gray-200 rounded-[12px] p-5 shadow-sm">
-              <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">Top Device</p>
+            <div className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm">
+              <p className="text-xs font-bold text-gray-500 uppercase">Top Device</p>
               <p className="text-sm font-bold text-[#1A1C23] mt-2 truncate">{analytics.mostTrackedDevice}</p>
             </div>
-            <div className="bg-white border border-gray-200 rounded-[12px] p-5 shadow-sm">
-              <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">Star Vendor</p>
+            <div className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm">
+              <p className="text-xs font-bold text-gray-500 uppercase">Star Vendor</p>
               <p className="text-sm font-bold text-[#1A1C23] mt-2 truncate">{analytics.topVendor}</p>
             </div>
           </div>
 
-          {/* Tab Switcher */}
+          {/* Navigation Tabs */}
           <div className="mb-6 flex gap-3 bg-gray-100 p-1.5 rounded-xl w-fit">
-            <button
-              onClick={() => setActiveTab('offline')}
-              className={`px-6 py-2.5 rounded-lg text-sm font-bold transition-all ${activeTab === 'offline' ? 'bg-white text-[#1A1C23] shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
-            >
-              WhatsApp Directory
-            </button>
-            <button
-              onClick={() => setActiveTab('backups')}
-              className={`px-6 py-2.5 rounded-lg text-sm font-bold transition-all ${activeTab === 'backups' ? 'bg-white text-[#1A1C23] shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
-            >
-              Database Backups
-            </button>
+            {['offline', 'backups', 'activity'].map(tab => (
+              <button
+                key={tab}
+                onClick={() => setActiveTab(tab)}
+                className={`px-6 py-2.5 rounded-lg text-sm font-bold transition-all ${activeTab === tab ? 'bg-white text-[#1A1C23] shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+              >
+                {tab === 'offline' ? 'WhatsApp Directory' : tab === 'backups' ? 'Database Backups' : 'Platform Activity'}
+              </button>
+            ))}
           </div>
 
           {activeTab === 'backups' ? (
-            <div className="bg-white shadow-lg rounded-[12px] overflow-hidden border border-gray-200">
-              <div className="p-5 bg-gray-50 border-b border-gray-200 flex flex-wrap justify-between items-center gap-4">
+            <div className="bg-white shadow-lg rounded-xl overflow-hidden border border-gray-200">
+              <div className="p-5 bg-gray-50 border-b flex justify-between items-center">
                 <h2 className="text-lg font-bold text-[#1A1C23]">Version History ({backups.length})</h2>
-                <button
-                  onClick={triggerManualBackup}
-                  disabled={manualBackupLoading}
-                  className="bg-blue-600 text-white px-5 py-2.5 rounded-lg text-sm font-bold hover:bg-blue-700 disabled:opacity-50 transition-all shadow-md"
-                >
+                <button onClick={triggerManualBackup} disabled={manualBackupLoading} className="bg-blue-600 text-white px-5 py-2 rounded-lg text-sm font-bold hover:bg-blue-700 transition-all shadow-md disabled:opacity-50">
                   {manualBackupLoading ? 'Backing up...' : 'Trigger Manual Backup'}
                 </button>
               </div>
-
               <table className="w-full text-left">
                 <thead className="bg-white text-gray-400 text-[11px] font-black uppercase tracking-widest border-b">
                   <tr>
@@ -322,83 +329,53 @@ const AdminDashboard = () => {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
-                  {backups.length > 0 ? (
-                    backups.map((backup) => (
-                      <tr key={backup.id} className="hover:bg-gray-50">
-                        <td className="p-4 pl-6 text-sm font-mono text-blue-600">{backup.id}</td>
-                        <td className="p-4 text-sm text-gray-600 font-medium">
-                          {backup.createdAt ? new Date(backup.createdAt).toLocaleString() : 'N/A'}
-                        </td>
-                        <td className="p-4 text-sm font-bold text-gray-800">{backup.totalDocuments || 0} Vendors</td>
-                        <td className="p-4">
-                          <button
-                            onClick={() => restoreBackup(backup.id)}
-                            disabled={restoringBackupId === backup.id}
-                            className="bg-red-50 text-red-600 px-4 py-2 rounded-lg text-xs font-black uppercase hover:bg-red-600 hover:text-white transition-all disabled:opacity-50"
-                          >
-                            {restoringBackupId === backup.id ? 'Restoring...' : 'Restore Version'}
-                          </button>
-                        </td>
-                      </tr>
-                    ))
-                  ) : (
-                    <tr>
-                      <td colSpan="4" className="p-10 text-center text-gray-400 font-medium">
-                        {loadingBackups ? 'Loading history...' : 'No backup snapshots found.'}
+                  {backups.map(backup => (
+                    <tr key={backup.id} className="hover:bg-gray-50">
+                      <td className="p-4 pl-6 text-sm font-mono text-blue-600">{backup.id}</td>
+                      <td className="p-4 text-sm text-gray-600">{backup.createdAt ? new Date(backup.createdAt).toLocaleString() : 'N/A'}</td>
+                      <td className="p-4 text-sm font-bold">{backup.totalDocuments || 0} Vendors</td>
+                      <td className="p-4">
+                        <button onClick={() => restoreBackup(backup.id)} disabled={restoringBackupId === backup.id} className="bg-red-50 text-red-600 px-4 py-2 rounded-lg text-xs font-black uppercase hover:bg-red-600 hover:text-white transition-all disabled:opacity-50">
+                          {restoringBackupId === backup.id ? 'Restoring...' : 'Restore Version'}
+                        </button>
                       </td>
                     </tr>
-                  )}
+                  ))}
                 </tbody>
               </table>
             </div>
+          ) : activeTab === 'activity' ? (
+            <div className="bg-white shadow-lg rounded-xl overflow-hidden border border-gray-200">
+              <div className="p-5 bg-gray-50 border-b">
+                <h2 className="text-lg font-bold text-[#1A1C23]">Global Platform Activity (Newest 50)</h2>
+              </div>
+              <div className="p-5 space-y-4 max-h-[600px] overflow-y-auto">
+                {platformActivityTimeline.map((entry, idx) => (
+                  <div key={idx} className="border-l-4 border-blue-500 pl-4 py-2 bg-gray-50 rounded-r-lg">
+                    <div className="flex justify-between">
+                      <p className="font-bold text-sm text-[#1A1C23]">{entry.action}</p>
+                      <span className={`text-[10px] px-2 py-0.5 rounded-full font-black uppercase ${entry.channel === 'admin' ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700'}`}>{entry.channel}</span>
+                    </div>
+                    <p className="text-[11px] font-bold text-gray-500 mt-1 uppercase tracking-wider">{entry.vendorName} • {formatTimelineDate(entry.date)}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
           ) : (
             <>
-              {/* Toolbar */}
               <div className="flex flex-col xl:flex-row gap-4 mb-6">
-                <input
-                  type="text"
-                  placeholder="🔍 Search for a WhatsApp Vendor..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="flex-1 p-4 border border-gray-200 rounded-[12px] focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm shadow-sm font-medium"
-                />
+                <input type="text" placeholder="🔍 Search for a WhatsApp Vendor..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="flex-1 p-4 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm shadow-sm" />
                 <div className="flex gap-3">
-                  <button
-                    onClick={() => bulkUpdateStatus('suspended')}
-                    disabled={!selectedVendorIds.length || bulkUpdating}
-                    className="bg-red-600 text-white px-6 py-2 rounded-xl text-xs font-black uppercase hover:bg-red-700 disabled:opacity-50 shadow-md transition-all"
-                  >
-                    Suspend
-                  </button>
-                  <button
-                    onClick={() => bulkUpdateStatus('active')}
-                    disabled={!selectedVendorIds.length || bulkUpdating}
-                    className="bg-emerald-600 text-white px-6 py-2 rounded-xl text-xs font-black uppercase hover:bg-emerald-700 disabled:opacity-50 shadow-md transition-all"
-                  >
-                    Activate
-                  </button>
-                  <button
-                    onClick={handleExport}
-                    className="bg-gray-800 text-white px-6 py-2 rounded-xl text-xs font-black uppercase hover:bg-black transition-all shadow-md"
-                  >
-                    Export
-                  </button>
+                  <button onClick={() => bulkUpdateStatus('suspended')} disabled={!selectedVendorIds.length || bulkUpdating} className="bg-red-600 text-white px-6 py-2 rounded-xl text-xs font-black uppercase hover:bg-red-700 disabled:opacity-50 shadow-md">Suspend</button>
+                  <button onClick={() => bulkUpdateStatus('active')} disabled={!selectedVendorIds.length || bulkUpdating} className="bg-emerald-600 text-white px-6 py-2 rounded-xl text-xs font-black uppercase hover:bg-emerald-700 disabled:opacity-50 shadow-md">Activate</button>
+                  <button onClick={handleExport} className="bg-gray-800 text-white px-6 py-2 rounded-xl text-xs font-black uppercase hover:bg-black shadow-md">Export</button>
                 </div>
               </div>
-
-              {/* Vendor Table */}
-              <div className="bg-white shadow-lg rounded-[12px] overflow-hidden border border-gray-200">
+              <div className="bg-white shadow-lg rounded-xl overflow-hidden border border-gray-200">
                 <table className="w-full text-left">
                   <thead className="bg-gray-50 border-b border-gray-100">
                     <tr className="text-gray-400 text-[11px] font-black uppercase tracking-widest">
-                      <th className="p-4 pl-6 w-[50px]">
-                        <input
-                          type="checkbox"
-                          checked={allFilteredSelected}
-                          onChange={toggleSelectAll}
-                          className="w-4 h-4 rounded border-gray-300"
-                        />
-                      </th>
+                      <th className="p-4 pl-6 w-[50px]"><input type="checkbox" checked={allFilteredSelected} onChange={toggleSelectAll} className="w-4 h-4 rounded" /></th>
                       <th className="p-4">Vendor Name</th>
                       <th className="p-4">Status</th>
                       <th className="p-4">Views</th>
@@ -408,49 +385,17 @@ const AdminDashboard = () => {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-50">
-                    {filteredOffline.length > 0 ? (
-                      filteredOffline.map((vendor) => (
-                        <tr key={vendor.docId} className="hover:bg-blue-50/30 transition-colors">
-                          <td className="p-4 pl-6">
-                            <input
-                              type="checkbox"
-                              checked={selectedVendorIds.includes(vendor.docId)}
-                              onChange={() => toggleVendor(vendor.docId)}
-                              className="w-4 h-4 rounded border-gray-300"
-                            />
-                          </td>
-                          <td className="p-4 font-bold text-blue-600 hover:underline">
-                            <Link to={vendor.shareableLink}>{vendor.vendorName}</Link>
-                          </td>
-                          <td className="p-4">
-                            <span className={`px-2.5 py-1 rounded-lg text-[10px] font-black uppercase ${vendor.status === 'suspended' ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
-                              {vendor.status === 'suspended' ? 'Suspended' : 'Active'}
-                            </span>
-                          </td>
-                          <td className="p-4 font-bold text-gray-700">{vendor.viewCount}</td>
-                          <td className="p-4 font-bold text-emerald-600">{vendor.whatsappClicks}</td>
-                          <td className="p-4">
-                            <span className="bg-gray-100 text-gray-600 px-3 py-1 rounded-full text-[11px] font-bold">
-                              {vendor.totalProducts} Items
-                            </span>
-                          </td>
-                          <td className="p-4">
-                            <Link
-                              to={vendor.shareableLink}
-                              className="inline-block bg-[#1A1C23] text-white px-4 py-2 rounded-lg text-[11px] font-black uppercase hover:bg-black transition-all shadow-sm"
-                            >
-                              Manage
-                            </Link>
-                          </td>
-                        </tr>
-                      ))
-                    ) : (
-                      <tr>
-                        <td colSpan="7" className="p-16 text-center text-gray-400 font-medium">
-                          {loadingSearch ? 'Updating directory...' : 'No vendors found matching your search.'}
-                        </td>
+                    {filteredOffline.map(vendor => (
+                      <tr key={vendor.docId} className="hover:bg-blue-50/30 transition-colors">
+                        <td className="p-4 pl-6"><input type="checkbox" checked={selectedVendorIds.includes(vendor.docId)} onChange={() => toggleVendor(vendor.docId)} className="w-4 h-4 rounded" /></td>
+                        <td className="p-4 font-bold text-blue-600 hover:underline"><Link to={vendor.shareableLink}>{vendor.vendorName}</Link></td>
+                        <td className="p-4"><span className={`px-2.5 py-1 rounded-lg text-[10px] font-black uppercase ${vendor.status === 'suspended' ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>{vendor.status}</span></td>
+                        <td className="p-4 font-bold text-gray-700">{vendor.viewCount}</td>
+                        <td className="p-4 font-bold text-emerald-600">{vendor.whatsappClicks}</td>
+                        <td className="p-4"><span className="bg-gray-100 text-gray-600 px-3 py-1 rounded-full text-[11px] font-bold">{vendor.totalProducts} Items</span></td>
+                        <td className="p-4"><Link to={vendor.shareableLink} className="bg-[#1A1C23] text-white px-4 py-2 rounded-lg text-[11px] font-black uppercase hover:bg-black transition-all">Manage</Link></td>
                       </tr>
-                    )}
+                    ))}
                   </tbody>
                 </table>
               </div>
