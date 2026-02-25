@@ -169,16 +169,15 @@ const StoreFront = () => {
       const response = await fetch(`${BASE_URL}/api/admin/onboard-vendor`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-        body: JSON.stringify({ vendorName: onboardVendorName.trim(), phoneNumber: botNumber.trim() }),
+        // 🔥 FIX: Changed 'phoneNumber' to 'adminNumber' to perfectly match the backend
+        body: JSON.stringify({ vendorName: onboardVendorName.trim(), adminNumber: botNumber.trim() }),
       });
       const data = await response.json();
       if (!response.ok || !data.success) throw new Error(data.error);
       const tinyUrlRes = await fetch(`https://tinyurl.com/api-create.php?url=${encodeURIComponent(data.url)}`);
       const shortUrl = await tinyUrlRes.text();
       await navigator.clipboard.writeText(shortUrl);
-      alert(`✅ Shortened link copied to clipboard:
-
-${shortUrl}`);
+      alert(`✅ Shortened link copied to clipboard:\n\n${shortUrl}`);
     } catch (error) {
       alert(`❌ ${error.message}`);
     }
