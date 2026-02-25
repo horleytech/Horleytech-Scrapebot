@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { doc, getDoc, updateDoc } from 'firebase/firestore';
 import { db } from '../services/firebase/index.js';
@@ -142,6 +142,9 @@ const VendorPage = () => {
   // Settings & Advanced State
   const [savingSettings, setSavingSettings] = useState(false);
   const [runningAutoFix, setRunningAutoFix] = useState(false);
+  const [aiAction, setAiAction] = useState('fix');
+  const [aiTarget, setAiTarget] = useState('all');
+  const [togglingAdvanced, setTogglingAdvanced] = useState(false);
   const [vendorNameInput, setVendorNameInput] = useState('');
   const [addressInput, setAddressInput] = useState('');
   const [storeDescriptionInput, setStoreDescriptionInput] = useState('');
@@ -423,7 +426,26 @@ const VendorPage = () => {
 
   const runAiAutoFix = async () => {
     if (!products.length) {
-      alert('No products available for AI cleanup.');
+      alert('No products available for AI processing.');
+      return;
+    }
+
+    const validSelectedIndexes = Array.from(new Set(selectedProductIndexes))
+      .filter((index) => Number.isInteger(index) && index >= 0 && index < products.length);
+
+    if (aiTarget === 'selected' && !validSelectedIndexes.length) {
+      alert('Please select one or more products first.');
+      return;
+    }
+
+    const targetIndexes = aiTarget === 'selected'
+      ? validSelectedIndexes
+      : products.map((_, index) => index);
+
+    const targetProducts = targetIndexes.map((index) => products[index]).filter(Boolean);
+
+    if (!targetProducts.length) {
+      alert('No products available for this target.');
       return;
     }
 
@@ -432,30 +454,40 @@ const VendorPage = () => {
       const response = await fetch('/api/ai/fix-inventory', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ products }),
+        body: JSON.stringify({ products: targetProducts, actionType: aiAction }),
       });
 
       const data = await response.json();
       if (!response.ok || !Array.isArray(data.products)) {
-        throw new Error(data.error || 'AI fix failed');
+        throw new Error(data.error || 'AI processing failed');
       }
 
-      const nextLogs = pushLogToCurrentVendorData(vendorData, 'Used AI Auto-Fix');
+      const mergedProducts = [...products];
+      data.products.forEach((processedProduct, resultIndex) => {
+        const originalIndex = targetIndexes[resultIndex];
+        if (originalIndex !== undefined) {
+          mergedProducts[originalIndex] = processedProduct;
+        }
+      });
+
+      const actionLabel = aiAction === 'images' ? 'Used AI Image Generation' : 'Used AI Auto-Fix';
+      const scopeLabel = aiTarget === 'selected' ? `${targetProducts.length} selected products` : 'all products';
+      const nextLogs = pushLogToCurrentVendorData(vendorData, `${actionLabel} (${scopeLabel})`);
 
       await updateDoc(vendorRef, {
-        products: data.products,
+        products: mergedProducts,
         lastUpdated: new Date().toISOString(),
         logs: nextLogs,
       });
 
       setVendorData((prev) => ({
         ...prev,
-        products: data.products,
+        products: mergedProducts,
         lastUpdated: new Date().toISOString(),
         logs: nextLogs,
       }));
 
-      alert('✅ AI Auto-Fix completed successfully.');
+      alert(`✅ ${aiAction === 'images' ? 'AI Image Generation' : 'AI Data Correction'} completed successfully.`);
     } catch (error) {
       alert(`❌ ${error.message}`);
     } finally {
@@ -474,6 +506,7 @@ const VendorPage = () => {
     });
 
     try {
+      setTogglingAdvanced(true);
       await updateDoc(vendorRef, {
         advancedEnabled: nextAdvancedEnabled,
         lastUpdated: new Date().toISOString(),
@@ -491,6 +524,8 @@ const VendorPage = () => {
     } catch (error) {
       console.error('Failed to toggle vendor AI tools:', error);
       alert('❌ Could not update vendor AI access.');
+    } finally {
+      setTogglingAdvanced(false);
     }
   };
 
@@ -949,24 +984,59 @@ const VendorPage = () => {
       {mainTab === 'advanced' && (
         <div className="bg-white border border-gray-200 rounded-[12px] p-5 mb-6 shadow-sm relative overflow-hidden">
           <h2 className="text-xl font-bold text-[#1A1C23] mb-4">Advanced Tools</h2>
-          <div className={`${vendorData.advancedEnabled || isAdmin ? '' : 'blur-sm pointer-events-none select-none'}`}>
-            <p className="text-sm font-bold text-gray-600 mb-4">Run AI cleanup to instantly standardize all device specs, standardize categories, and fix grammar issues in your product list.</p>
+          <div className={`${(vendorData.advancedEnabled || isAdmin) ? '' : 'blur-sm pointer-events-none select-none'}`}>
+            <p className="text-sm font-bold text-gray-600 mb-4">Use AI to clean inventory data or generate product imagery. Choose the action and target before running.</p>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+              <div>
+                <label className="block text-xs font-black uppercase tracking-wider text-gray-500 mb-2">AI Action</label>
+                <select
+                  value={aiAction}
+                  onChange={(e) => setAiAction(e.target.value)}
+                  className="w-full p-3 border rounded-[8px] font-semibold bg-white"
+                >
+                  <option value="fix">✨ AI Data Correction</option>
+                  <option value="images">🖼️ AI Image Generation</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-black uppercase tracking-wider text-gray-500 mb-2">Target Scope</label>
+                <select
+                  value={aiTarget}
+                  onChange={(e) => setAiTarget(e.target.value)}
+                  className="w-full p-3 border rounded-[8px] font-semibold bg-white"
+                >
+                  <option value="all">Apply to All Products</option>
+                  <option value="selected">Apply to Selected Products Only</option>
+                </select>
+              </div>
+            </div>
+
+            <p className="text-xs font-black uppercase tracking-wider text-indigo-700 mb-4">
+              This action will process {aiTarget === 'selected' ? selectedProductIndexes.length : products.length} products.
+            </p>
+
             <button
               onClick={runAiAutoFix}
               disabled={runningAutoFix}
-              className="bg-indigo-600 text-white px-6 py-3 rounded-[10px] font-black uppercase tracking-wider hover:bg-indigo-700 disabled:opacity-50 shadow-md transition-all"
+              className="bg-indigo-600 text-white px-6 py-3 rounded-[10px] font-black uppercase tracking-wider hover:bg-indigo-700 disabled:opacity-50 shadow-md transition-all mb-6"
             >
-              {runningAutoFix ? 'AI Working...' : '✨ AI Auto-Fix Inventory'}
+              {runningAutoFix 
+                ? 'AI Working...' 
+                : aiAction === 'images' 
+                  ? '🖼️ Generate Product Images' 
+                  : '✨ Run AI Data Correction'}
             </button>
-
+            
             {isAdmin && (
-              <div className="mt-6 p-4 rounded-xl border border-indigo-100 bg-indigo-50">
-                <p className="text-xs font-black uppercase tracking-wider text-indigo-700 mb-3">Admin Controls</p>
+              <div className="pt-6 border-t border-gray-200 mt-2">
+                <h3 className="text-sm font-bold text-gray-800 mb-2">Admin Controls</h3>
                 <button
                   onClick={toggleVendorAiTools}
-                  className={`px-4 py-2.5 rounded-lg font-black text-xs uppercase tracking-wider shadow-sm transition-colors ${vendorData.advancedEnabled ? 'bg-red-600 text-white hover:bg-red-700' : 'bg-emerald-600 text-white hover:bg-emerald-700'}`}
+                  disabled={togglingAdvanced}
+                  className={`px-4 py-2.5 rounded-lg font-bold text-xs uppercase tracking-wider shadow-sm transition-colors ${vendorData.advancedEnabled ? 'bg-red-600 text-white hover:bg-red-700' : 'bg-emerald-600 text-white hover:bg-emerald-700'} disabled:opacity-50`}
                 >
-                  {vendorData.advancedEnabled ? 'Revoke AI Access' : 'Enable AI Tools for Vendor'}
+                  {togglingAdvanced ? 'Updating...' : (vendorData.advancedEnabled ? 'Revoke AI Access' : 'Enable AI Tools for Vendor')}
                 </button>
               </div>
             )}
@@ -977,7 +1047,7 @@ const VendorPage = () => {
               <div className="bg-white border-2 border-amber-400 rounded-2xl p-8 text-center shadow-2xl max-w-sm">
                 <span className="text-4xl mb-4 block">👑</span>
                 <h3 className="text-xl font-black text-gray-900 mb-2">Premium Feature Locked</h3>
-                <p className="text-sm text-gray-600 mb-6 font-medium">Unlock the AI-powered store assistant to automatically fix your product listings.</p>
+                <p className="text-sm text-gray-600 mb-6 font-medium">Unlock the AI-powered store assistant to automatically fix your product listings or generate images.</p>
                 <button onClick={() => setMainTab('support')} className="bg-amber-500 text-amber-950 font-black uppercase tracking-widest px-6 py-3 rounded-xl w-full hover:bg-amber-400 transition-all shadow-md">
                   Contact Admin
                 </button>
@@ -1009,7 +1079,7 @@ const VendorPage = () => {
                         {senderLabel}
                       </p>
                       <p className="text-sm whitespace-pre-wrap font-medium leading-relaxed">{message.text}</p>
-                      <p className={`text-[9px] font-bold mt-2 text-right ${mine ? 'text-blue-300' : 'text-gray-400'}`}>
+                      <p className={`text-[9px] font-bold mt-2 ${mine ? 'text-right text-blue-300' : 'text-left text-gray-400'}`}>
                         {formatTimelineDate(message.timestamp)}
                       </p>
                     </div>
