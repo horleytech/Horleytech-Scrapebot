@@ -120,6 +120,8 @@ const AdminDashboard = () => {
   const [bulkPrice, setBulkPrice] = useState('');
   const [onboardName, setOnboardName] = useState('');
   const [onboardPhone, setOnboardPhone] = useState('');
+  const [tutorialVideoUrl, setTutorialVideoUrl] = useState('');
+  const [savingTutorialVideo, setSavingTutorialVideo] = useState(false);
 
   const fetchInventory = async () => {
     setLoadingSearch(true);
@@ -200,6 +202,47 @@ const AdminDashboard = () => {
     }
   };
 
+  const fetchTutorialVideo = async () => {
+    try {
+      const response = await fetch(`${BASE_URL}/api/settings/tutorial-video`, {
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      });
+      const data = await response.json();
+      if (!response.ok || !data.success) throw new Error(data.error || 'Failed to load tutorial video setting');
+      setTutorialVideoUrl(data.youtubeUrl || '');
+    } catch (error) {
+      console.error('Unable to fetch tutorial video setting:', error);
+    }
+  };
+
+  const saveTutorialVideo = async () => {
+    const trimmedUrl = tutorialVideoUrl.trim();
+
+    if (!trimmedUrl) {
+      alert('Please enter a valid YouTube link.');
+      return;
+    }
+
+    if (!window.confirm('Are you sure you want to proceed? This will change the live user experience/data.')) return;
+
+    setSavingTutorialVideo(true);
+    try {
+      const response = await fetch(`${BASE_URL}/api/settings/tutorial-video`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'x-user-role': 'admin' },
+        body: JSON.stringify({ youtubeUrl: trimmedUrl }),
+      });
+      const data = await response.json();
+      if (!response.ok || !data.success) throw new Error(data.error || 'Could not save tutorial video');
+      setTutorialVideoUrl(data.youtubeUrl || trimmedUrl);
+      alert('✅ Tutorial video updated successfully.');
+    } catch (error) {
+      alert(`❌ ${error.message}`);
+    } finally {
+      setSavingTutorialVideo(false);
+    }
+  };
+
   useEffect(() => {
     if (location.pathname === '/dashboard' || location.pathname === '/dashboard/') {
       fetchInventory();
@@ -210,6 +253,7 @@ const AdminDashboard = () => {
   useEffect(() => {
     fetchAllMessages();
     fetchAuditLogs();
+    fetchTutorialVideo();
     const timer = setInterval(fetchAllMessages, 12000);
     return () => clearInterval(timer);
   }, []);
@@ -552,6 +596,7 @@ const AdminDashboard = () => {
   };
 
   const undoAuditAction = async (auditId) => {
+    if (!window.confirm('Are you sure you want to proceed? This will change the live user experience/data.')) return;
     setRestoringAuditId(auditId);
     try {
       const response = await fetch(`${BASE_URL}/api/admin/restore-action`, {
@@ -652,6 +697,26 @@ const AdminDashboard = () => {
               <button onClick={() => setActiveTab('backups')} className={`flex-shrink-0 px-5 py-2.5 rounded-lg text-sm font-bold transition-all ${activeTab === 'backups' ? 'bg-white text-[#1A1C23] shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Backups</button>
               <button onClick={() => setActiveTab('history')} className={`flex-shrink-0 px-5 py-2.5 rounded-lg text-sm font-bold transition-all ${activeTab === 'history' ? 'bg-white text-[#1A1C23] shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>History</button>
             </div>
+          </div>
+
+          <div className="bg-white border border-gray-200 rounded-xl p-4 mb-6">
+            <h3 className="font-black text-[#1A1C23] mb-3">Tutorial Video Manager</h3>
+            <div className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-3">
+              <input
+                value={tutorialVideoUrl}
+                onChange={(e) => setTutorialVideoUrl(e.target.value)}
+                placeholder="Paste YouTube link"
+                className="border border-gray-200 rounded-lg px-3 py-2 text-sm"
+              />
+              <button
+                onClick={saveTutorialVideo}
+                disabled={savingTutorialVideo}
+                className="bg-blue-600 text-white rounded-lg px-4 py-2 text-sm font-bold hover:bg-blue-700 disabled:opacity-50"
+              >
+                {savingTutorialVideo ? 'Saving...' : 'Save Video'}
+              </button>
+            </div>
+            <p className="text-xs text-gray-400 mt-2">Update the tutorial video shown to all vendors on their tips page.</p>
           </div>
 
           <div className="bg-white border border-gray-200 rounded-xl p-4 mb-6">
@@ -756,9 +821,12 @@ const AdminDashboard = () => {
             <div className="bg-white shadow-lg rounded-xl overflow-hidden border border-gray-200">
               <div className="p-5 bg-gray-50 border-b flex justify-between items-center gap-4">
                 <h2 className="text-lg font-bold text-[#1A1C23]">Backup Version History ({backups.length})</h2>
-                <button onClick={triggerManualBackup} disabled={manualBackupLoading} className="bg-blue-600 text-white px-5 py-2.5 rounded-lg text-sm font-bold hover:bg-blue-700 transition-all shadow-md disabled:opacity-50">
-                  {manualBackupLoading ? 'Backing up...' : 'Trigger Manual Backup'}
-                </button>
+                <div>
+                  <button onClick={triggerManualBackup} disabled={manualBackupLoading} className="bg-blue-600 text-white px-5 py-2.5 rounded-lg text-sm font-bold hover:bg-blue-700 transition-all shadow-md disabled:opacity-50">
+                    {manualBackupLoading ? 'Running...' : 'Run Backup'}
+                  </button>
+                  <p className="text-xs text-gray-400 mt-2">Creates a manual snapshot and uploads it to Cloud Storage and Firebase.</p>
+                </div>
               </div>
               <table className="w-full text-left">
                 <thead className="bg-white text-gray-400 text-[11px] font-black uppercase tracking-widest border-b">
@@ -776,9 +844,12 @@ const AdminDashboard = () => {
                       <td className="p-4 text-sm text-gray-600 font-medium">{backup.createdAt ? new Date(backup.createdAt).toLocaleString() : 'N/A'}</td>
                       <td className="p-4 text-sm font-bold text-gray-800">{backup.totalDocuments || 0} Vendors</td>
                       <td className="p-4">
-                        <button onClick={() => restoreBackup(backup.id)} disabled={restoringBackupId === backup.id} className="bg-red-50 text-red-600 px-4 py-2 rounded-lg text-xs font-black uppercase hover:bg-red-600 hover:text-white transition-all disabled:opacity-50">
-                          {restoringBackupId === backup.id ? 'Restoring...' : 'Restore Version'}
-                        </button>
+                        <div className="flex flex-col items-end">
+                          <button onClick={() => restoreBackup(backup.id)} disabled={restoringBackupId === backup.id} className="bg-red-50 text-red-600 px-4 py-2 rounded-lg text-xs font-black uppercase hover:bg-red-600 hover:text-white transition-all disabled:opacity-50">
+                            {restoringBackupId === backup.id ? 'Restoring...' : 'Restore Version'}
+                          </button>
+                          <p className="text-xs text-gray-400 mt-2 text-right">Reverts the selected item or collection to a previous historical state.</p>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -819,9 +890,12 @@ const AdminDashboard = () => {
                         <p className="text-sm font-black text-[#1A1C23]">{log.userRole || 'Unknown'} • {log.method} {log.path}</p>
                         <p className="text-xs text-gray-500">{formatTimelineDate(log.timestamp)}</p>
                       </div>
-                      <button onClick={() => undoAuditAction(log.id)} disabled={restoringAuditId === log.id} className="bg-red-600 text-white px-4 py-2 rounded-lg text-xs font-black uppercase disabled:opacity-50">
-                        {restoringAuditId === log.id ? 'Undoing...' : 'Undo'}
-                      </button>
+                      <div className="flex flex-col items-end">
+                        <button onClick={() => undoAuditAction(log.id)} disabled={restoringAuditId === log.id} className="bg-red-600 text-white px-4 py-2 rounded-lg text-xs font-black uppercase disabled:opacity-50">
+                          {restoringAuditId === log.id ? 'Undoing...' : 'Undo'}
+                        </button>
+                        <p className="text-xs text-gray-400 mt-2 text-right">Reverts the selected item or collection to a previous historical state.</p>
+                      </div>
                     </div>
                   </div>
                 )) : (
@@ -847,7 +921,10 @@ const AdminDashboard = () => {
               {selectedVendorIds.length > 0 && (
                 <div className="sticky bottom-4 z-20 bg-[#1A1C23] text-white px-4 py-3 rounded-xl shadow-lg mb-4 flex flex-wrap items-center justify-between gap-3">
                   <p className="text-sm font-bold">{selectedVendorIds.length} vendors selected</p>
-                  <button onClick={openBulkEdit} className="bg-blue-600 px-4 py-2 rounded-lg text-xs font-black uppercase">Bulk Edit</button>
+                  <div className="flex flex-col">
+                    <button onClick={openBulkEdit} className="bg-blue-600 px-4 py-2 rounded-lg text-xs font-black uppercase">Bulk Edit</button>
+                    <p className="text-xs text-gray-400 mt-2">Updates condition, category, or price for all selected items instantly.</p>
+                  </div>
                 </div>
               )}
 

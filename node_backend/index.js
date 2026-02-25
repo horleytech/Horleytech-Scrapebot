@@ -27,6 +27,7 @@ const OFFLINE_COLLECTION = 'horleyTech_OfflineInventories';
 const BACKUP_COLLECTION = 'horleyTech_Backups';
 const MESSAGE_COLLECTION = 'horleyTech_PlatformMessages';
 const AUDIT_COLLECTION = 'horleyTech_AuditLogs';
+const SETTINGS_COLLECTION = 'horleyTech_Settings';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -76,6 +77,12 @@ const resolveUserRole = (req) => {
 
   if (req.path.includes('/admin')) return 'Admin';
   return 'Vendor';
+};
+
+
+const isAdminRequest = (req) => {
+  const role = resolveUserRole(req);
+  return role === 'Admin';
 };
 
 app.use(async (req, res, next) => {
@@ -335,6 +342,52 @@ app.post('/api/admin/onboard-vendor', async (req, res) => {
   const url = `https://wa.me/${cleanedNumber}?text=${encodeURIComponent(message)}`;
 
   return res.json({ success: true, url, message });
+});
+
+
+// Tutorial Video Settings Endpoints
+app.get('/api/settings/tutorial-video', async (_req, res) => {
+  try {
+    const firestore = getAdminFirestore();
+    const docSnap = await firestore.collection(SETTINGS_COLLECTION).doc('tutorial_video').get();
+    const data = docSnap.exists ? docSnap.data() : {};
+
+    return res.json({
+      success: true,
+      youtubeUrl: data?.youtubeUrl || '',
+    });
+  } catch (error) {
+    console.error('❌ Fetch tutorial video setting error:', error);
+    return res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+app.post('/api/settings/tutorial-video', async (req, res) => {
+  if (!isAdminRequest(req)) {
+    return res.status(403).json({ success: false, error: 'Admin access required.' });
+  }
+
+  const youtubeUrl = String(req.body?.youtubeUrl || '').trim();
+
+  if (!youtubeUrl) {
+    return res.status(400).json({ success: false, error: 'youtubeUrl is required.' });
+  }
+
+  try {
+    const firestore = getAdminFirestore();
+    await firestore.collection(SETTINGS_COLLECTION).doc('tutorial_video').set(
+      {
+        youtubeUrl,
+        updatedAt: new Date().toISOString(),
+      },
+      { merge: true }
+    );
+
+    return res.json({ success: true, youtubeUrl });
+  } catch (error) {
+    console.error('❌ Update tutorial video setting error:', error);
+    return res.status(500).json({ success: false, error: error.message });
+  }
 });
 
 // Admin Manual Backup Endpoint

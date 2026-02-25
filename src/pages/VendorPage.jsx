@@ -75,6 +75,35 @@ const parseEditFromValues = (specification, storage) => ({
   'Storage Capacity/Configuration': storage,
 });
 
+
+const toYoutubeEmbedUrl = (url) => {
+  if (!url) return '';
+
+  try {
+    const parsed = new URL(url);
+
+    if (parsed.hostname.includes('youtu.be')) {
+      const id = parsed.pathname.replace('/', '').trim();
+      return id ? `https://www.youtube.com/embed/${id}` : '';
+    }
+
+    if (parsed.hostname.includes('youtube.com')) {
+      const id = parsed.searchParams.get('v');
+      if (id) return `https://www.youtube.com/embed/${id}`;
+
+      const pathParts = parsed.pathname.split('/').filter(Boolean);
+      const embedIndex = pathParts.findIndex((part) => part === 'embed');
+      if (embedIndex !== -1 && pathParts[embedIndex + 1]) {
+        return `https://www.youtube.com/embed/${pathParts[embedIndex + 1]}`;
+      }
+    }
+  } catch (error) {
+    return '';
+  }
+
+  return '';
+};
+
 // Security Gate UI
 const VendorLogin = ({ vendorName, onSubmit, passwordValue, setPasswordValue, error }) => {
   return (
@@ -163,6 +192,7 @@ const VendorPage = () => {
   const [allowedGroups, setAllowedGroups] = useState([]);
   const [onboardVendorName, setOnboardVendorName] = useState('');
   const [onboardVendorPhone, setOnboardVendorPhone] = useState('');
+  const [tutorialVideoUrl, setTutorialVideoUrl] = useState('');
 
   // Timeline & Chat State
   const [timelineTab, setTimelineTab] = useState('vendor');
@@ -229,6 +259,10 @@ const VendorPage = () => {
 
     fetchVendorData();
   }, [vendorRef]);
+
+  useEffect(() => {
+    fetchTutorialVideo();
+  }, []);
 
   const products = vendorData?.products || [];
 
@@ -317,6 +351,21 @@ const VendorPage = () => {
       alert(`❌ ${error.message}`);
     }
   };
+
+  const fetchTutorialVideo = async () => {
+    try {
+      const response = await fetch(`${BASE_URL}/api/settings/tutorial-video`, {
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      });
+      const data = await response.json();
+      if (!response.ok || !data.success) throw new Error(data.error || 'Could not load tutorial video');
+      setTutorialVideoUrl(data.youtubeUrl || '');
+    } catch (error) {
+      console.error('Tutorial video fetch failed:', error);
+    }
+  };
+
+  const tutorialVideoEmbedUrl = useMemo(() => toYoutubeEmbedUrl(tutorialVideoUrl), [tutorialVideoUrl]);
 
   const handleExport = () => {
     const rows = displayData.map(({ product }) => ({
@@ -946,6 +995,9 @@ const VendorPage = () => {
               <input value={onboardVendorPhone} onChange={(e) => setOnboardVendorPhone(e.target.value)} placeholder="Phone number" className="w-full p-3 border rounded-[8px] focus:ring-2 focus:ring-emerald-500 outline-none" />
               <button onClick={generateOnboardingLink} className="bg-emerald-600 text-white px-4 py-3 rounded-[8px] font-bold hover:bg-emerald-700 transition-colors">Generate & Copy Link</button>
             </div>
+            <div className="mt-3 p-3 rounded-lg border border-emerald-100 bg-emerald-50 text-emerald-900 text-xs">
+              Generates a pre-formatted WhatsApp message link. When a vendor clicks this, it automatically teaches them how to use the scraper.
+            </div>
           </div>
 
           <button onClick={handleSaveSettings} disabled={savingSettings} className="bg-[#1A1C23] text-white px-8 py-3 rounded-[10px] font-bold hover:bg-black transition-all disabled:opacity-50 shadow-md">
@@ -1199,6 +1251,24 @@ const VendorPage = () => {
             <h3 className="text-sm font-black text-amber-800 uppercase tracking-wider mb-2">Pro Tips</h3>
             <p className="text-sm text-amber-900 font-medium">Best formatting style for the AI scraper: <span className="font-black">Product | Specs | Condition | Price</span>.</p>
             <p className="text-xs text-amber-800 mt-2">Using the pipe-separated format (<span className="font-black">|</span>) guarantees 100% scraper accuracy for property mapping.</p>
+          </div>
+
+          <div className="mb-4 p-4 border border-blue-100 bg-blue-50 rounded-xl">
+            <h3 className="text-sm font-black text-blue-800 uppercase tracking-wider mb-2">Video Tutorial</h3>
+            <p className="text-xs text-blue-900 mb-3">Watch this quick guide to learn how to format your WhatsApp messages for the fastest AI inventory updates.</p>
+            {tutorialVideoEmbedUrl ? (
+              <div className="w-full aspect-video rounded-lg overflow-hidden border border-blue-200 bg-black">
+                <iframe
+                  src={tutorialVideoEmbedUrl}
+                  title="Scraper tutorial video"
+                  className="w-full h-full"
+                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                  allowFullScreen
+                />
+              </div>
+            ) : (
+              <p className="text-xs text-blue-700 font-medium">No tutorial video has been configured yet. Please contact admin.</p>
+            )}
           </div>
 
           <div className="space-y-3 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
