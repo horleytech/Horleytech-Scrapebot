@@ -93,6 +93,7 @@ export const runBackup = async () => {
 
     await uploadFileToDrive(localPath, fileName);
 
+    // Save history record to Firebase for the Dashboard to display
     await firestore.collection(BACKUP_HISTORY_COLLECTION).doc(safeTimestamp).set(payload);
 
     console.log(`✅ Backup uploaded and saved to Firebase: ${fileName}`);

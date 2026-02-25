@@ -6,7 +6,6 @@ import { db } from '../../services/firebase/index.js';
 
 const COLLECTIONS = {
   offline: 'horleyTech_OfflineInventories',
-  online: 'horleyTech_OnlineInventories',
   backups: 'horleyTech_Backups',
 };
 
@@ -33,7 +32,6 @@ const downloadCsv = (filename, rows) => {
 const parseNairaValue = (value) => {
   if (value === null || value === undefined) return 0;
   if (typeof value === 'number') return value;
-
   const cleaned = String(value).replace(/[^0-9.]/g, '');
   const numeric = Number(cleaned);
   return Number.isFinite(numeric) ? numeric : 0;
@@ -53,28 +51,23 @@ const normalizeLogs = (logs) => ({
 const formatTimelineDate = (isoDate) => {
   const date = new Date(isoDate);
   if (Number.isNaN(date.getTime())) return isoDate;
-
   const now = new Date();
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const target = new Date(date.getFullYear(), date.getMonth(), date.getDate());
   const diffDays = Math.round((today - target) / (1000 * 60 * 60 * 24));
-
   const timeText = date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 
   if (diffDays === 0) return `Today at ${timeText}`;
   if (diffDays === 1) return `Yesterday at ${timeText}`;
-
   return date.toLocaleString();
 };
 
 const AdminDashboard = () => {
   const location = useLocation();
 
-  const [activeTab, setActiveTab] = useState('offline');
+  const [activeTab, setActiveTab] = useState('offline'); // 'offline', 'backups', or 'activity'
   const [searchQuery, setSearchQuery] = useState('');
-  const [sourceTab, setSourceTab] = useState('offline');
   const [offlineVendors, setOfflineVendors] = useState([]);
-  const [onlineProducts, setOnlineProducts] = useState([]);
   const [backups, setBackups] = useState([]);
   const [loadingSearch, setLoadingSearch] = useState(false);
   const [loadingBackups, setLoadingBackups] = useState(false);
@@ -86,49 +79,29 @@ const AdminDashboard = () => {
   const fetchInventory = async () => {
     setLoadingSearch(true);
     try {
-      const querySnapshot = await getDocs(collection(db, COLLECTIONS[sourceTab]));
-
-      if (sourceTab === 'offline') {
-        const vendors = [];
-        querySnapshot.forEach((docSnap) => {
-          const data = docSnap.data();
-          vendors.push({
-            docId: docSnap.id,
-            vendorId: data.vendorId || docSnap.id,
-            vendorName: data.vendorName || data.vendorId || docSnap.id,
-            totalProducts: data.products ? data.products.length : 0,
-            inventoryValue: Array.isArray(data.products)
-              ? data.products.reduce((sum, p) => sum + parseNairaValue(p['Regular price']), 0)
-              : 0,
-            lastUpdated: data.lastUpdated,
-            shareableLink: data.shareableLink || `/vendor/${docSnap.id}`,
-            status: data.status || 'active',
-            viewCount: data.viewCount || 0,
-            whatsappClicks: data.whatsappClicks || 0,
-            products: data.products || [],
-            logs: normalizeLogs(data.logs),
-          });
+      const querySnapshot = await getDocs(collection(db, COLLECTIONS.offline));
+      const vendors = [];
+      querySnapshot.forEach((docSnap) => {
+        const data = docSnap.data();
+        vendors.push({
+          docId: docSnap.id,
+          vendorId: data.vendorId || docSnap.id,
+          vendorName: data.vendorName || data.vendorId || docSnap.id,
+          totalProducts: data.products ? data.products.length : 0,
+          inventoryValue: Array.isArray(data.products)
+            ? data.products.reduce((sum, p) => sum + parseNairaValue(p['Regular price']), 0)
+            : 0,
+          lastUpdated: data.lastUpdated,
+          shareableLink: data.shareableLink || `/vendor/${docSnap.id}`,
+          status: data.status || 'active',
+          viewCount: data.viewCount || 0,
+          whatsappClicks: data.whatsappClicks || 0,
+          products: data.products || [],
+          logs: normalizeLogs(data.logs),
         });
-
-        setOfflineVendors(vendors);
-        setSelectedVendorIds([]);
-      } else {
-        const globalItems = [];
-        querySnapshot.forEach((docSnap) => {
-          const vendorData = docSnap.data();
-          if (Array.isArray(vendorData.products)) {
-            vendorData.products.forEach((product) => {
-              globalItems.push({
-                ...product,
-                vendorName: vendorData.vendorName || vendorData.vendorId,
-                vendorLink: vendorData.shareableLink,
-              });
-            });
-          }
-        });
-
-        setOnlineProducts(globalItems);
-      }
+      });
+      setOfflineVendors(vendors);
+      setSelectedVendorIds([]);
     } catch (error) {
       console.error('Error fetching inventory:', error);
     } finally {
@@ -141,12 +114,10 @@ const AdminDashboard = () => {
     try {
       const backupQuery = query(collection(db, COLLECTIONS.backups), orderBy('createdAt', 'desc'));
       const snapshot = await getDocs(backupQuery);
-
       const list = snapshot.docs.map((docSnap) => ({
         id: docSnap.id,
         ...docSnap.data(),
       }));
-
       setBackups(list);
     } catch (error) {
       console.error('Error fetching backups:', error);
@@ -160,7 +131,7 @@ const AdminDashboard = () => {
       fetchInventory();
       fetchBackups();
     }
-  }, [sourceTab, location.pathname]);
+  }, [location.pathname]);
 
   const filteredOffline = useMemo(
     () =>
@@ -170,23 +141,8 @@ const AdminDashboard = () => {
     [offlineVendors, searchQuery]
   );
 
-  const filteredOnline = useMemo(
-    () =>
-      onlineProducts.filter((product) => {
-        if (!searchQuery) return true;
-        const term = searchQuery.toLowerCase();
-        return (
-          product['Device Type']?.toLowerCase().includes(term) ||
-          product.Category?.toLowerCase().includes(term) ||
-          product.vendorName?.toLowerCase().includes(term)
-        );
-      }),
-    [onlineProducts, searchQuery]
-  );
-
   const platformActivityTimeline = useMemo(() => {
     const allEntries = [];
-
     offlineVendors.forEach((vendor) => {
       const logs = normalizeLogs(vendor.logs);
       [...logs.admin, ...logs.vendor].forEach((entry) => {
@@ -198,17 +154,14 @@ const AdminDashboard = () => {
         });
       });
     });
-
-    return allEntries
-      .sort((a, b) => new Date(b.date) - new Date(a.date))
-      .slice(0, 50);
+    return allEntries.sort((a, b) => new Date(b.date) - new Date(a.date)).slice(0, 50);
   }, [offlineVendors]);
 
   const analytics = useMemo(() => {
     const totalVendors = offlineVendors.length;
-    const totalInventoryValue = offlineVendors.reduce((sum, vendor) => sum + (vendor.inventoryValue || 0), 0);
-    const totalStoreViews = offlineVendors.reduce((sum, vendor) => sum + (vendor.viewCount || 0), 0);
-    const totalWhatsAppOrders = offlineVendors.reduce((sum, vendor) => sum + (vendor.whatsappClicks || 0), 0);
+    const totalInventoryValue = offlineVendors.reduce((sum, v) => sum + (v.inventoryValue || 0), 0);
+    const totalStoreViews = offlineVendors.reduce((sum, v) => sum + (v.viewCount || 0), 0);
+    const totalWhatsAppOrders = offlineVendors.reduce((sum, v) => sum + (v.whatsappClicks || 0), 0);
 
     const deviceFrequency = {};
     offlineVendors.forEach((vendor) => {
@@ -219,17 +172,9 @@ const AdminDashboard = () => {
     });
 
     const mostTrackedDevice = Object.entries(deviceFrequency).sort((a, b) => b[1] - a[1])[0]?.[0] || 'N/A';
-    const topVendor =
-      [...offlineVendors].sort((a, b) => (b.whatsappClicks || 0) - (a.whatsappClicks || 0))[0]?.vendorName || 'N/A';
+    const topVendor = [...offlineVendors].sort((a, b) => (b.whatsappClicks || 0) - (a.whatsappClicks || 0))[0]?.vendorName || 'N/A';
 
-    return {
-      totalVendors,
-      totalInventoryValue,
-      totalStoreViews,
-      totalWhatsAppOrders,
-      mostTrackedDevice,
-      topVendor,
-    };
+    return { totalVendors, totalInventoryValue, totalStoreViews, totalWhatsAppOrders, mostTrackedDevice, topVendor };
   }, [offlineVendors]);
 
   const allFilteredSelected =
@@ -256,33 +201,19 @@ const AdminDashboard = () => {
       alert('Please select at least one vendor first.');
       return;
     }
-
     setBulkUpdating(true);
     try {
       const batch = writeBatch(db);
       selectedVendorIds.forEach((vendorDocId) => {
         const vendorRef = doc(db, COLLECTIONS.offline, vendorDocId);
-        batch.update(vendorRef, {
-          status,
-          lastUpdated: new Date().toISOString(),
-        });
+        batch.update(vendorRef, { status, lastUpdated: new Date().toISOString() });
       });
-
       await batch.commit();
-
-      setOfflineVendors((prev) =>
-        prev.map((vendor) =>
-          selectedVendorIds.includes(vendor.docId)
-            ? { ...vendor, status, lastUpdated: new Date().toISOString() }
-            : vendor
-        )
-      );
-
+      fetchInventory();
       setSelectedVendorIds([]);
-      alert(`✅ ${status === 'suspended' ? 'Suspended' : 'Activated'} selected vendors successfully.`);
+      alert(`✅ Vendors updated to ${status}.`);
     } catch (error) {
-      console.error('Bulk vendor status update failed:', error);
-      alert('❌ Could not update selected vendors. Please try again.');
+      console.error('Update failed:', error);
     } finally {
       setBulkUpdating(false);
     }
@@ -293,12 +224,8 @@ const AdminDashboard = () => {
     try {
       const res = await fetch('/api/backup/manual');
       const data = await res.json();
-
-      if (!res.ok || !data.success) {
-        throw new Error(data.error || 'Manual backup failed');
-      }
-
-      alert(`✅ Manual backup completed. Backup ID: ${data.backupId}`);
+      if (!res.ok || !data.success) throw new Error(data.error || 'Manual backup failed');
+      alert(`✅ Backup completed: ${data.backupId}`);
       fetchBackups();
     } catch (error) {
       alert(`❌ ${error.message}`);
@@ -308,10 +235,7 @@ const AdminDashboard = () => {
   };
 
   const restoreBackup = async (backupId) => {
-    if (!window.confirm(`Restore backup ${backupId}? This will overwrite the live offline inventory.`)) {
-      return;
-    }
-
+    if (!window.confirm(`Restore backup ${backupId}? This overwrites live data.`)) return;
     setRestoringBackupId(backupId);
     try {
       const res = await fetch('/api/backup/restore', {
@@ -319,13 +243,9 @@ const AdminDashboard = () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ backupId }),
       });
-
       const data = await res.json();
-      if (!res.ok || !data.success) {
-        throw new Error(data.error || 'Restore failed');
-      }
-
-      alert(`✅ Restore complete. Restored ${data.restoredDocuments} records.`);
+      if (!res.ok || !data.success) throw new Error(data.error || 'Restore failed');
+      alert(`✅ Restore complete. ${data.restoredDocuments} vendors restored.`);
       fetchInventory();
     } catch (error) {
       alert(`❌ ${error.message}`);
@@ -335,330 +255,148 @@ const AdminDashboard = () => {
   };
 
   const handleExport = () => {
-    if (sourceTab === 'offline') {
-      downloadCsv('offline-vendors.csv', filteredOffline);
-    } else {
-      const rows = filteredOnline.map((product) => ({
-        Vendor: product.vendorName || '',
-        Source: product.groupName || '',
-        DeviceType: product['Device Type'] || '',
-        Condition: product.Condition || '',
-        Price: product['Regular price'] || '',
-        Link: product.Link || '',
-      }));
-      downloadCsv('online-inventory.csv', rows);
-    }
+    const rows = filteredOffline.map(v => ({
+      Vendor: v.vendorName,
+      Status: v.status,
+      Views: v.viewCount,
+      Orders: v.whatsappClicks,
+      Products: v.totalProducts,
+      Value: v.inventoryValue
+    }));
+    downloadCsv('whatsapp-directory.csv', rows);
   };
 
   return (
     <AdminDashboardLayout>
       {location.pathname === '/dashboard' || location.pathname === '/dashboard/' ? (
-        <div>
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 mb-6">
-            <div className="bg-white border border-gray-200 rounded-[12px] p-5 shadow-sm">
-              <p className="text-sm text-gray-500">Total Vendors</p>
-              <p className="text-3xl font-bold text-[#1A1C23] mt-2">{analytics.totalVendors}</p>
+        <div className="p-6">
+          {/* Analytics Grid */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4 mb-8">
+            <div className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm">
+              <p className="text-xs font-bold text-gray-500 uppercase">Total Vendors</p>
+              <p className="text-2xl font-black text-[#1A1C23] mt-2">{analytics.totalVendors}</p>
             </div>
-            <div className="bg-white border border-gray-200 rounded-[12px] p-5 shadow-sm">
-              <p className="text-sm text-gray-500">Total Inventory Value</p>
-              <p className="text-3xl font-bold text-[#1A1C23] mt-2">{formatNaira(analytics.totalInventoryValue)}</p>
+            <div className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm">
+              <p className="text-xs font-bold text-gray-500 uppercase">Inventory Value</p>
+              <p className="text-2xl font-black text-green-600 mt-2">{formatNaira(analytics.totalInventoryValue)}</p>
             </div>
-            <div className="bg-white border border-gray-200 rounded-[12px] p-5 shadow-sm">
-              <p className="text-sm text-gray-500">Total Store Views</p>
-              <p className="text-3xl font-bold text-[#1A1C23] mt-2">{analytics.totalStoreViews}</p>
+            <div className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm">
+              <p className="text-xs font-bold text-gray-500 uppercase">Store Views</p>
+              <p className="text-2xl font-black text-blue-600 mt-2">{analytics.totalStoreViews}</p>
             </div>
-            <div className="bg-white border border-gray-200 rounded-[12px] p-5 shadow-sm">
-              <p className="text-sm text-gray-500">Total WhatsApp Orders Initiated</p>
-              <p className="text-3xl font-bold text-[#1A1C23] mt-2">{analytics.totalWhatsAppOrders}</p>
+            <div className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm">
+              <p className="text-xs font-bold text-gray-500 uppercase">WA Orders</p>
+              <p className="text-2xl font-black text-emerald-600 mt-2">{analytics.totalWhatsAppOrders}</p>
             </div>
-            <div className="bg-white border border-gray-200 rounded-[12px] p-5 shadow-sm">
-              <p className="text-sm text-gray-500">Most Tracked Device</p>
-              <p className="text-xl font-bold text-[#1A1C23] mt-2">{analytics.mostTrackedDevice}</p>
+            <div className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm">
+              <p className="text-xs font-bold text-gray-500 uppercase">Top Device</p>
+              <p className="text-sm font-bold text-[#1A1C23] mt-2 truncate">{analytics.mostTrackedDevice}</p>
             </div>
-            <div className="bg-white border border-gray-200 rounded-[12px] p-5 shadow-sm">
-              <p className="text-sm text-gray-500">Top Performing Vendor</p>
-              <p className="text-xl font-bold text-[#1A1C23] mt-2">{analytics.topVendor}</p>
+            <div className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm">
+              <p className="text-xs font-bold text-gray-500 uppercase">Star Vendor</p>
+              <p className="text-sm font-bold text-[#1A1C23] mt-2 truncate">{analytics.topVendor}</p>
             </div>
           </div>
 
-          <div className="mb-4 flex gap-3">
-            <button
-              onClick={() => setActiveTab('offline')}
-              className={`px-4 py-2 rounded-lg font-semibold ${activeTab === 'offline' ? 'bg-[#1A1C23] text-white' : 'bg-white border border-gray-300 text-gray-700'}`}
-            >
-              Offline Vendors
-            </button>
-            <button
-              onClick={() => setActiveTab('backups')}
-              className={`px-4 py-2 rounded-lg font-semibold ${activeTab === 'backups' ? 'bg-[#1A1C23] text-white' : 'bg-white border border-gray-300 text-gray-700'}`}
-            >
-              Database Backups
-            </button>
-            <button
-              onClick={() => setActiveTab('activity')}
-              className={`px-4 py-2 rounded-lg font-semibold ${activeTab === 'activity' ? 'bg-[#1A1C23] text-white' : 'bg-white border border-gray-300 text-gray-700'}`}
-            >
-              Activity Log
-            </button>
+          {/* Navigation Tabs */}
+          <div className="mb-6 flex gap-3 bg-gray-100 p-1.5 rounded-xl w-fit">
+            {['offline', 'backups', 'activity'].map(tab => (
+              <button
+                key={tab}
+                onClick={() => setActiveTab(tab)}
+                className={`px-6 py-2.5 rounded-lg text-sm font-bold transition-all ${activeTab === tab ? 'bg-white text-[#1A1C23] shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+              >
+                {tab === 'offline' ? 'WhatsApp Directory' : tab === 'backups' ? 'Database Backups' : 'Platform Activity'}
+              </button>
+            ))}
           </div>
 
           {activeTab === 'backups' ? (
-            <div className="bg-white shadow rounded-[10px] overflow-hidden mb-10">
-              <div className="p-4 bg-gray-50 border-b border-[#DDDCF9] flex flex-wrap justify-between items-center gap-3">
-                <h2 className="text-[18px] font-bold text-[#1A1C23]">Backup Version History ({backups.length})</h2>
-                <button
-                  onClick={triggerManualBackup}
-                  disabled={manualBackupLoading}
-                  className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-blue-700 disabled:opacity-50"
-                >
-                  {manualBackupLoading ? 'Running Backup...' : 'Trigger Manual Backup'}
+            <div className="bg-white shadow-lg rounded-xl overflow-hidden border border-gray-200">
+              <div className="p-5 bg-gray-50 border-b flex justify-between items-center">
+                <h2 className="text-lg font-bold text-[#1A1C23]">Version History ({backups.length})</h2>
+                <button onClick={triggerManualBackup} disabled={manualBackupLoading} className="bg-blue-600 text-white px-5 py-2 rounded-lg text-sm font-bold hover:bg-blue-700 transition-all shadow-md disabled:opacity-50">
+                  {manualBackupLoading ? 'Backing up...' : 'Trigger Manual Backup'}
                 </button>
               </div>
-
               <table className="w-full text-left">
-                <thead className="h-[60px] border-b border-b-[#DDDCF9] bg-white text-[#1A1C23] font-bold">
+                <thead className="bg-white text-gray-400 text-[11px] font-black uppercase tracking-widest border-b">
                   <tr>
                     <th className="p-4 pl-6">Backup ID</th>
                     <th className="p-4">Created At</th>
-                    <th className="p-4">Documents</th>
+                    <th className="p-4">Total Docs</th>
                     <th className="p-4">Action</th>
                   </tr>
                 </thead>
-                <tbody>
-                  {backups.length > 0 ? (
-                    backups.map((backup) => (
-                      <tr key={backup.id} className="hover:bg-gray-50 border-b border-gray-100">
-                        <td className="p-4 pl-6 text-sm font-semibold text-[#1A1C23]">{backup.id}</td>
-                        <td className="p-4 text-sm text-gray-600">
-                          {backup.createdAt ? new Date(backup.createdAt).toLocaleString() : 'N/A'}
-                        </td>
-                        <td className="p-4 text-sm font-semibold">{backup.totalDocuments || 0}</td>
-                        <td className="p-4">
-                          <button
-                            onClick={() => restoreBackup(backup.id)}
-                            disabled={restoringBackupId === backup.id}
-                            className="bg-red-600 text-white px-3 py-2 rounded-lg text-sm font-semibold hover:bg-red-700 disabled:opacity-50"
-                          >
-                            {restoringBackupId === backup.id ? 'Restoring...' : 'Restore This Version'}
-                          </button>
-                        </td>
-                      </tr>
-                    ))
-                  ) : (
-                    <tr>
-                      <td colSpan="4" className="p-6 text-center text-gray-500">
-                        {loadingBackups ? 'Loading backups...' : 'No backups found.'}
+                <tbody className="divide-y divide-gray-100">
+                  {backups.map(backup => (
+                    <tr key={backup.id} className="hover:bg-gray-50">
+                      <td className="p-4 pl-6 text-sm font-mono text-blue-600">{backup.id}</td>
+                      <td className="p-4 text-sm text-gray-600">{backup.createdAt ? new Date(backup.createdAt).toLocaleString() : 'N/A'}</td>
+                      <td className="p-4 text-sm font-bold">{backup.totalDocuments || 0} Vendors</td>
+                      <td className="p-4">
+                        <button onClick={() => restoreBackup(backup.id)} disabled={restoringBackupId === backup.id} className="bg-red-50 text-red-600 px-4 py-2 rounded-lg text-xs font-black uppercase hover:bg-red-600 hover:text-white transition-all disabled:opacity-50">
+                          {restoringBackupId === backup.id ? 'Restoring...' : 'Restore Version'}
+                        </button>
                       </td>
                     </tr>
-                  )}
+                  ))}
                 </tbody>
               </table>
             </div>
           ) : activeTab === 'activity' ? (
-            <div className="bg-white shadow rounded-[10px] overflow-hidden mb-10">
-              <div className="p-4 bg-gray-50 border-b border-[#DDDCF9]">
-                <h2 className="text-[18px] font-bold text-[#1A1C23]">Platform Activity Timeline (Newest 50)</h2>
+            <div className="bg-white shadow-lg rounded-xl overflow-hidden border border-gray-200">
+              <div className="p-5 bg-gray-50 border-b">
+                <h2 className="text-lg font-bold text-[#1A1C23]">Global Platform Activity (Newest 50)</h2>
               </div>
-
-              <div className="p-4 space-y-3">
-                {platformActivityTimeline.length > 0 ? (
-                  platformActivityTimeline.map((entry, index) => (
-                    <div key={`${entry.vendorId}-${entry.date}-${index}`} className="border rounded-[8px] p-3 bg-gray-50">
-                      <div className="flex flex-wrap justify-between gap-2">
-                        <p className="font-semibold text-[#1A1C23]">{entry.action}</p>
-                        <span className={`text-xs px-2 py-1 rounded-full font-bold ${entry.channel === 'admin' ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700'}`}>
-                          {entry.channel}
-                        </span>
-                      </div>
-                      <p className="text-xs text-gray-600 mt-1">{entry.vendorName} ({entry.vendorId})</p>
-                      <p className="text-xs text-gray-500 mt-1">{formatTimelineDate(entry.date)}</p>
+              <div className="p-5 space-y-4 max-h-[600px] overflow-y-auto">
+                {platformActivityTimeline.map((entry, idx) => (
+                  <div key={idx} className="border-l-4 border-blue-500 pl-4 py-2 bg-gray-50 rounded-r-lg">
+                    <div className="flex justify-between">
+                      <p className="font-bold text-sm text-[#1A1C23]">{entry.action}</p>
+                      <span className={`text-[10px] px-2 py-0.5 rounded-full font-black uppercase ${entry.channel === 'admin' ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700'}`}>{entry.channel}</span>
                     </div>
-                  ))
-                ) : (
-                  <p className="text-gray-500">No admin/vendor activity logs available yet.</p>
-                )}
+                    <p className="text-[11px] font-bold text-gray-500 mt-1 uppercase tracking-wider">{entry.vendorName} • {formatTimelineDate(entry.date)}</p>
+                  </div>
+                ))}
               </div>
             </div>
           ) : (
             <>
-              <div className="mb-4 flex gap-3">
-                <button
-                  onClick={() => setSourceTab('offline')}
-                  className={`px-4 py-2 rounded-lg font-semibold ${sourceTab === 'offline' ? 'bg-[#1A1C23] text-white' : 'bg-white border border-gray-300 text-gray-700'}`}
-                >
-                  Offline (WhatsApp Directory)
-                </button>
-                <button
-                  onClick={() => setSourceTab('online')}
-                  className={`px-4 py-2 rounded-lg font-semibold ${sourceTab === 'online' ? 'bg-[#1A1C23] text-white' : 'bg-white border border-gray-300 text-gray-700'}`}
-                >
-                  Online (Website Scrapers)
-                </button>
-              </div>
-
-              <div className="mb-6 flex gap-3">
-                <input
-                  type="text"
-                  placeholder={
-                    sourceTab === 'offline'
-                      ? '🔍 Search for a WhatsApp Vendor...'
-                      : '🔍 Search Scraped Products...'
-                  }
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full p-4 border border-gray-300 rounded-[10px] focus:outline-none focus:ring-2 focus:ring-[#1A1C23] text-[15px] shadow-sm"
-                />
-                <button
-                  onClick={handleExport}
-                  className="bg-green-600 text-white px-6 rounded-[10px] font-semibold hover:bg-green-700 transition-colors"
-                >
-                  Export CSV
-                </button>
-              </div>
-
-              {sourceTab === 'offline' && (
-                <div className="mb-4 flex flex-wrap gap-3 items-center">
-                  <button
-                    onClick={() => bulkUpdateStatus('suspended')}
-                    disabled={!selectedVendorIds.length || bulkUpdating}
-                    className="bg-red-600 text-white px-4 py-2 rounded-lg font-semibold hover:bg-red-700 disabled:opacity-50"
-                  >
-                    Suspend Selected
-                  </button>
-                  <button
-                    onClick={() => bulkUpdateStatus('active')}
-                    disabled={!selectedVendorIds.length || bulkUpdating}
-                    className="bg-emerald-600 text-white px-4 py-2 rounded-lg font-semibold hover:bg-emerald-700 disabled:opacity-50"
-                  >
-                    Activate Selected
-                  </button>
-                  <span className="text-sm text-gray-600">{selectedVendorIds.length} selected</span>
+              <div className="flex flex-col xl:flex-row gap-4 mb-6">
+                <input type="text" placeholder="🔍 Search for a WhatsApp Vendor..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="flex-1 p-4 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm shadow-sm" />
+                <div className="flex gap-3">
+                  <button onClick={() => bulkUpdateStatus('suspended')} disabled={!selectedVendorIds.length || bulkUpdating} className="bg-red-600 text-white px-6 py-2 rounded-xl text-xs font-black uppercase hover:bg-red-700 disabled:opacity-50 shadow-md">Suspend</button>
+                  <button onClick={() => bulkUpdateStatus('active')} disabled={!selectedVendorIds.length || bulkUpdating} className="bg-emerald-600 text-white px-6 py-2 rounded-xl text-xs font-black uppercase hover:bg-emerald-700 disabled:opacity-50 shadow-md">Activate</button>
+                  <button onClick={handleExport} className="bg-gray-800 text-white px-6 py-2 rounded-xl text-xs font-black uppercase hover:bg-black shadow-md">Export</button>
                 </div>
-              )}
-
-              <div className="bg-white shadow rounded-[10px] overflow-hidden mb-10">
-                <div className="p-4 bg-gray-50 border-b border-[#DDDCF9] flex justify-between items-center">
-                  <h2 className="text-[18px] font-bold text-[#1A1C23]">
-                    {sourceTab === 'offline'
-                      ? `WhatsApp Directory (${filteredOffline.length} Vendors)`
-                      : `Scraped Products (${filteredOnline.length} Items)`}
-                  </h2>
-                </div>
-
-                <table className="w-full table rounded-[10px] text-left">
-                  {sourceTab === 'offline' ? (
-                    <>
-                      <thead className="h-[60px] border-b border-b-[#DDDCF9] bg-white text-[#1A1C23] font-bold">
-                        <tr>
-                          <th className="p-4 pl-6 w-[50px]">
-                            <input
-                              type="checkbox"
-                              checked={allFilteredSelected}
-                              onChange={toggleSelectAll}
-                              aria-label="Select all vendors"
-                            />
-                          </th>
-                          <th className="p-4 pl-6">Vendor Name</th>
-                          <th className="p-4">Status</th>
-                          <th className="p-4">Views</th>
-                          <th className="p-4">WA Clicks</th>
-                          <th className="p-4">Total Inventory</th>
-                          <th className="p-4">Last Updated</th>
-                          <th className="p-4">Action</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {filteredOffline.length > 0 ? (
-                          filteredOffline.map((vendor) => (
-                            <tr key={vendor.docId} className="hover:bg-gray-50 border-b border-gray-100">
-                              <td className="p-4 pl-6">
-                                <input
-                                  type="checkbox"
-                                  checked={selectedVendorIds.includes(vendor.docId)}
-                                  onChange={() => toggleVendor(vendor.docId)}
-                                  aria-label={`Select ${vendor.vendorName}`}
-                                />
-                              </td>
-                              <td className="p-4 pl-6 font-bold text-blue-600">{vendor.vendorName}</td>
-                              <td className="p-4">
-                                <span className={`px-3 py-1 rounded-full text-xs font-bold ${vendor.status === 'suspended' ? 'bg-red-100 text-red-800' : 'bg-emerald-100 text-emerald-800'}`}>
-                                  {vendor.status === 'suspended' ? 'Suspended' : 'Active'}
-                                </span>
-                              </td>
-                              <td className="p-4 font-semibold text-[#1A1C23]">{vendor.viewCount || 0}</td>
-                              <td className="p-4 font-semibold text-[#1A1C23]">{vendor.whatsappClicks || 0}</td>
-                              <td className="p-4">
-                                <span className="bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-xs font-bold">
-                                  {vendor.totalProducts} Items
-                                </span>
-                              </td>
-                              <td className="p-4 text-gray-500">
-                                {vendor.lastUpdated ? new Date(vendor.lastUpdated).toLocaleDateString() : 'N/A'}
-                              </td>
-                              <td className="p-4">
-                                <Link
-                                  to={vendor.shareableLink}
-                                  className="bg-[#1A1C23] text-white px-4 py-2 rounded-[8px] text-sm hover:bg-gray-800 transition"
-                                >
-                                  View Inventory
-                                </Link>
-                              </td>
-                            </tr>
-                          ))
-                        ) : (
-                          <tr>
-                            <td colSpan="8" className="p-6 text-center text-gray-500">
-                              {loadingSearch ? 'Loading vendors...' : 'No vendors found.'}
-                            </td>
-                          </tr>
-                        )}
-                      </tbody>
-                    </>
-                  ) : (
-                    <>
-                      <thead className="h-[60px] border-b border-b-[#DDDCF9] bg-white text-[#1A1C23] font-bold">
-                        <tr>
-                          <th className="p-4 pl-6">Store</th>
-                          <th className="p-4">Device Type</th>
-                          <th className="p-4">Condition</th>
-                          <th className="p-4">Price</th>
-                          <th className="p-4">Link</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {filteredOnline.length > 0 ? (
-                          filteredOnline.map((product, index) => (
-                            <tr key={index} className="hover:bg-gray-50 border-b border-gray-100">
-                              <td className="p-4 pl-6 font-bold">{product.vendorName}</td>
-                              <td className="p-4 text-sm">{product['Device Type']}</td>
-                              <td className="p-4 text-sm text-gray-600">{product.Condition}</td>
-                              <td className="p-4 font-semibold text-green-700">{product['Regular price']}</td>
-                              <td className="p-4">
-                                {product.Link ? (
-                                  <a
-                                    href={product.Link}
-                                    target="_blank"
-                                    rel="noreferrer"
-                                    className="text-blue-500 underline text-sm"
-                                  >
-                                    View Item
-                                  </a>
-                                ) : (
-                                  'N/A'
-                                )}
-                              </td>
-                            </tr>
-                          ))
-                        ) : (
-                          <tr>
-                            <td colSpan="5" className="p-6 text-center text-gray-500">
-                              {loadingSearch ? 'Loading products...' : 'No products found.'}
-                            </td>
-                          </tr>
-                        )}
-                      </tbody>
-                    </>
-                  )}
+              </div>
+              <div className="bg-white shadow-lg rounded-xl overflow-hidden border border-gray-200">
+                <table className="w-full text-left">
+                  <thead className="bg-gray-50 border-b border-gray-100">
+                    <tr className="text-gray-400 text-[11px] font-black uppercase tracking-widest">
+                      <th className="p-4 pl-6 w-[50px]"><input type="checkbox" checked={allFilteredSelected} onChange={toggleSelectAll} className="w-4 h-4 rounded" /></th>
+                      <th className="p-4">Vendor Name</th>
+                      <th className="p-4">Status</th>
+                      <th className="p-4">Views</th>
+                      <th className="p-4">WA Clicks</th>
+                      <th className="p-4">Total Inventory</th>
+                      <th className="p-4">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-50">
+                    {filteredOffline.map(vendor => (
+                      <tr key={vendor.docId} className="hover:bg-blue-50/30 transition-colors">
+                        <td className="p-4 pl-6"><input type="checkbox" checked={selectedVendorIds.includes(vendor.docId)} onChange={() => toggleVendor(vendor.docId)} className="w-4 h-4 rounded" /></td>
+                        <td className="p-4 font-bold text-blue-600 hover:underline"><Link to={vendor.shareableLink}>{vendor.vendorName}</Link></td>
+                        <td className="p-4"><span className={`px-2.5 py-1 rounded-lg text-[10px] font-black uppercase ${vendor.status === 'suspended' ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>{vendor.status}</span></td>
+                        <td className="p-4 font-bold text-gray-700">{vendor.viewCount}</td>
+                        <td className="p-4 font-bold text-emerald-600">{vendor.whatsappClicks}</td>
+                        <td className="p-4"><span className="bg-gray-100 text-gray-600 px-3 py-1 rounded-full text-[11px] font-bold">{vendor.totalProducts} Items</span></td>
+                        <td className="p-4"><Link to={vendor.shareableLink} className="bg-[#1A1C23] text-white px-4 py-2 rounded-lg text-[11px] font-black uppercase hover:bg-black transition-all">Manage</Link></td>
+                      </tr>
+                    ))}
+                  </tbody>
                 </table>
               </div>
             </>
