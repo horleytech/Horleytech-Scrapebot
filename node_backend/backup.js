@@ -1,8 +1,13 @@
 import fs from 'fs';
 import path from 'path';
+import { fileURLToPath } from 'url'; // Required for absolute pathing
 import cron from 'node-cron';
 import { google } from 'googleapis';
 import admin from 'firebase-admin';
+
+// Replicate __dirname for ES Modules
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const BACKUP_COLLECTION = 'horleyTech_OfflineInventories';
 const BACKUP_HISTORY_COLLECTION = 'horleyTech_Backups';
@@ -10,17 +15,15 @@ const BACKUP_HISTORY_COLLECTION = 'horleyTech_Backups';
 const ensureAdminInitialized = () => {
   if (!admin.apps.length) {
     try {
-      // This logic checks if we are already in the node_backend folder or not
-      const currentDir = process.cwd();
-      let serviceAccountPath = path.join(currentDir, 'firebase-credentials.json');
+      /**
+       * PERFECT PATH LOGIC:
+       * Since backup.js and firebase-credentials.json are in the same folder,
+       * we look for the file relative to this script, not the terminal path.
+       */
+      const serviceAccountPath = path.join(__dirname, 'firebase-credentials.json');
 
-      // If the file isn't found in the current folder, check if it's inside a node_backend subfolder
       if (!fs.existsSync(serviceAccountPath)) {
-        serviceAccountPath = path.join(currentDir, 'node_backend', 'firebase-credentials.json');
-      }
-      
-      if (!fs.existsSync(serviceAccountPath)) {
-        throw new Error(`Firebase key not found. Tried: ${serviceAccountPath}`);
+        throw new Error(`Credential file missing at: ${serviceAccountPath}`);
       }
 
       const serviceAccount = JSON.parse(fs.readFileSync(serviceAccountPath, 'utf8'));
@@ -29,7 +32,7 @@ const ensureAdminInitialized = () => {
         credential: admin.credential.cert(serviceAccount)
       });
       
-      console.log('✅ Firebase Admin Initialized Successfully!');
+      console.log('✅ Firebase Admin Initialized Successfully via local JSON.');
     } catch (error) {
       console.error('❌ Firebase Init Error:', error.message);
       throw error;
@@ -60,25 +63,31 @@ const uploadFileToDrive = async (filePath, fileName) => {
 
   const drive = google.drive({ version: 'v3', auth });
 
-  await drive.files.create({
-    requestBody: {
-      name: fileName,
-      parents: [driveFolderId],
-      mimeType: 'application/json',
-    },
-    media: {
-      mimeType: 'application/json',
-      body: fs.createReadStream(filePath),
-    },
-    fields: 'id, name',
-  });
+  try {
+    await drive.files.create({
+      requestBody: {
+        name: fileName,
+        parents: [driveFolderId],
+        mimeType: 'application/json',
+      },
+      media: {
+        mimeType: 'application/json',
+        body: fs.createReadStream(filePath),
+      },
+      fields: 'id, name',
+    });
+  } catch (err) {
+    console.error('❌ Google Drive Upload Error:', err.message);
+  }
 };
 
 export const runBackup = async () => {
   const timestamp = new Date().toISOString();
   const safeTimestamp = timestamp.replace(/[:.]/g, '-');
   const fileName = `offline-inventory-backup-${safeTimestamp}.json`;
-  const backupDir = path.join(process.cwd(), 'node_backend', 'backups');
+  
+  // Save local backups in a folder relative to this script
+  const backupDir = path.join(__dirname, 'backups');
   const localPath = path.join(backupDir, fileName);
 
   try {
@@ -102,8 +111,10 @@ export const runBackup = async () => {
 
     fs.writeFileSync(localPath, JSON.stringify(payload, null, 2));
 
+    // Async upload to Drive
     await uploadFileToDrive(localPath, fileName);
 
+    // Save history record to Firebase
     await firestore.collection(BACKUP_HISTORY_COLLECTION).doc(safeTimestamp).set(payload);
 
     console.log(`✅ Backup Successful: ${fileName}`);
@@ -120,6 +131,7 @@ export const runBackup = async () => {
       error: error.message,
     };
   } finally {
+    // Cleanup local temp file
     if (fs.existsSync(localPath)) {
       fs.unlinkSync(localPath);
     }
@@ -128,6 +140,7 @@ export const runBackup = async () => {
 
 export const initializeBackupJob = () => {
   cron.schedule('0 2 * * *', async () => {
+    console.log('🎬 Starting scheduled daily backup...');
     await runBackup();
   }, {
     timezone: 'Africa/Lagos',
