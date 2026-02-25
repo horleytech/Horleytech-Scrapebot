@@ -192,9 +192,9 @@ const StoreFront = () => {
         <thead className="text-white uppercase tracking-wider" style={{ backgroundColor: themeColor }}>
           <tr>
             <th className="px-6 py-5 text-xs font-black first:rounded-tl-2xl">Device</th>
-            <th className="px-6 py-5 text-xs font-black">Condition</th>
-            <th className="px-6 py-5 text-xs font-black">Specification</th>
-            <th className="px-6 py-5 text-xs font-black">Storage</th>
+            <th className="hidden md:table-cell px-6 py-5 text-xs font-black">Condition</th>
+            <th className="hidden md:table-cell px-6 py-5 text-xs font-black">Specification</th>
+            <th className="hidden md:table-cell px-6 py-5 text-xs font-black">Storage</th>
             <th className="px-6 py-5 text-xs font-black">Price</th>
             <th className="px-6 py-5 text-xs font-black last:rounded-tr-2xl">Order</th>
           </tr>
@@ -224,7 +224,7 @@ const StoreFront = () => {
                     <span className={`font-bold text-sm ${isDarkLayout ? 'text-gray-100' : 'text-[#1A1C23]'}`}>{product['Device Type'] || 'N/A'}</span>
                   </div>
                 </td>
-                <td className="px-6 py-5 text-sm">
+                <td className="hidden md:table-cell px-6 py-5 text-sm">
                   <span className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase ${
                     product.Condition?.toLowerCase().includes('new')
                       ? 'bg-blue-50 text-blue-600'
@@ -233,10 +233,10 @@ const StoreFront = () => {
                     {product.Condition || 'N/A'}
                   </span>
                 </td>
-                <td className={`px-6 py-5 text-sm italic font-medium ${isDarkLayout ? 'text-gray-400' : 'text-gray-600'}`}>
+                <td className={`hidden md:table-cell px-6 py-5 text-sm italic font-medium ${isDarkLayout ? 'text-gray-400' : 'text-gray-600'}`}>
                   {product['SIM Type/Model/Processor'] || 'N/A'}
                 </td>
-                <td className={`px-6 py-5 text-sm font-bold ${isDarkLayout ? 'text-gray-300' : 'text-gray-500'}`}>
+                <td className={`hidden md:table-cell px-6 py-5 text-sm font-bold ${isDarkLayout ? 'text-gray-300' : 'text-gray-500'}`}>
                   {product['Storage Capacity/Configuration'] || 'N/A'}
                 </td>
                 <td className="px-6 py-5 font-black text-lg" style={{ color: themeColor }}>
@@ -292,15 +292,15 @@ const StoreFront = () => {
   const renderListLayout = (variant) => (
     <div className={`rounded-2xl overflow-hidden border ${isDarkLayout ? 'bg-[#181818] border-[#2b2b2b]' : 'bg-white border-gray-100'}`}>
       {visibleProducts.map((product, index) => (
-        <div key={index} className={`flex items-center justify-between gap-4 border-b last:border-b-0 ${isDarkLayout ? 'border-[#2b2b2b]' : 'border-gray-200'} ${variant === 'compact' ? 'px-4 py-3 text-xs' : 'px-6 py-6 text-sm'}`}>
-          <div className="min-w-0">
+        <div key={index} className={`flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b last:border-b-0 ${isDarkLayout ? 'border-[#2b2b2b]' : 'border-gray-200'} ${variant === 'compact' ? 'px-4 py-3 text-xs' : 'px-6 py-6 text-sm'}`}>
+          <div className="min-w-0 w-full">
             <p className={`font-black truncate ${variant === 'compact' ? 'text-sm' : 'text-base'} ${isDarkLayout ? 'text-gray-100' : 'text-[#1A1C23]'}`}>{product['Device Type'] || 'N/A'}</p>
             <p className={`${isDarkLayout ? 'text-gray-400' : 'text-gray-500'} ${variant === 'compact' ? 'mt-0.5' : 'mt-1'}`}>{product.Condition || 'N/A'} • {product['Storage Capacity/Configuration'] || 'N/A'}</p>
             {variant !== 'compact' && (
               <p className={`mt-1 italic ${isDarkLayout ? 'text-gray-500' : 'text-gray-500'}`}>{product['SIM Type/Model/Processor'] || 'N/A'}</p>
             )}
           </div>
-          <div className="flex items-center gap-3 shrink-0">
+          <div className="flex w-full sm:w-auto items-center justify-between sm:justify-start gap-3 shrink-0">
             <span className={`font-black ${variant === 'compact' ? 'text-sm' : 'text-lg'}`} style={{ color: themeColor }}>
               {product['Regular price'] || 'N/A'}
             </span>
