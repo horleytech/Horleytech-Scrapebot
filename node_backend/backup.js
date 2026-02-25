@@ -5,15 +5,16 @@ import { google } from 'googleapis';
 import admin from 'firebase-admin';
 
 const BACKUP_COLLECTION = 'horleyTech_OfflineInventories';
+const BACKUP_HISTORY_COLLECTION = 'horleyTech_Backups';
 
-const getFirestore = () => {
+const ensureAdminInitialized = () => {
   if (!admin.apps.length) {
     const projectId = process.env.FIREBASE_PROJECT_ID;
     const clientEmail = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
     const privateKey = process.env.GOOGLE_PRIVATE_KEY?.replace(/\\n/g, '\n');
 
     if (!projectId || !clientEmail || !privateKey) {
-      throw new Error('Missing Firebase service account env vars (FIREBASE_PROJECT_ID/GOOGLE_SERVICE_ACCOUNT_EMAIL/GOOGLE_PRIVATE_KEY).');
+      throw new Error('Missing Firebase admin env vars (FIREBASE_PROJECT_ID/GOOGLE_SERVICE_ACCOUNT_EMAIL/GOOGLE_PRIVATE_KEY).');
     }
 
     admin.initializeApp({
@@ -24,7 +25,10 @@ const getFirestore = () => {
       }),
     });
   }
+};
 
+export const getAdminFirestore = () => {
+  ensureAdminInitialized();
   return admin.firestore();
 };
 
@@ -59,9 +63,10 @@ const uploadFileToDrive = async (filePath, fileName) => {
   });
 };
 
-const runBackup = async () => {
-  const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-  const fileName = `offline-inventory-backup-${timestamp}.json`;
+export const runBackup = async () => {
+  const timestamp = new Date().toISOString();
+  const safeTimestamp = timestamp.replace(/[:.]/g, '-');
+  const fileName = `offline-inventory-backup-${safeTimestamp}.json`;
   const backupDir = path.join(process.cwd(), 'node_backend', 'backups');
   const localPath = path.join(backupDir, fileName);
 
@@ -70,11 +75,12 @@ const runBackup = async () => {
       fs.mkdirSync(backupDir, { recursive: true });
     }
 
-    const firestore = getFirestore();
+    const firestore = getAdminFirestore();
     const snapshot = await firestore.collection(BACKUP_COLLECTION).get();
 
     const payload = {
-      createdAt: new Date().toISOString(),
+      createdAt: timestamp,
+      backupId: safeTimestamp,
       collection: BACKUP_COLLECTION,
       totalDocuments: snapshot.size,
       documents: snapshot.docs.map((docSnap) => ({
@@ -84,11 +90,25 @@ const runBackup = async () => {
     };
 
     fs.writeFileSync(localPath, JSON.stringify(payload, null, 2));
+
     await uploadFileToDrive(localPath, fileName);
 
-    console.log(`✅ Backup uploaded to Google Drive: ${fileName}`);
+    // Save history record to Firebase for the Dashboard to display
+    await firestore.collection(BACKUP_HISTORY_COLLECTION).doc(safeTimestamp).set(payload);
+
+    console.log(`✅ Backup uploaded and saved to Firebase: ${fileName}`);
+
+    return {
+      success: true,
+      backupId: safeTimestamp,
+      totalDocuments: payload.totalDocuments,
+    };
   } catch (error) {
     console.error('❌ Backup job failed:', error.message);
+    return {
+      success: false,
+      error: error.message,
+    };
   } finally {
     if (fs.existsSync(localPath)) {
       fs.unlinkSync(localPath);
@@ -97,7 +117,9 @@ const runBackup = async () => {
 };
 
 export const initializeBackupJob = () => {
-  cron.schedule('0 2 * * *', runBackup, {
+  cron.schedule('0 2 * * *', async () => {
+    await runBackup();
+  }, {
     timezone: 'Africa/Lagos',
   });
 

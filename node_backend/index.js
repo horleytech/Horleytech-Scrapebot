@@ -10,11 +10,13 @@ import { fileURLToPath } from 'url';
 import OpenAI from 'openai';
 import { processChatFile } from './fileProcessor.js';
 import { saveVendorsToFirebase } from './dataProcessor.js';
-import { initializeBackupJob } from './backup.js';
+import { initializeBackupJob, runBackup, getAdminFirestore } from './backup.js';
 
 dotenv.config();
 
 const PM2_LOG_PATH = '/root/.pm2/logs/index-out.log';
+const OFFLINE_COLLECTION = 'horleyTech_OfflineInventories';
+const BACKUP_COLLECTION = 'horleyTech_Backups';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -46,9 +48,30 @@ app.use(morgan('dev'));
 
 const PORT = process.env.PORT || 8000;
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-const CATS = "'iPhone', 'Samsung', 'Laptops', 'Smartphones', 'Smartwatch', 'Sound/Audio', 'Games', 'Tablets', 'Tecno', 'Infinix', 'Xiaomi', 'Oppo', 'Vivo', 'Accessories', 'Others'";
+const CATS = "'Smartphones', 'Smartwatches', 'Laptops', 'Sounds', 'Accessories', 'Tablets', 'Gaming', 'Others'";
 
+// Initialize daily backup cron
 initializeBackupJob();
+
+const runBatchInChunks = async (operations, maxPerBatch = 400) => {
+  const firestore = getAdminFirestore();
+
+  for (let i = 0; i < operations.length; i += maxPerBatch) {
+    const batch = firestore.batch();
+    const chunk = operations.slice(i, i + maxPerBatch);
+
+    chunk.forEach((operation) => {
+      if (operation.type === 'delete') {
+        batch.delete(operation.ref);
+      }
+      if (operation.type === 'set') {
+        batch.set(operation.ref, operation.data, { merge: false });
+      }
+    });
+
+    await batch.commit();
+  }
+};
 
 app.get('/', (req, res) => {
   res.json({ message: 'Server Running' });
@@ -60,7 +83,73 @@ app.get('/api/logs', (req, res) => {
     const content = fs.readFileSync(PM2_LOG_PATH, 'utf-8');
     res.send(content.split('\n').slice(-50).join('\n'));
   } catch (e) {
-    res.send("Logs loading...");
+    res.send('Logs loading...');
+  }
+});
+
+// Admin Manual Backup Endpoint
+app.get('/api/backup/manual', async (req, res) => {
+  try {
+    const result = await runBackup();
+    if (!result.success) {
+      return res.status(500).json({ success: false, error: result.error || 'Manual backup failed.' });
+    }
+    return res.json({ success: true, backupId: result.backupId, totalDocuments: result.totalDocuments });
+  } catch (error) {
+    return res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Admin Database Restore Endpoint
+app.post('/api/backup/restore', async (req, res) => {
+  const { backupId } = req.body || {};
+  if (!backupId) {
+    return res.status(400).json({ success: false, error: 'backupId is required.' });
+  }
+
+  try {
+    const firestore = getAdminFirestore();
+    const backupDoc = await firestore.collection(BACKUP_COLLECTION).doc(backupId).get();
+    
+    if (!backupDoc.exists) {
+      return res.status(404).json({ success: false, error: 'Backup version not found.' });
+    }
+
+    const payload = backupDoc.data();
+    const backupDocuments = Array.isArray(payload.documents) ? payload.documents : [];
+
+    // Clear current collection
+    const existingSnapshot = await firestore.collection(OFFLINE_COLLECTION).get();
+    const operations = [];
+
+    existingSnapshot.docs.forEach((docSnap) => {
+      operations.push({
+        type: 'delete',
+        ref: firestore.collection(OFFLINE_COLLECTION).doc(docSnap.id),
+      });
+    });
+
+    // Populate with backup data
+    backupDocuments.forEach((vendorDoc) => {
+      const { id, ...vendorData } = vendorDoc;
+      if (!id) return;
+      operations.push({
+        type: 'set',
+        ref: firestore.collection(OFFLINE_COLLECTION).doc(id),
+        data: vendorData,
+      });
+    });
+
+    await runBatchInChunks(operations);
+
+    return res.json({
+      success: true,
+      restoredDocuments: backupDocuments.length,
+      backupId,
+    });
+  } catch (error) {
+    console.error('❌ Restore error:', error);
+    return res.status(500).json({ success: false, error: error.message });
   }
 });
 
@@ -85,7 +174,7 @@ app.post('/process', upload.single('file'), async (req, res) => {
     console.error('❌ Error processing manual upload:', err);
   } finally {
     if (fs.existsSync(filePath)) {
-        fs.unlinkSync(filePath);
+      fs.unlinkSync(filePath);
     }
   }
 });
@@ -107,17 +196,18 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
   try {
     const systemPrompt = `
         You are an expert product data extractor reading WhatsApp messages.
-        Extract all mobile phones, tablets, laptops, games, and gadgets.
-        
-        Format the output as a JSON array of objects with EXACTLY these keys:
-        - "Category": MUST be one of: ${CATS}. If it does NOT fit these exactly, use 'Others'.
-        - "Device Type": e.g., 'iPhone 15 Pro Max', 'PS5'.
-        - "Condition": e.g., 'Brand New', 'UK Used'.
-        - "SIM Type/Model/Processor": e.g., 'Physical SIM', 'ESIM', 'M1 Chip'.
-        - "Storage Capacity/Configuration": e.g., '256GB'.
-        - "Regular price": The numeric price. CRITICAL: If no price is stated but it's in stock, use 'Available'.
+        Extract all relevant products.
 
-        If no products are found, return []. Only return valid JSON. Do not use markdown blocks.
+        Format output as a JSON array with EXACT keys:
+        - "Category": MUST be one of: ${CATS}. If unknown use 'Others'.
+        - "SubCategory": strict sub-category when possible; otherwise dynamic fallback.
+        - "Device Type"
+        - "Condition"
+        - "SIM Type/Model/Processor"
+        - "Storage Capacity/Configuration"
+        - "Regular price": numeric or 'Available' if no stated price.
+
+        If no products are found, return []. Only return valid JSON.
         `;
 
     const aiResponse = await openai.chat.completions.create({
@@ -136,9 +226,9 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
       console.log(`✅ AI Extracted ${extractedProducts.length} items.`);
       const exactServerDate = new Date().toLocaleString('en-US', { timeZone: 'Africa/Lagos' });
 
-      const enrichedProducts = extractedProducts.map(product => ({
+      const enrichedProducts = extractedProducts.map((product) => ({
         ...product,
-        DatePosted: exactServerDate, 
+        DatePosted: exactServerDate,
         isGroupMessage: isMessageFromGroup || false,
         groupName: isMessageFromGroup ? groupName : 'Direct Message'
       }));
@@ -155,11 +245,10 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
 
       await saveVendorsToFirebase(vendorData);
     } else {
-      console.log(`🤷‍♂️ No products found in message.`);
+      console.log('🤷‍♂️ No products found in message.');
     }
-
   } catch (error) {
-    console.error(`❌ Webhook Processing Error:`, error);
+    console.error('❌ Webhook Processing Error:', error);
   }
 });
 

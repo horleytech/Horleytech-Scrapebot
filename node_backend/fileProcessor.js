@@ -8,43 +8,80 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-/**
- * 1. THE BATCH CHUNKER
- * Splits the raw WhatsApp text into safe, token-friendly batches of lines.
- */
 const createBatches = (rawText, linesPerBatch = 50) => {
   const lines = rawText.split('\n');
   const batches = [];
-  
+
   for (let i = 0; i < lines.length; i += linesPerBatch) {
     batches.push(lines.slice(i, i + linesPerBatch).join('\n'));
   }
-  
+
   return batches;
 };
 
-/**
- * 2. THE AI EXTRACTOR (PER BATCH)
- * The AI now reads the chunk, identifies the Sender, Date, and extracts the products.
- */
 const extractFromBatch = async (batchText, batchNumber, totalBatches) => {
   console.log(`🤖 Processing Batch ${batchNumber} of ${totalBatches}...`);
 
   const systemPrompt = `
-  You are an expert data extractor reading raw WhatsApp chat exports.
-  Identify who sent each message and extract all mobile phones, tablets, laptops, games, and gadgets.
-  
-  Format the output as a JSON array of objects with EXACTLY these keys:
-  - "vendorId": The exact Name or Phone Number of the person who sent the message. (Critical: Do not use the date/time, just the sender's identifier).
-  - "Category": MUST be one of: 'iPhone', 'Samsung', 'Laptops', 'Smartphones', 'Smartwatch', 'Sound/Audio', 'Games', 'Tablets', 'Tecno', 'Infinix', 'Xiaomi', 'Oppo', 'Vivo', 'Accessories', 'Others'. If it does NOT fit these exactly, use 'Others'.
-  - "Device Type": e.g., 'iPhone 15 Pro Max', 'PS5'.
-  - "Condition": e.g., 'Brand New', 'UK Used'.
-  - "SIM Type/Model/Processor": e.g., 'Physical SIM', 'ESIM', 'M1 Chip', 'No Pad'.
-  - "Storage Capacity/Configuration": e.g., '256GB', '512GB/16GB RAM'.
-  - "Regular price": The numeric price. CRITICAL RULE: If no price is stated but the item is in stock, output 'Available'.
+  You are an enterprise-grade WhatsApp inventory extractor.
+  Extract only valid products and classify each item using this strict taxonomy.
 
-  Ignore system messages like "<Media omitted>" or "Messages are end-to-end encrypted".
-  Only return the valid JSON array. Do not include markdown formatting like \`\`\`json.
+  MASTER CATEGORIES + STRICT SUBCATEGORIES:
+
+  1) Smartphones
+     - iPhones (iPhone 17 Series, iPhone 16 Series, iPhone 15 Series, iPhone 14 Series, iPhone 13 Series, iPhone 12 Series, iPhone 11 Series, iPhone X Series, iPhone 8 Series, iPhone 7 Series)
+     - Samsung (Fold Series, Flip Series, S Series, Note Series, A Series)
+     - Google Pixels (Pixel 10 Series, Pixel 9 Series, Pixel 8 Series, Pixel 7 Series, Pixel 6 Series)
+     - Nokia
+
+  2) Smartwatches
+     - Apple Watch
+     - Samsung Watch
+
+  3) Laptops
+     - Macbook Pro
+     - Macbook Air
+     - HP
+     - Lenovo
+     - Dell
+     - ASUS
+
+  4) Sounds
+     - Speakers
+     - Headphones
+     - Earphones (Apple, Samsung, Sony)
+
+  5) Accessories
+     - Chargers
+     - Powerbanks
+     - Others
+
+  6) Tablets
+     - Apple iPads
+     - Amazon Tabs
+     - Samsung Tabs
+
+  7) Gaming
+     - Consoles
+     - Gears
+     - Games (Xbox, PlayStation 4, PlayStation 5)
+
+  FALLBACK RULE (MANDATORY):
+  - If a device matches a Master Category but NOT a strict SubCategory, assign the correct Master Category and dynamically set SubCategory (example: Category: "Gaming", SubCategory: "Nintendo").
+  - If completely unknown, use Category: "Others" and SubCategory: "Others".
+
+  Return a JSON array where each object has EXACTLY these keys:
+  - "vendorId": Exact sender name/identifier (never date/time).
+  - "Category": Master category from taxonomy or "Others".
+  - "SubCategory": Strict subcategory when available, otherwise dynamic fallback.
+  - "Device Type": Product/device name.
+  - "Condition": Device condition.
+  - "SIM Type/Model/Processor": SIM/model/chipset details.
+  - "Storage Capacity/Configuration": storage/RAM configuration.
+  - "Regular price": numeric price, or "Available" if in stock with no explicit price.
+
+  Ignore system messages like "<Media omitted>" or encryption notices.
+  Return only valid JSON (no markdown code fences).
   `;
 
   try {
@@ -54,40 +91,33 @@ const extractFromBatch = async (batchText, batchNumber, totalBatches) => {
         { role: 'system', content: systemPrompt },
         { role: 'user', content: batchText }
       ],
-      temperature: 0, 
+      temperature: 0,
     });
 
     const rawJson = response.choices[0].message.content.trim();
     const cleanJson = rawJson.replace(/^```json/g, '').replace(/```$/g, '').trim();
-    
-    // First, try to parse it normally
+
     try {
       return JSON.parse(cleanJson);
     } catch (parseError) {
       console.warn(`⚠️ JSON was cut off in Batch ${batchNumber}. Activating cleaner.js rescue...`);
-      // If it fails, use the cleaner to rescue the data!
       const rescuedJson = convertString(cleanJson);
       return JSON.parse(rescuedJson);
     }
-
   } catch (error) {
     console.error(`❌ Error extracting from batch ${batchNumber}:`, error);
-    return []; 
+    return [];
   }
 };
 
-/**
- * 3. THE POST-PROCESSOR & GROUPER
- * Takes the flat list of products from all AI batches and groups them by Vendor for Firebase.
- */
 const groupProductsByVendor = (allExtractedProducts) => {
   const vendorMap = {};
   const exactServerDate = new Date().toLocaleString('en-US', { timeZone: 'Africa/Lagos' });
 
-  allExtractedProducts.forEach(product => {
+  allExtractedProducts.forEach((product) => {
     const vendor = product.vendorId;
-    
-    if (!vendor || vendor === "Unknown") return; 
+
+    if (!vendor || vendor === 'Unknown') return;
 
     if (!vendorMap[vendor]) {
       vendorMap[vendor] = {
@@ -99,10 +129,10 @@ const groupProductsByVendor = (allExtractedProducts) => {
     }
 
     const { vendorId, ...cleanProduct } = product;
-    
+
     vendorMap[vendor].products.push({
       ...cleanProduct,
-      DatePosted: exactServerDate, // Overrides the AI with exact time!
+      DatePosted: exactServerDate,
       isGroupMessage: false,
       groupName: 'TXT Upload'
     });
@@ -111,30 +141,23 @@ const groupProductsByVendor = (allExtractedProducts) => {
   return Object.values(vendorMap);
 };
 
-/**
- * 4. THE MASTER RUNNER
- * Coordinates chunking, AI extraction, and grouping.
- */
 export const processChatFile = async (filePath) => {
   const rawText = fs.readFileSync(filePath, 'utf-8');
-  
-  // 1. Chunk the file
-  const batches = createBatches(rawText, 60); // 60 lines per batch is very safe for tokens
+  const batches = createBatches(rawText, 60);
+
   console.log(`📦 File split into ${batches.length} batches to protect API limits.`);
 
   let allProducts = [];
 
-  // 2. Process each chunk sequentially (or you could use Promise.all to do it concurrently)
   for (let i = 0; i < batches.length; i++) {
     const batchProducts = await extractFromBatch(batches[i], i + 1, batches.length);
     allProducts = [...allProducts, ...batchProducts];
   }
-  
+
   console.log(`✅ Total products extracted globally: ${allProducts.length}`);
 
-  // 3. Group by vendor
   const finalVendorData = groupProductsByVendor(allProducts);
-  
+
   console.log(`🗂️ Successfully grouped into ${finalVendorData.length} unique Vendors.`);
   return finalVendorData;
 };
