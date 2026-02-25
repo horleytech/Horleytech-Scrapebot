@@ -1,9 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { doc, getDoc, updateDoc, increment } from 'firebase/firestore';
-import { useSelector } from 'react-redux';
 import { db } from '../services/firebase/index.js';
-import { BASE_URL } from '../services/constants/apiConstants.js';
 
 const MAX_LOG_ITEMS = 200;
 
@@ -52,13 +50,8 @@ const lightenHex = (hex, amount = 0.18) => {
 
 const StoreFront = () => {
   const { vendorId } = useParams();
-  const isAdmin = useSelector((state) => state.auth?.isAuthenticated);
   const [vendorData, setVendorData] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [driveBackups, setDriveBackups] = useState([]);
-  const [loadingDriveBackups, setLoadingDriveBackups] = useState(false);
-  const [restoringDriveId, setRestoringDriveId] = useState(null);
-  const [uploadRestoreLoading, setUploadRestoreLoading] = useState(false);
 
   useEffect(() => {
     const fetchStore = async () => {
@@ -155,69 +148,6 @@ const StoreFront = () => {
     const link = `https://wa.me/${number}?text=${encodeURIComponent(message)}`;
     window.open(link, '_blank', 'noopener,noreferrer');
   };
-
-  const fetchDriveBackups = async () => {
-    setLoadingDriveBackups(true);
-    try {
-      const response = await fetch(`${BASE_URL}/api/backup/drive-list`, {
-        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-      });
-      const data = await response.json();
-      if (!response.ok || !data.success) throw new Error(data.error || 'Failed to load drive backups');
-      setDriveBackups(Array.isArray(data.files) ? data.files : []);
-    } catch (error) {
-      alert(`❌ ${error.message}`);
-    } finally {
-      setLoadingDriveBackups(false);
-    }
-  };
-
-  const restoreDriveBackup = async (fileId) => {
-    setRestoringDriveId(fileId);
-    try {
-      const response = await fetch(`${BASE_URL}/api/backup/drive-restore`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-        body: JSON.stringify({ fileId }),
-      });
-      const data = await response.json();
-      if (!response.ok || !data.success) throw new Error(data.error || 'Drive restore failed');
-      alert(`✅ Restored ${data.restoredDocuments || 0} documents from Drive backup.`);
-    } catch (error) {
-      alert(`❌ ${error.message}`);
-    } finally {
-      setRestoringDriveId(null);
-    }
-  };
-
-  const uploadAndRestoreLocalBackup = async (event) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-
-    const formData = new FormData();
-    formData.append('file', file);
-
-    setUploadRestoreLoading(true);
-    try {
-      const response = await fetch(`${BASE_URL}/api/backup/upload-restore`, {
-        method: 'POST',
-        body: formData,
-      });
-      const data = await response.json();
-      if (!response.ok || !data.success) throw new Error(data.error || 'Upload restore failed');
-      alert(`✅ Restored ${data.restoredDocuments || 0} documents from local backup.`);
-    } catch (error) {
-      alert(`❌ ${error.message}`);
-    } finally {
-      event.target.value = '';
-      setUploadRestoreLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    if (!isAdmin) return;
-    fetchDriveBackups();
-  }, [isAdmin]);
 
   if (loading) {
     return (
@@ -344,7 +274,7 @@ const StoreFront = () => {
           <div className="p-4 space-y-2">
             <h3 className={`font-black text-lg ${isDarkLayout ? 'text-gray-100' : 'text-[#1A1C23]'}`}>{product['Device Type'] || 'N/A'}</h3>
             <p className={`text-xs uppercase font-bold ${isDarkLayout ? 'text-gray-400' : 'text-gray-500'}`}>{product.Condition || 'N/A'}</p>
-            <p className={`text-sm ${isDarkLayout ? 'text-gray-300' : 'text-gray-600'}`}>{product['SIM Type/Model/Processor'] || 'N/A'}}</p>
+            <p className={`text-sm ${isDarkLayout ? 'text-gray-300' : 'text-gray-600'}`}>{product['SIM Type/Model/Processor'] || 'N/A'}</p>
             <p className={`text-sm font-semibold ${isDarkLayout ? 'text-gray-300' : 'text-gray-600'}`}>{product['Storage Capacity/Configuration'] || 'N/A'}</p>
             <div className="flex items-center justify-between pt-2">
               <span className="font-black text-lg" style={{ color: themeColor }}>{product['Regular price'] || 'N/A'}</span>
@@ -448,51 +378,6 @@ const StoreFront = () => {
         </div>
 
         {renderProductsByLayout()}
-
-        {isAdmin && (
-          <div className="mt-8 bg-white border border-gray-200 rounded-2xl p-5 shadow-sm">
-            <h2 className="text-xl font-black text-[#1A1C23] mb-2">System Maintenance</h2>
-            <p className="text-sm text-gray-500 mb-4">Restore backup snapshots from local JSON or Google Drive versions.</p>
-
-            <div className="mb-5">
-              <label className="inline-flex items-center gap-2 bg-[#1A1C23] text-white px-4 py-2 rounded-lg font-bold text-sm cursor-pointer hover:bg-black">
-                {uploadRestoreLoading ? 'Uploading...' : 'Upload & Restore from Local JSON'}
-                <input type="file" accept="application/json,.json" className="hidden" onChange={uploadAndRestoreLocalBackup} disabled={uploadRestoreLoading} />
-              </label>
-            </div>
-
-            <div className="border-t pt-4">
-              <div className="flex items-center justify-between mb-3">
-                <h3 className="text-sm font-black uppercase tracking-wider text-gray-600">Cloud Backups (Drive)</h3>
-                <button onClick={fetchDriveBackups} className="text-xs font-bold px-3 py-1.5 bg-gray-100 rounded-lg hover:bg-gray-200">Refresh</button>
-              </div>
-
-              {loadingDriveBackups ? (
-                <p className="text-sm text-gray-400">Loading cloud backups...</p>
-              ) : driveBackups.length ? (
-                <div className="space-y-2">
-                  {driveBackups.map((file) => (
-                    <div key={file.id} className="flex flex-col md:flex-row md:items-center md:justify-between gap-2 border border-gray-100 rounded-lg p-3">
-                      <div>
-                        <p className="text-sm font-bold text-[#1A1C23]">{file.name}</p>
-                        <p className="text-xs text-gray-500">{file.createdTime ? new Date(file.createdTime).toLocaleString() : 'Unknown time'}</p>
-                      </div>
-                      <button
-                        onClick={() => restoreDriveBackup(file.id)}
-                        disabled={restoringDriveId === file.id}
-                        className="bg-red-600 text-white px-4 py-2 rounded-lg text-xs font-black uppercase hover:bg-red-700 disabled:opacity-50"
-                      >
-                        {restoringDriveId === file.id ? 'Restoring...' : 'Restore This Version'}
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-sm text-gray-400">No Drive backups found.</p>
-              )}
-            </div>
-          </div>
-        )}
       </div>
     </div>
   );
