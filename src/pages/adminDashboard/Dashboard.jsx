@@ -248,7 +248,6 @@ const AdminDashboard = () => {
       const response = await fetch(`${BASE_URL}/api/admin/onboard-vendor`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-        // 🔥 PERFECT FIX: Changed phoneNumber to adminNumber to match backend
         body: JSON.stringify({
           vendorName: onboardVendorName.trim(),
           adminNumber: botNumber.trim(), 
