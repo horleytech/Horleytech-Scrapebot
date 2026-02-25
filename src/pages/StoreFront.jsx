@@ -74,18 +74,22 @@ const StoreFront = () => {
 
   const visibleProducts = useMemo(() => {
     const products = vendorData?.products || [];
-    const allowedGroups = Array.isArray(vendorData?.storefrontAllowedGroups)
-      ? vendorData.storefrontAllowedGroups
+    const hasConfiguredAllowedGroups = Array.isArray(vendorData?.storefrontAllowedGroups);
+    const normalizedAllowedGroups = hasConfiguredAllowedGroups
+      ? new Set(
+          vendorData.storefrontAllowedGroups
+            .map((group) => String(group || '').trim().toLowerCase())
+            .filter(Boolean)
+        )
       : null;
 
     return products.filter((product) => {
       const isVisible = product?.isVisible !== false;
       if (!isVisible) return false;
 
-      // Filter by allowed groups if set in vendor settings
-      if (allowedGroups && allowedGroups.length > 0) {
-        const productGroup = product?.groupName || 'Direct Message';
-        return allowedGroups.includes(productGroup);
+      if (hasConfiguredAllowedGroups) {
+        const productGroup = String(product?.groupName || 'Direct Message').trim().toLowerCase();
+        return normalizedAllowedGroups.has(productGroup);
       }
 
       return true;
@@ -288,15 +292,15 @@ const StoreFront = () => {
   const renderListLayout = (variant) => (
     <div className={`rounded-2xl overflow-hidden border ${isDarkLayout ? 'bg-[#181818] border-[#2b2b2b]' : 'bg-white border-gray-100'}`}>
       {visibleProducts.map((product, index) => (
-        <div key={index} className={`flex items-center justify-between gap-4 border-b last:border-b-0 ${isDarkLayout ? 'border-[#2b2b2b]' : 'border-gray-200'} ${variant === 'compact' ? 'px-4 py-3 text-xs' : 'px-6 py-6 text-sm'}`}>
-          <div className="min-w-0">
+        <div key={index} className={`flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b last:border-b-0 ${isDarkLayout ? 'border-[#2b2b2b]' : 'border-gray-200'} ${variant === 'compact' ? 'px-4 py-3 text-xs' : 'px-6 py-6 text-sm'}`}>
+          <div className="min-w-0 w-full">
             <p className={`font-black truncate ${variant === 'compact' ? 'text-sm' : 'text-base'} ${isDarkLayout ? 'text-gray-100' : 'text-[#1A1C23]'}`}>{product['Device Type'] || 'N/A'}</p>
             <p className={`${isDarkLayout ? 'text-gray-400' : 'text-gray-500'} ${variant === 'compact' ? 'mt-0.5' : 'mt-1'}`}>{product.Condition || 'N/A'} • {product['Storage Capacity/Configuration'] || 'N/A'}</p>
             {variant !== 'compact' && (
               <p className={`mt-1 italic ${isDarkLayout ? 'text-gray-500' : 'text-gray-500'}`}>{product['SIM Type/Model/Processor'] || 'N/A'}</p>
             )}
           </div>
-          <div className="flex items-center gap-3 shrink-0">
+          <div className="flex w-full sm:w-auto items-center justify-between sm:justify-start gap-3 shrink-0">
             <span className={`font-black ${variant === 'compact' ? 'text-sm' : 'text-lg'}`} style={{ color: themeColor }}>
               {product['Regular price'] || 'N/A'}
             </span>
@@ -365,7 +369,6 @@ const StoreFront = () => {
               <div className="flex flex-wrap justify-center md:justify-start gap-4 mt-4">
                 {vendorData.address && <span className="text-xs font-bold bg-black/20 px-3 py-1.5 rounded-full">📍 {vendorData.address}</span>}
                 <span className="text-xs font-bold bg-black/20 px-3 py-1.5 rounded-full">📦 {visibleProducts.length} items available</span>
-                <span className="text-xs font-bold bg-black/20 px-3 py-1.5 rounded-full">🧩 {storeLayout} layout</span>
               </div>
             </div>
           </div>

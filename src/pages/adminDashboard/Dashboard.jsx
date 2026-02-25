@@ -19,6 +19,7 @@ import {
 } from 'recharts';
 import AdminDashboardLayout from '../../components/layouts/DashboardLayout';
 import { db } from '../../services/firebase/index.js';
+import { BASE_URL } from '../../services/constants/apiConstants.js';
 
 const COLLECTIONS = {
   offline: 'horleyTech_OfflineInventories',
@@ -159,7 +160,7 @@ const AdminDashboard = () => {
 
   const fetchAllMessages = async () => {
     try {
-      const response = await fetch('/api/messages');
+      const response = await fetch(`${BASE_URL}/api/messages`);
       const data = await response.json();
       if (!response.ok || !data.success) throw new Error(data.error || 'Failed to load messages');
       setAllMessages(Array.isArray(data.messages) ? data.messages : []);
@@ -350,7 +351,7 @@ const AdminDashboard = () => {
   const triggerManualBackup = async () => {
     setManualBackupLoading(true);
     try {
-      const res = await fetch('/api/backup/manual');
+      const res = await fetch(`${BASE_URL}/api/backup/manual`);
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error || 'Manual backup failed');
       alert(`✅ Manual backup completed. Backup ID: ${data.backupId}`);
@@ -366,7 +367,7 @@ const AdminDashboard = () => {
     if (!window.confirm(`Restore backup ${backupId}? This will overwrite the live offline inventory.`)) return;
     setRestoringBackupId(backupId);
     try {
-      const res = await fetch('/api/backup/restore', {
+      const res = await fetch(`${BASE_URL}/api/backup/restore`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ backupId }),
@@ -399,7 +400,7 @@ const AdminDashboard = () => {
     setChatVendor(vendor);
     setChatOpen(true);
     try {
-      const response = await fetch(`/api/messages/${vendor.vendorId}`);
+      const response = await fetch(`${BASE_URL}/api/messages/${vendor.vendorId}`);
       const data = await response.json();
       if (!response.ok || !data.success) throw new Error(data.error || 'Failed to load conversation');
       setChatMessages(Array.isArray(data.messages) ? data.messages : []);
@@ -414,7 +415,7 @@ const AdminDashboard = () => {
 
     setSendingChat(true);
     try {
-      const response = await fetch('/api/messages/send', {
+      const response = await fetch(`${BASE_URL}/api/messages/send`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -442,7 +443,7 @@ const AdminDashboard = () => {
       {location.pathname === '/dashboard' || location.pathname === '/dashboard/' ? (
         <div className="p-6">
           {/* Analytics Hub Top Row */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4 mb-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-6 gap-4 mb-6">
             <div className="bg-white border border-gray-200 rounded-[12px] p-5 shadow-sm">
               <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">Total Vendors</p>
               <p className="text-2xl font-black text-[#1A1C23] mt-2">{analytics.totalVendors}</p>
@@ -603,31 +604,31 @@ const AdminDashboard = () => {
                       <th className="p-4 pl-6 w-[50px]"><input type="checkbox" checked={allFilteredSelected} onChange={toggleSelectAll} className="w-4 h-4 rounded border-gray-300 cursor-pointer" /></th>
                       <th className="p-4">Vendor Name</th>
                       <th className="p-4">Status</th>
-                      <th className="p-4">Stats</th>
-                      <th className="p-4">Access Details</th>
-                      <th className="p-4">Monetization</th>
+                      <th className="p-4">View</th>
+                      <th className="hidden md:table-cell p-4">Access Details</th>
+                      <th className="hidden md:table-cell p-4">Monetization</th>
                       <th className="p-4">Total Inventory</th>
-                      <th className="p-4">Action</th>
-                      <th className="p-4 pr-6">Contact</th>
+                      <th className="hidden md:table-cell p-4">Action</th>
+                      <th className="hidden md:table-cell p-4 pr-6">Contact</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-50">
                     {filteredOffline.map(vendor => (
                       <tr key={vendor.docId} className="hover:bg-blue-50/30 transition-colors">
                         <td className="p-4 pl-6"><input type="checkbox" checked={selectedVendorIds.includes(vendor.docId)} onChange={() => toggleVendor(vendor.docId)} className="w-4 h-4 rounded border-gray-300 cursor-pointer" /></td>
-                        <td className="p-4 font-bold text-blue-600 hover:text-blue-800"><Link to={vendor.shareableLink}>{vendor.vendorName}</Link></td>
+                        <td className="p-4 font-bold text-blue-600 hover:text-blue-800"><Link to={vendor.shareableLink} target="_blank" rel="noopener noreferrer">{vendor.vendorName}</Link></td>
                         <td className="p-4">
                           <span className={`px-2.5 py-1 rounded-lg text-[10px] font-black uppercase ${vendor.status === 'suspended' ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>{vendor.status}</span>
                         </td>
                         <td className="p-4 text-xs font-bold text-gray-500 space-y-1">
                           <p>👁️ {vendor.viewCount} Views</p>
-                          <p>🔗 {vendor.whatsappClicks} Clicks</p>
+                          <p className="hidden md:block">🔗 {vendor.whatsappClicks} Clicks</p>
                         </td>
-                        <td className="p-4 text-[11px] text-gray-600 space-y-1">
+                        <td className="hidden md:table-cell p-4 text-[11px] text-gray-600 space-y-1">
                           <p><span className="font-black uppercase text-[9px] text-gray-400 mr-1">Pass:</span><span className="font-mono">{vendor.vendorPassword || 'N/A'}</span></p>
                           <p><span className="font-black uppercase text-[9px] text-gray-400 mr-1">WA:</span>{vendor.storeWhatsappNumber || 'N/A'}</p>
                         </td>
-                        <td className="p-4">
+                        <td className="hidden md:table-cell p-4">
                           <button
                             onClick={() => toggleAdvancedTools(vendor)}
                             disabled={togglingAdvancedVendorId === vendor.docId}
@@ -637,8 +638,8 @@ const AdminDashboard = () => {
                           </button>
                         </td>
                         <td className="p-4"><span className="bg-gray-100 text-gray-600 px-3 py-1.5 rounded-full text-[11px] font-bold">{vendor.totalProducts} Items</span></td>
-                        <td className="p-4"><Link to={vendor.shareableLink} className="inline-block bg-[#1A1C23] text-white px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-wider hover:bg-black transition-all shadow-sm">Manage</Link></td>
-                        <td className="p-4 pr-6">
+                        <td className="hidden md:table-cell p-4"><Link to={vendor.shareableLink} target="_blank" rel="noopener noreferrer" className="inline-block bg-[#1A1C23] text-white px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-wider hover:bg-black transition-all shadow-sm">Manage</Link></td>
+                        <td className="hidden md:table-cell p-4 pr-6">
                           <button onClick={() => openChatForVendor(vendor)} className="p-2.5 rounded-xl bg-blue-100 text-blue-600 hover:bg-blue-600 hover:text-white transition-all shadow-sm relative group">
                             <IoMdChatboxes className="w-5 h-5" />
                             {allMessages.some(m => m.vendorId === vendor.vendorId && m.sender === 'vendor' && !m.readByAdmin) && (
