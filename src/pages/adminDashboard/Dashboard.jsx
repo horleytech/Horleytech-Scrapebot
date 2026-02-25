@@ -1,6 +1,22 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Outlet, useLocation, Link } from 'react-router-dom';
 import { collection, getDocs, doc, writeBatch, query, orderBy, updateDoc } from 'firebase/firestore';
+import { IoMdChatboxes } from 'react-icons/io';
+import {
+  PieChart,
+  Pie,
+  Cell,
+  Tooltip,
+  ResponsiveContainer,
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  LineChart,
+  Line,
+  Legend,
+} from 'recharts';
 import AdminDashboardLayout from '../../components/layouts/DashboardLayout';
 import { db } from '../../services/firebase/index.js';
 import AnalyticsPage from './AnalyticsPage';
@@ -10,6 +26,8 @@ const COLLECTIONS = {
   online: 'horleyTech_OnlineInventories',
   backups: 'horleyTech_Backups',
 };
+
+const CHART_COLORS = ['#16a34a', '#2563eb', '#f59e0b', '#7c3aed', '#ef4444', '#14b8a6', '#f97316'];
 
 const toCsv = (rows) => {
   if (!rows.length) return '';
@@ -80,6 +98,14 @@ const AdminDashboard = () => {
   const [restoringBackupId, setRestoringBackupId] = useState(null);
   const [togglingAdvancedVendorId, setTogglingAdvancedVendorId] = useState(null);
 
+  const [allMessages, setAllMessages] = useState([]);
+  const [notificationOpen, setNotificationOpen] = useState(false);
+  const [chatOpen, setChatOpen] = useState(false);
+  const [chatVendor, setChatVendor] = useState(null);
+  const [chatMessages, setChatMessages] = useState([]);
+  const [chatInput, setChatInput] = useState('');
+  const [sendingChat, setSendingChat] = useState(false);
+
   const fetchInventory = async () => {
     setLoadingSearch(true);
     try {
@@ -148,12 +174,29 @@ const AdminDashboard = () => {
     }
   };
 
+  const fetchAllMessages = async () => {
+    try {
+      const response = await fetch('/api/messages');
+      const data = await response.json();
+      if (!response.ok || !data.success) throw new Error(data.error || 'Failed to load messages');
+      setAllMessages(Array.isArray(data.messages) ? data.messages : []);
+    } catch (error) {
+      console.error('Unable to fetch global messages:', error);
+    }
+  };
+
   useEffect(() => {
     if (location.pathname === '/dashboard' || location.pathname === '/dashboard/') {
       fetchInventory();
       fetchBackups();
     }
   }, [sourceTab, location.pathname]);
+
+  useEffect(() => {
+    fetchAllMessages();
+    const timer = setInterval(fetchAllMessages, 12000);
+    return () => clearInterval(timer);
+  }, []);
 
   const filteredOffline = useMemo(
     () => offlineVendors.filter((v) => !searchQuery || v.vendorName?.toLowerCase().includes(searchQuery.toLowerCase())),
@@ -218,6 +261,59 @@ const AdminDashboard = () => {
       topVendor,
     };
   }, [offlineVendors]);
+
+  const insightCharts = useMemo(() => {
+    const categoryCount = {};
+    const priceDensityMap = {
+      '< ₦100k': 0,
+      '₦100k - ₦500k': 0,
+      '₦500k+': 0,
+    };
+    const leadMap = {};
+
+    offlineVendors.forEach((vendor) => {
+      (vendor.products || []).forEach((product) => {
+        const category = product.Category || 'Others';
+        categoryCount[category] = (categoryCount[category] || 0) + 1;
+
+        const price = parseNairaValue(product['Regular price']);
+        if (price < 100000) priceDensityMap['< ₦100k'] += 1;
+        else if (price <= 500000) priceDensityMap['₦100k - ₦500k'] += 1;
+        else priceDensityMap['₦500k+'] += 1;
+      });
+
+      const customerLogs = normalizeLogs(vendor.logs).customer || [];
+      customerLogs.forEach((log) => {
+        if (!log.action?.toLowerCase().includes('clicked whatsapp')) return;
+        const date = new Date(log.date);
+        if (Number.isNaN(date.getTime())) return;
+        const key = date.toISOString().slice(0, 10);
+        leadMap[key] = (leadMap[key] || 0) + 1;
+      });
+    });
+
+    const now = new Date();
+    const leadVelocity = Array.from({ length: 7 }).map((_, index) => {
+      const date = new Date(now);
+      date.setDate(now.getDate() - (6 - index));
+      const key = date.toISOString().slice(0, 10);
+      return {
+        day: date.toLocaleDateString([], { weekday: 'short' }),
+        clicks: leadMap[key] || 0,
+      };
+    });
+
+    return {
+      categoryMix: Object.entries(categoryCount).map(([name, value]) => ({ name, value })),
+      priceDensity: Object.entries(priceDensityMap).map(([range, count]) => ({ range, count })),
+      leadVelocity,
+    };
+  }, [offlineVendors]);
+
+  const unreadMessages = useMemo(
+    () => allMessages.filter((message) => message.sender === 'vendor' && !message.readByAdmin),
+    [allMessages]
+  );
 
   const allFilteredSelected =
     filteredOffline.length > 0 && filteredOffline.every((vendor) => selectedVendorIds.includes(vendor.docId));
@@ -353,8 +449,49 @@ const AdminDashboard = () => {
     }
   };
 
+  const openChatForVendor = async (vendor) => {
+    setChatVendor(vendor);
+    setChatOpen(true);
+
+    try {
+      const response = await fetch(`/api/messages/${vendor.vendorId}`);
+      const data = await response.json();
+      if (!response.ok || !data.success) throw new Error(data.error || 'Failed to load conversation');
+      setChatMessages(Array.isArray(data.messages) ? data.messages : []);
+    } catch (error) {
+      alert(`❌ ${error.message}`);
+    }
+  };
+
+  const sendAdminChat = async () => {
+    if (!chatVendor || !chatInput.trim()) return;
+
+    setSendingChat(true);
+    try {
+      const response = await fetch('/api/messages/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          vendorId: chatVendor.vendorId,
+          sender: 'admin',
+          recipient: 'vendor',
+          text: chatInput.trim(),
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok || !data.success) throw new Error(data.error || 'Message failed');
+      setChatInput('');
+      setChatMessages((prev) => [...prev, data.message]);
+      fetchAllMessages();
+    } catch (error) {
+      alert(`❌ ${error.message}`);
+    } finally {
+      setSendingChat(false);
+    }
+  };
+
   return (
-    <AdminDashboardLayout>
+    <AdminDashboardLayout notificationCount={unreadMessages.length} onNotificationClick={() => setNotificationOpen(true)}>
       {location.pathname === '/dashboard' || location.pathname === '/dashboard/' ? (
         <div>
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 mb-6">
@@ -405,43 +542,100 @@ const AdminDashboard = () => {
               </table>
             </div>
           ) : activeTab === 'activity' ? (
-            <div className="bg-white shadow rounded-[10px] overflow-hidden mb-10">
-              <div className="p-4 bg-gray-50 border-b border-[#DDDCF9]"><h2 className="text-[18px] font-bold text-[#1A1C23]">Platform Activity Timeline (Newest 50)</h2></div>
-              <div className="p-4 space-y-3">
-                {platformActivityTimeline.length > 0 ? platformActivityTimeline.map((entry, index) => (
-                  <div key={`${entry.vendorId}-${entry.date}-${index}`} className="border rounded-[8px] p-3 bg-gray-50">
-                    <div className="flex flex-wrap justify-between gap-2">
-                      <p className="font-semibold text-[#1A1C23]">{entry.action}</p>
-                      <span className={`text-xs px-2 py-1 rounded-full font-bold ${entry.channel === 'admin' ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700'}`}>{entry.channel}</span>
+            <>
+              <div className="bg-white shadow rounded-[10px] overflow-hidden mb-10">
+                <div className="p-4 bg-gray-50 border-b border-[#DDDCF9]"><h2 className="text-[18px] font-bold text-[#1A1C23]">Platform Activity Timeline (Newest 50)</h2></div>
+                <div className="p-4">
+                  {platformActivityTimeline.length > 0 ? (
+                    <div className="space-y-3">
+                      {platformActivityTimeline.map((entry, index) => (
+                        <div key={`${entry.vendorId}-${entry.date}-${index}`} className="border rounded-lg p-3 bg-gray-50">
+                          <div className="flex items-center justify-between gap-3">
+                            <p className="font-semibold text-[#1A1C23]">{entry.action}</p>
+                            <span className={`text-xs px-2 py-1 rounded-full font-bold ${entry.channel === 'admin' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'}`}>
+                              {entry.channel.toUpperCase()}
+                            </span>
+                          </div>
+                          <p className="text-sm text-gray-600 mt-1">{entry.vendorName} ({entry.vendorId})</p>
+                          <p className="text-xs text-gray-500 mt-1">{formatTimelineDate(entry.date)}</p>
+                        </div>
+                      ))}
                     </div>
-                    <p className="text-xs text-gray-600 mt-1">{entry.vendorName} ({entry.vendorId})</p>
-                    <p className="text-xs text-gray-500 mt-1">{formatTimelineDate(entry.date)}</p>
-                  </div>
-                )) : <p className="text-gray-500">No admin/vendor activity logs available yet.</p>}
+                  ) : (
+                    <p className="text-gray-500">No activity logs available yet.</p>
+                  )}
+                </div>
               </div>
-            </div>
+
+              <div className="bg-white shadow rounded-[10px] overflow-hidden mb-10 p-5">
+                <h2 className="text-[20px] font-bold text-[#1A1C23] mb-5">📊 Key Platform Insights</h2>
+                <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 mb-6">
+                  <div className="h-[320px] border rounded-xl p-4">
+                    <h3 className="font-semibold mb-3">Category Mix</h3>
+                    <ResponsiveContainer width="100%" height="90%">
+                      <PieChart>
+                        <Pie data={insightCharts.categoryMix} dataKey="value" nameKey="name" outerRadius={110} label>
+                          {insightCharts.categoryMix.map((entry, index) => (
+                            <Cell key={`${entry.name}-${index}`} fill={CHART_COLORS[index % CHART_COLORS.length]} />
+                          ))}
+                        </Pie>
+                        <Tooltip />
+                        <Legend />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  </div>
+
+                  <div className="h-[320px] border rounded-xl p-4">
+                    <h3 className="font-semibold mb-3">Price Density</h3>
+                    <ResponsiveContainer width="100%" height="90%">
+                      <BarChart data={insightCharts.priceDensity}>
+                        <CartesianGrid strokeDasharray="3 3" />
+                        <XAxis dataKey="range" />
+                        <YAxis />
+                        <Tooltip />
+                        <Bar dataKey="count" fill="#2563eb" radius={[8, 8, 0, 0]} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+
+                <div className="h-[320px] border rounded-xl p-4">
+                  <h3 className="font-semibold mb-3">Lead Velocity (Last 7 Days)</h3>
+                  <ResponsiveContainer width="100%" height="90%">
+                    <LineChart data={insightCharts.leadVelocity}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="day" />
+                      <YAxis allowDecimals={false} />
+                      <Tooltip />
+                      <Line type="monotone" dataKey="clicks" stroke="#16a34a" strokeWidth={3} />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+            </>
           ) : (
             <>
-              <div className="mb-4 flex gap-3">
-                <button onClick={() => setSourceTab('offline')} className={`px-4 py-2 rounded-lg font-semibold ${sourceTab === 'offline' ? 'bg-[#1A1C23] text-white' : 'bg-white border border-gray-300 text-gray-700'}`}>Offline (WhatsApp Directory)</button>
-                <button onClick={() => setSourceTab('online')} className={`px-4 py-2 rounded-lg font-semibold ${sourceTab === 'online' ? 'bg-[#1A1C23] text-white' : 'bg-white border border-gray-300 text-gray-700'}`}>Online (Website Scrapers)</button>
-              </div>
-
-              <div className="mb-6 flex gap-3">
-                <input type="text" placeholder={sourceTab === 'offline' ? '🔍 Search for a WhatsApp Vendor...' : '🔍 Search Scraped Products...'} value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full p-4 border border-gray-300 rounded-[10px] focus:outline-none focus:ring-2 focus:ring-[#1A1C23] text-[15px] shadow-sm" />
-                <button onClick={handleExport} className="bg-green-600 text-white px-6 rounded-[10px] font-semibold hover:bg-green-700 transition-colors">Export CSV</button>
-              </div>
-
-              {sourceTab === 'offline' && (
-                <div className="mb-4 flex flex-wrap gap-3 items-center">
-                  <button onClick={() => bulkUpdateStatus('suspended')} disabled={!selectedVendorIds.length || bulkUpdating} className="bg-red-600 text-white px-4 py-2 rounded-lg font-semibold hover:bg-red-700 disabled:opacity-50">Suspend Selected</button>
-                  <button onClick={() => bulkUpdateStatus('active')} disabled={!selectedVendorIds.length || bulkUpdating} className="bg-emerald-600 text-white px-4 py-2 rounded-lg font-semibold hover:bg-emerald-700 disabled:opacity-50">Activate Selected</button>
-                  <span className="text-sm text-gray-600">{selectedVendorIds.length} selected</span>
-                </div>
-              )}
-
               <div className="bg-white shadow rounded-[10px] overflow-hidden mb-10">
-                <div className="p-4 bg-gray-50 border-b border-[#DDDCF9] flex justify-between items-center">
+                <div className="p-4 bg-gray-50 border-b border-[#DDDCF9] flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex gap-2">
+                    <button onClick={() => setSourceTab('offline')} className={`px-3 py-2 rounded-md text-sm font-semibold ${sourceTab === 'offline' ? 'bg-[#1A1C23] text-white' : 'bg-white border border-gray-300 text-gray-700'}`}>WhatsApp Directory</button>
+                    <button onClick={() => setSourceTab('online')} className={`px-3 py-2 rounded-md text-sm font-semibold ${sourceTab === 'online' ? 'bg-[#1A1C23] text-white' : 'bg-white border border-gray-300 text-gray-700'}`}>Online Inventory</button>
+                  </div>
+
+                  {sourceTab === 'offline' && (
+                    <div className="flex gap-2">
+                      <button onClick={() => bulkUpdateStatus('suspended')} disabled={bulkUpdating || !selectedVendorIds.length} className="bg-red-600 text-white px-3 py-2 rounded-md text-sm font-semibold disabled:opacity-50">Suspend Selected</button>
+                      <button onClick={() => bulkUpdateStatus('active')} disabled={bulkUpdating || !selectedVendorIds.length} className="bg-emerald-600 text-white px-3 py-2 rounded-md text-sm font-semibold disabled:opacity-50">Activate Selected</button>
+                    </div>
+                  )}
+
+                  <div className="flex items-center gap-2">
+                    <input value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="border rounded-md px-3 py-2 text-sm" placeholder="Search..." />
+                    <button onClick={handleExport} className="bg-[#1A1C23] text-white px-3 py-2 rounded-md text-sm">Export CSV</button>
+                  </div>
+                </div>
+
+                <div className="p-4 border-b border-[#DDDCF9]">
                   <h2 className="text-[18px] font-bold text-[#1A1C23]">{sourceTab === 'offline' ? `WhatsApp Directory (${filteredOffline.length} Vendors)` : `Scraped Products (${filteredOnline.length} Items)`}</h2>
                 </div>
 
@@ -460,6 +654,7 @@ const AdminDashboard = () => {
                           <th className="p-4">Total Inventory</th>
                           <th className="p-4">Last Updated</th>
                           <th className="p-4">Action</th>
+                          <th className="p-4">Message</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -490,9 +685,14 @@ const AdminDashboard = () => {
                             <td className="p-4"><span className="bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-xs font-bold">{vendor.totalProducts} Items</span></td>
                             <td className="p-4 text-gray-500">{vendor.lastUpdated ? new Date(vendor.lastUpdated).toLocaleDateString() : 'N/A'}</td>
                             <td className="p-4"><Link to={vendor.shareableLink} className="bg-[#1A1C23] text-white px-4 py-2 rounded-[8px] text-sm hover:bg-gray-800 transition">View Inventory</Link></td>
+                            <td className="p-4">
+                              <button onClick={() => openChatForVendor(vendor)} className="p-2 rounded-lg bg-indigo-100 text-indigo-700 hover:bg-indigo-200" title="Message Vendor">
+                                <IoMdChatboxes className="w-5 h-5" />
+                              </button>
+                            </td>
                           </tr>
                         )) : (
-                          <tr><td colSpan="10" className="p-6 text-center text-gray-500">{loadingSearch ? 'Loading vendors...' : 'No vendors found.'}</td></tr>
+                          <tr><td colSpan="11" className="p-6 text-center text-gray-500">{loadingSearch ? 'Loading vendors...' : 'No vendors found.'}</td></tr>
                         )}
                       </tbody>
                     </>
@@ -521,6 +721,55 @@ const AdminDashboard = () => {
         </div>
       ) : (
         <Outlet />
+      )}
+
+      {notificationOpen && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl w-full max-w-2xl shadow-xl border border-gray-200">
+            <div className="p-4 border-b flex justify-between items-center">
+              <h3 className="text-lg font-bold">Vendor Notification Hub</h3>
+              <button onClick={() => setNotificationOpen(false)} className="text-gray-500 hover:text-black">✕</button>
+            </div>
+            <div className="p-4 max-h-[65vh] overflow-y-auto space-y-3">
+              {unreadMessages.length > 0 ? unreadMessages.map((message) => (
+                <div key={message.id} className="border rounded-lg p-3 bg-red-50">
+                  <p className="text-sm font-semibold text-[#1A1C23]">{message.vendorId}</p>
+                  <p className="text-sm text-gray-700 mt-1">{message.text}</p>
+                  <p className="text-xs text-gray-500 mt-1">{formatTimelineDate(message.timestamp)}</p>
+                </div>
+              )) : <p className="text-sm text-gray-500">No new vendor messages.</p>}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {chatOpen && chatVendor && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl w-full max-w-2xl shadow-xl border border-gray-200">
+            <div className="p-4 border-b flex justify-between items-center">
+              <h3 className="text-lg font-bold">Chat with {chatVendor.vendorName}</h3>
+              <button onClick={() => setChatOpen(false)} className="text-gray-500 hover:text-black">✕</button>
+            </div>
+            <div className="p-4 max-h-[55vh] overflow-y-auto space-y-3 bg-gray-50">
+              {chatMessages.map((message) => {
+                const mine = message.sender === 'admin';
+                return (
+                  <div key={message.id} className={`flex ${mine ? 'justify-end' : 'justify-start'}`}>
+                    <div className={`max-w-[80%] rounded-xl px-4 py-2 ${mine ? 'bg-[#1A1C23] text-white' : 'bg-white border border-gray-200 text-[#1A1C23]'}`}>
+                      <p className="text-xs opacity-80 mb-1 font-semibold">{message.sender === 'admin' ? 'Admin' : chatVendor.vendorName}</p>
+                      <p className="text-sm whitespace-pre-wrap">{message.text}</p>
+                      <p className="text-[11px] opacity-70 mt-1">{formatTimelineDate(message.timestamp)}</p>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            <div className="p-4 border-t flex gap-2">
+              <textarea value={chatInput} onChange={(e) => setChatInput(e.target.value)} className="flex-1 border rounded-lg p-3 min-h-[64px]" placeholder="Type your reply..." />
+              <button onClick={sendAdminChat} disabled={sendingChat || !chatInput.trim()} className="bg-indigo-600 text-white px-4 py-2 rounded-lg h-fit disabled:opacity-50">{sendingChat ? 'Sending...' : 'Send'}</button>
+            </div>
+          </div>
+        </div>
       )}
     </AdminDashboardLayout>
   );

@@ -140,6 +140,10 @@ const VendorPage = () => {
   const [allowedGroups, setAllowedGroups] = useState([]);
 
   const [timelineTab, setTimelineTab] = useState('vendor');
+  const [supportMessages, setSupportMessages] = useState([]);
+  const [supportLoading, setSupportLoading] = useState(false);
+  const [supportInput, setSupportInput] = useState('');
+  const [sendingSupportMessage, setSendingSupportMessage] = useState(false);
 
   const [editingIndex, setEditingIndex] = useState(null);
   const [editDeviceType, setEditDeviceType] = useState('');
@@ -649,6 +653,59 @@ const VendorPage = () => {
     admin: [...timelineLogs.admin].sort((a, b) => new Date(b.date) - new Date(a.date)),
   };
 
+  const fetchSupportMessages = async () => {
+    setSupportLoading(true);
+    try {
+      const response = await fetch(`/api/messages/${vendorId}`);
+      const data = await response.json();
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || 'Unable to fetch messages');
+      }
+      setSupportMessages(Array.isArray(data.messages) ? data.messages : []);
+    } catch (error) {
+      console.error('Failed to fetch support messages:', error);
+    } finally {
+      setSupportLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!vendorData || mainTab !== 'support') return;
+    fetchSupportMessages();
+    const timer = setInterval(fetchSupportMessages, 12000);
+    return () => clearInterval(timer);
+  }, [vendorData, mainTab]);
+
+  const sendSupportMessage = async () => {
+    if (!supportInput.trim()) return;
+
+    setSendingSupportMessage(true);
+    try {
+      const response = await fetch('/api/messages/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          vendorId,
+          sender: isAdmin ? 'admin' : 'vendor',
+          recipient: isAdmin ? 'vendor' : 'admin',
+          text: supportInput.trim(),
+        }),
+      });
+
+      const data = await response.json();
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || 'Failed to send message');
+      }
+
+      setSupportInput('');
+      setSupportMessages((prev) => [...prev, data.message]);
+    } catch (error) {
+      alert(`❌ ${error.message}`);
+    } finally {
+      setSendingSupportMessage(false);
+    }
+  };
+
   return (
     <div className="p-6 max-w-7xl mx-auto">
       {isAdmin && (
@@ -677,6 +734,7 @@ const VendorPage = () => {
         <button onClick={() => setMainTab('settings')} className={`px-4 py-2 rounded-lg font-semibold ${mainTab === 'settings' ? 'bg-[#1A1C23] text-white' : 'bg-gray-100 text-gray-700'}`}>Store Settings</button>
         <button onClick={() => setMainTab('inventory')} className={`px-4 py-2 rounded-lg font-semibold ${mainTab === 'inventory' ? 'bg-[#1A1C23] text-white' : 'bg-gray-100 text-gray-700'}`}>Inventory</button>
         <button onClick={() => setMainTab('advanced')} className={`px-4 py-2 rounded-lg font-semibold ${mainTab === 'advanced' ? 'bg-[#1A1C23] text-white' : 'bg-gray-100 text-gray-700'}`}>Advanced Tools</button>
+        <button onClick={() => setMainTab('support')} className={`px-4 py-2 rounded-lg font-semibold ${mainTab === 'support' ? 'bg-[#1A1C23] text-white' : 'bg-gray-100 text-gray-700'}`}>Support Chat</button>
         <button onClick={() => setMainTab('timeline')} className={`px-4 py-2 rounded-lg font-semibold ${mainTab === 'timeline' ? 'bg-[#1A1C23] text-white' : 'bg-gray-100 text-gray-700'}`}>Store Timeline</button>
       </div>
 
@@ -873,6 +931,52 @@ const VendorPage = () => {
               </div>
             </div>
           )}
+        </div>
+      )}
+
+      {mainTab === 'support' && (
+        <div className="bg-white border border-gray-200 rounded-[12px] p-5 mb-6 shadow-sm">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-xl font-bold text-[#1A1C23]">Admin-Vendor Messaging Hub</h2>
+            <button onClick={fetchSupportMessages} className="text-sm bg-gray-100 px-3 py-1.5 rounded-lg hover:bg-gray-200">Refresh</button>
+          </div>
+
+          <div className="border rounded-xl h-[420px] overflow-y-auto p-4 bg-gray-50 space-y-3 mb-4">
+            {supportLoading ? (
+              <p className="text-sm text-gray-500">Loading conversation...</p>
+            ) : supportMessages.length > 0 ? (
+              supportMessages.map((message) => {
+                const mine = isAdmin ? message.sender === 'admin' : message.sender === 'vendor';
+                return (
+                  <div key={message.id} className={`flex ${mine ? 'justify-end' : 'justify-start'}`}>
+                    <div className={`max-w-[80%] rounded-xl px-4 py-2 ${mine ? 'bg-[#1A1C23] text-white' : 'bg-white border border-gray-200 text-[#1A1C23]'}`}>
+                      <p className="text-xs opacity-80 mb-1 font-semibold">{message.sender === 'admin' ? 'Admin' : 'Vendor'}</p>
+                      <p className="text-sm whitespace-pre-wrap">{message.text}</p>
+                      <p className="text-[11px] opacity-70 mt-1">{formatTimelineDate(message.timestamp)}</p>
+                    </div>
+                  </div>
+                );
+              })
+            ) : (
+              <p className="text-sm text-gray-500">No messages yet. Start a conversation with the admin team.</p>
+            )}
+          </div>
+
+          <div className="flex gap-2">
+            <textarea
+              value={supportInput}
+              onChange={(e) => setSupportInput(e.target.value)}
+              className="flex-1 border rounded-lg p-3 min-h-[70px]"
+              placeholder="Type your message to admin support..."
+            />
+            <button
+              onClick={sendSupportMessage}
+              disabled={sendingSupportMessage || !supportInput.trim()}
+              className="bg-green-600 text-white px-4 py-2 rounded-lg font-semibold disabled:opacity-50 h-fit"
+            >
+              {sendingSupportMessage ? 'Sending...' : 'Send'}
+            </button>
+          </div>
         </div>
       )}
 
