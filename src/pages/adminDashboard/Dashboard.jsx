@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Outlet, useLocation, Link } from 'react-router-dom';
-import { collection, getDocs } from 'firebase/firestore';
+import { collection, getDocs, doc, writeBatch } from 'firebase/firestore';
 import AdminDashboardLayout from '../../components/layouts/DashboardLayout';
 import { db } from '../../services/firebase/index.js';
 
@@ -37,6 +37,8 @@ const AdminDashboard = () => {
   const [offlineVendors, setOfflineVendors] = useState([]);
   const [onlineProducts, setOnlineProducts] = useState([]);
   const [loadingSearch, setLoadingSearch] = useState(false);
+  const [selectedVendorIds, setSelectedVendorIds] = useState([]);
+  const [bulkUpdating, setBulkUpdating] = useState(false);
 
   useEffect(() => {
     const fetchInventory = async () => {
@@ -49,14 +51,18 @@ const AdminDashboard = () => {
           querySnapshot.forEach((docSnap) => {
             const data = docSnap.data();
             vendors.push({
-              vendorId: data.vendorId,
-              vendorName: data.vendorName || data.vendorId,
+              docId: docSnap.id,
+              vendorId: data.vendorId || docSnap.id,
+              vendorName: data.vendorName || data.vendorId || docSnap.id,
               totalProducts: data.products ? data.products.length : 0,
               lastUpdated: data.lastUpdated,
-              shareableLink: data.shareableLink,
+              shareableLink: data.shareableLink || `/vendor/${docSnap.id}`,
+              status: data.status || 'active',
+              viewCount: data.viewCount || 0,
             });
           });
           setOfflineVendors(vendors);
+          setSelectedVendorIds([]);
         } else {
           const globalItems = [];
           querySnapshot.forEach((docSnap) => {
@@ -103,6 +109,75 @@ const AdminDashboard = () => {
     });
   }, [onlineProducts, searchQuery]);
 
+  const analytics = useMemo(() => {
+    const totalVendors = offlineVendors.length;
+    const totalProductsTracked = offlineVendors.reduce(
+      (sum, vendor) => sum + (vendor.totalProducts || 0),
+      0
+    );
+    const totalCustomerViews = offlineVendors.reduce(
+      (sum, vendor) => sum + (vendor.viewCount || 0),
+      0
+    );
+
+    return { totalVendors, totalProductsTracked, totalCustomerViews };
+  }, [offlineVendors]);
+
+  const allFilteredSelected =
+    filteredOffline.length > 0 &&
+    filteredOffline.every((vendor) => selectedVendorIds.includes(vendor.docId));
+
+  const toggleSelectAll = () => {
+    if (allFilteredSelected) {
+      const filteredSet = new Set(filteredOffline.map((vendor) => vendor.docId));
+      setSelectedVendorIds((prev) => prev.filter((id) => !filteredSet.has(id)));
+    } else {
+      const merged = new Set([...selectedVendorIds, ...filteredOffline.map((vendor) => vendor.docId)]);
+      setSelectedVendorIds(Array.from(merged));
+    }
+  };
+
+  const toggleVendor = (docId) => {
+    setSelectedVendorIds((prev) =>
+      prev.includes(docId) ? prev.filter((id) => id !== docId) : [...prev, docId]
+    );
+  };
+
+  const bulkUpdateStatus = async (status) => {
+    if (!selectedVendorIds.length) {
+      alert('Please select at least one vendor first.');
+      return;
+    }
+
+    setBulkUpdating(true);
+    try {
+      const batch = writeBatch(db);
+      selectedVendorIds.forEach((vendorDocId) => {
+        const vendorRef = doc(db, COLLECTIONS.offline, vendorDocId);
+        batch.update(vendorRef, {
+          status,
+          lastUpdated: new Date().toISOString(),
+        });
+      });
+      await batch.commit();
+
+      setOfflineVendors((prev) =>
+        prev.map((vendor) =>
+          selectedVendorIds.includes(vendor.docId)
+            ? { ...vendor, status, lastUpdated: new Date().toISOString() }
+            : vendor
+        )
+      );
+      setSelectedVendorIds([]);
+      alert(`✅ ${status === 'suspended' ? 'Suspended' : 'Activated'} selected vendors successfully.`);
+    } catch (error) {
+      console.error('Bulk vendor status update failed:', error);
+      alert('❌ Could not update selected vendors. Please try again.');
+    } finally {
+      setBulkUpdating(false);
+    }
+  };
+
   const handleExport = () => {
     if (sourceTab === 'offline') {
       downloadCsv('offline-vendors.csv', filteredOffline);
@@ -123,6 +198,21 @@ const AdminDashboard = () => {
     <AdminDashboardLayout>
       {location.pathname === '/dashboard' || location.pathname === '/dashboard/' ? (
         <div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+            <div className="bg-white border border-gray-200 rounded-[12px] p-5 shadow-sm">
+              <p className="text-sm text-gray-500">Total Vendors</p>
+              <p className="text-3xl font-bold text-[#1A1C23] mt-2">{analytics.totalVendors}</p>
+            </div>
+            <div className="bg-white border border-gray-200 rounded-[12px] p-5 shadow-sm">
+              <p className="text-sm text-gray-500">Total Products Tracked</p>
+              <p className="text-3xl font-bold text-[#1A1C23] mt-2">{analytics.totalProductsTracked}</p>
+            </div>
+            <div className="bg-white border border-gray-200 rounded-[12px] p-5 shadow-sm">
+              <p className="text-sm text-gray-500">Total Customer Views</p>
+              <p className="text-3xl font-bold text-[#1A1C23] mt-2">{analytics.totalCustomerViews}</p>
+            </div>
+          </div>
+
           <div className="mb-4 flex gap-3">
             <button
               onClick={() => setSourceTab('offline')}
@@ -158,6 +248,26 @@ const AdminDashboard = () => {
             </button>
           </div>
 
+          {sourceTab === 'offline' && (
+            <div className="mb-4 flex flex-wrap gap-3 items-center">
+              <button
+                onClick={() => bulkUpdateStatus('suspended')}
+                disabled={!selectedVendorIds.length || bulkUpdating}
+                className="bg-red-600 text-white px-4 py-2 rounded-lg font-semibold hover:bg-red-700 disabled:opacity-50"
+              >
+                Suspend Selected
+              </button>
+              <button
+                onClick={() => bulkUpdateStatus('active')}
+                disabled={!selectedVendorIds.length || bulkUpdating}
+                className="bg-emerald-600 text-white px-4 py-2 rounded-lg font-semibold hover:bg-emerald-700 disabled:opacity-50"
+              >
+                Activate Selected
+              </button>
+              <span className="text-sm text-gray-600">{selectedVendorIds.length} selected</span>
+            </div>
+          )}
+
           <div className="bg-white shadow rounded-[10px] overflow-hidden mb-10">
             <div className="p-4 bg-gray-50 border-b border-[#DDDCF9] flex justify-between items-center">
               <h2 className="text-[18px] font-bold text-[#1A1C23]">
@@ -172,7 +282,17 @@ const AdminDashboard = () => {
                 <>
                   <thead className="h-[60px] border-b border-b-[#DDDCF9] bg-white text-[#1A1C23] font-bold">
                     <tr>
+                      <th className="p-4 pl-6 w-[50px]">
+                        <input
+                          type="checkbox"
+                          checked={allFilteredSelected}
+                          onChange={toggleSelectAll}
+                          aria-label="Select all vendors"
+                        />
+                      </th>
                       <th className="p-4 pl-6">Vendor Name</th>
+                      <th className="p-4">Status</th>
+                      <th className="p-4">Views</th>
                       <th className="p-4">Total Inventory</th>
                       <th className="p-4">Last Updated</th>
                       <th className="p-4">Action</th>
@@ -180,9 +300,23 @@ const AdminDashboard = () => {
                   </thead>
                   <tbody>
                     {filteredOffline.length > 0 ? (
-                      filteredOffline.map((vendor, index) => (
-                        <tr key={index} className="hover:bg-gray-50 border-b border-gray-100">
+                      filteredOffline.map((vendor) => (
+                        <tr key={vendor.docId} className="hover:bg-gray-50 border-b border-gray-100">
+                          <td className="p-4 pl-6">
+                            <input
+                              type="checkbox"
+                              checked={selectedVendorIds.includes(vendor.docId)}
+                              onChange={() => toggleVendor(vendor.docId)}
+                              aria-label={`Select ${vendor.vendorName}`}
+                            />
+                          </td>
                           <td className="p-4 pl-6 font-bold text-blue-600">{vendor.vendorName}</td>
+                          <td className="p-4">
+                            <span className={`px-3 py-1 rounded-full text-xs font-bold ${vendor.status === 'suspended' ? 'bg-red-100 text-red-800' : 'bg-emerald-100 text-emerald-800'}`}>
+                              {vendor.status === 'suspended' ? 'Suspended' : 'Active'}
+                            </span>
+                          </td>
+                          <td className="p-4 font-semibold text-[#1A1C23]">{vendor.viewCount || 0}</td>
                           <td className="p-4">
                             <span className="bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-xs font-bold">
                               {vendor.totalProducts} Items
@@ -205,7 +339,7 @@ const AdminDashboard = () => {
                       ))
                     ) : (
                       <tr>
-                        <td colSpan="4" className="p-6 text-center text-gray-500">
+                        <td colSpan="7" className="p-6 text-center text-gray-500">
                           {loadingSearch ? 'Loading vendors...' : 'No vendors found.'}
                         </td>
                       </tr>
@@ -230,9 +364,7 @@ const AdminDashboard = () => {
                           <td className="p-4 pl-6 font-bold">{product.vendorName}</td>
                           <td className="p-4 text-sm">{product['Device Type']}</td>
                           <td className="p-4 text-sm text-gray-600">{product.Condition}</td>
-                          <td className="p-4 font-semibold text-green-700">
-                            {product['Regular price']}
-                          </td>
+                          <td className="p-4 font-semibold text-green-700">{product['Regular price']}</td>
                           <td className="p-4">
                             {product.Link ? (
                               <a
