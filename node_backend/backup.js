@@ -9,21 +9,26 @@ const BACKUP_HISTORY_COLLECTION = 'horleyTech_Backups';
 
 const ensureAdminInitialized = () => {
   if (!admin.apps.length) {
-    const projectId = process.env.FIREBASE_PROJECT_ID;
-    const clientEmail = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
-    const privateKey = process.env.GOOGLE_PRIVATE_KEY?.replace(/\\n/g, '\n');
+    try {
+      // 1. Read the service account file synchronously
+      const serviceAccountPath = path.join(process.cwd(), 'node_backend', 'serviceAccountKey.json');
+      
+      if (!fs.existsSync(serviceAccountPath)) {
+        throw new Error(`Missing service account file at: ${serviceAccountPath}`);
+      }
 
-    if (!projectId || !clientEmail || !privateKey) {
-      throw new Error('Missing Firebase admin env vars (FIREBASE_PROJECT_ID/GOOGLE_SERVICE_ACCOUNT_EMAIL/GOOGLE_PRIVATE_KEY).');
+      const serviceAccount = JSON.parse(fs.readFileSync(serviceAccountPath, 'utf8'));
+
+      // 2. Initialize Firebase with full privileges
+      admin.initializeApp({
+        credential: admin.credential.cert(serviceAccount)
+      });
+      
+      console.log('✅ Firebase Admin Initialized Successfully.');
+    } catch (error) {
+      console.error('❌ Failed to initialize Firebase Admin:', error.message);
+      throw error;
     }
-
-    admin.initializeApp({
-      credential: admin.credential.cert({
-        projectId,
-        clientEmail,
-        privateKey,
-      }),
-    });
   }
 };
 
@@ -38,7 +43,8 @@ const uploadFileToDrive = async (filePath, fileName) => {
   const driveFolderId = process.env.GOOGLE_DRIVE_FOLDER_ID;
 
   if (!serviceAccountEmail || !serviceAccountPrivateKey || !driveFolderId) {
-    throw new Error('Missing Google Drive env vars (GOOGLE_SERVICE_ACCOUNT_EMAIL/GOOGLE_PRIVATE_KEY/GOOGLE_DRIVE_FOLDER_ID).');
+    console.warn('⚠️ Google Drive variables missing. Skipping Drive upload.');
+    return;
   }
 
   const auth = new google.auth.JWT({
