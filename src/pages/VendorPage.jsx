@@ -217,7 +217,14 @@ const VendorPage = () => {
 
   const products = vendorData?.products || [];
 
-  const uniqueGroups = useMemo(() => ['All', ...new Set(products.map((p) => p.groupName || 'Direct Message'))], [products]);
+  const uniqueGroups = useMemo(() => {
+    const filteredProducts = products.filter((product) => {
+      const productGroup = product.groupName || 'Direct Message';
+      return allowedGroups.length > 0 ? allowedGroups.includes(productGroup) : true;
+    });
+
+    return ['All', ...new Set(filteredProducts.map((p) => p.groupName || 'Direct Message'))];
+  }, [products, allowedGroups]);
   const sourceGroups = useMemo(() => [...new Set(products.map((p) => p.groupName || 'Direct Message'))], [products]);
   const uniqueCategories = useMemo(() => ['All', ...new Set(products.map((p) => p.Category).filter(Boolean))], [products]);
 
@@ -243,11 +250,13 @@ const VendorPage = () => {
         }
 
         const passesCategory = categoryFilter === 'All' || product.Category === categoryFilter;
-        const passesGroup = groupFilter === 'All' || (product.groupName || 'Direct Message') === groupFilter;
+        const productGroup = product.groupName || 'Direct Message';
+        const passesGroup = groupFilter === 'All' || productGroup === groupFilter;
+        const passesAllowedGroup = allowedGroups.length > 0 ? allowedGroups.includes(productGroup) : true;
 
-        return passesDate && passesCategory && passesGroup;
+        return passesDate && passesCategory && passesGroup && passesAllowedGroup;
       });
-  }, [products, dateFilter, categoryFilter, groupFilter]);
+  }, [products, dateFilter, categoryFilter, groupFilter, allowedGroups]);
 
   const allVisibleRowsSelected = displayData.length > 0 && displayData.every(({ index }) => selectedProductIndexes.includes(index));
 
@@ -551,7 +560,7 @@ const VendorPage = () => {
 
     const prevGroups = JSON.stringify(previousVendorData.storefrontAllowedGroups || []);
     const nextGroups = JSON.stringify(nextState.storefrontAllowedGroups);
-    if (prevGroups !== nextGroups) actions.push(`Updated Storefront Allowed Groups`);
+    if (prevGroups !== nextGroups) actions.push(`Updated Allowed Inventory Groups`);
 
     if (!actions.length) actions.push('Saved Settings (No Field Changes Detected)');
     return actions;
@@ -875,7 +884,7 @@ const VendorPage = () => {
           </div>
 
           <div className="mb-6">
-            <label className="block text-sm font-bold text-gray-700 mb-2">Allowed Storefront Groups</label>
+            <label className="block text-sm font-bold text-gray-700 mb-2">Allowed Inventory Groups</label>
             <div className="flex flex-wrap gap-4 p-4 bg-gray-50 rounded-lg border border-gray-100">
               {sourceGroups.map((group) => (
                 <label key={group} className="flex items-center gap-2 cursor-pointer select-none">
