@@ -74,18 +74,22 @@ const StoreFront = () => {
 
   const visibleProducts = useMemo(() => {
     const products = vendorData?.products || [];
-    const allowedGroups = Array.isArray(vendorData?.storefrontAllowedGroups)
-      ? vendorData.storefrontAllowedGroups
+    const hasConfiguredAllowedGroups = Array.isArray(vendorData?.storefrontAllowedGroups);
+    const normalizedAllowedGroups = hasConfiguredAllowedGroups
+      ? new Set(
+          vendorData.storefrontAllowedGroups
+            .map((group) => String(group || '').trim().toLowerCase())
+            .filter(Boolean)
+        )
       : null;
 
     return products.filter((product) => {
       const isVisible = product?.isVisible !== false;
       if (!isVisible) return false;
 
-      // Filter by allowed groups if set in vendor settings
-      if (allowedGroups && allowedGroups.length > 0) {
-        const productGroup = product?.groupName || 'Direct Message';
-        return allowedGroups.includes(productGroup);
+      if (hasConfiguredAllowedGroups) {
+        const productGroup = String(product?.groupName || 'Direct Message').trim().toLowerCase();
+        return normalizedAllowedGroups.has(productGroup);
       }
 
       return true;
@@ -365,7 +369,6 @@ const StoreFront = () => {
               <div className="flex flex-wrap justify-center md:justify-start gap-4 mt-4">
                 {vendorData.address && <span className="text-xs font-bold bg-black/20 px-3 py-1.5 rounded-full">📍 {vendorData.address}</span>}
                 <span className="text-xs font-bold bg-black/20 px-3 py-1.5 rounded-full">📦 {visibleProducts.length} items available</span>
-                <span className="text-xs font-bold bg-black/20 px-3 py-1.5 rounded-full">🧩 Curated storefront</span>
               </div>
             </div>
           </div>

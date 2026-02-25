@@ -559,7 +559,7 @@ const VendorPage = () => {
 
   const handleSaveSettings = async () => {
     const cleanedNumbers = whatsappNumbersInput.map((number) => number.trim()).filter(Boolean).slice(0, 3);
-    const cleanedAllowedGroups = allowedGroups.filter(Boolean);
+    const cleanedAllowedGroups = allowedGroups.map((group) => group.trim()).filter(Boolean);
 
     const nextState = {
       vendorName: vendorNameInput.trim() || vendorData?.vendorName || vendorId,
