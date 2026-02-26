@@ -191,6 +191,8 @@ const VendorPage = () => {
   const [vendorPasswordInput, setVendorPasswordInput] = useState('');
   const [allowedGroups, setAllowedGroups] = useState([]);
   const [tutorialVideoUrl, setTutorialVideoUrl] = useState('');
+  const [businessTypeInput, setBusinessTypeInput] = useState('Other');
+  const [storefrontDisplayLimit, setStorefrontDisplayLimit] = useState(20);
 
   // Timeline & Chat State
   const [timelineTab, setTimelineTab] = useState('vendor');
@@ -237,6 +239,8 @@ const VendorPage = () => {
             existingNumbers[1] || '',
             existingNumbers[2] || '',
           ]);
+          setBusinessTypeInput(payload.businessType || 'Other');
+          setStorefrontDisplayLimit(Number(payload.storefrontDisplayLimit) > 0 ? Number(payload.storefrontDisplayLimit) : 20);
 
           const storedSessionTime = localStorage.getItem(`vendor_session_${vendorId}`);
           if (storedSessionTime) {
@@ -625,6 +629,12 @@ const VendorPage = () => {
     const nextGroups = JSON.stringify(nextState.storefrontAllowedGroups);
     if (prevGroups !== nextGroups) actions.push(`Updated Allowed Inventory Groups`);
 
+    if ((previousVendorData.businessType || 'Other') !== nextState.businessType) actions.push('Updated Business Type');
+
+    if (Number(previousVendorData.storefrontDisplayLimit || 20) !== Number(nextState.storefrontDisplayLimit || 20)) {
+      actions.push('Updated Storefront Display Limit');
+    }
+
     if (!actions.length) actions.push('Saved Settings (No Field Changes Detected)');
     return actions;
   };
@@ -644,6 +654,8 @@ const VendorPage = () => {
       storeWhatsappNumber: storeWhatsappNumberInput.trim(),
       vendorPassword: vendorPasswordInput,
       storefrontAllowedGroups: cleanedAllowedGroups,
+      businessType: businessTypeInput || 'Other',
+      storefrontDisplayLimit: Number(storefrontDisplayLimit) > 0 ? Number(storefrontDisplayLimit) : 20,
     };
 
     const actions = buildDeepComparisonActions(vendorData || {}, nextState);
@@ -828,7 +840,7 @@ const VendorPage = () => {
   };
 
   return (
-    <div className="p-4 md:p-6 max-w-7xl mx-auto bg-[#F9FAFB] min-h-screen">
+    <div className="p-4 md:p-6 max-w-7xl mx-auto bg-gradient-to-b from-slate-100 via-white to-slate-100 min-h-screen">
       {isAdmin && (
         <Link to="/dashboard" className="text-blue-600 font-semibold hover:underline mb-4 inline-block">
           &larr; Back to Directory
@@ -836,7 +848,7 @@ const VendorPage = () => {
       )}
 
       {/* Share Links Section */}
-      <div className="bg-white border border-gray-200 rounded-[12px] p-5 mb-6 shadow-sm">
+      <div className="bg-white/70 backdrop-blur-xl border border-white/20 rounded-3xl p-5 mb-6 shadow-[0_8px_30px_rgb(0,0,0,0.04)]">
         <h2 className="text-xl font-bold text-[#1A1C23] mb-4">Share Links</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="border rounded-[10px] p-4 bg-gray-50">
@@ -857,6 +869,7 @@ const VendorPage = () => {
         <button onClick={() => setMainTab('settings')} className={`flex-shrink-0 px-6 py-2.5 rounded-lg text-sm font-bold transition-all ${mainTab === 'settings' ? 'bg-white text-[#1A1C23] shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Store Settings</button>
         <button onClick={() => setMainTab('inventory')} className={`flex-shrink-0 px-6 py-2.5 rounded-lg text-sm font-bold transition-all ${mainTab === 'inventory' ? 'bg-white text-[#1A1C23] shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Inventory</button>
         <button onClick={() => setMainTab('advanced')} className={`flex-shrink-0 px-6 py-2.5 rounded-lg text-sm font-bold transition-all ${mainTab === 'advanced' ? 'bg-white text-[#1A1C23] shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Advanced Tools</button>
+        <button onClick={() => setMainTab('metadata')} className={`flex-shrink-0 px-6 py-2.5 rounded-lg text-sm font-bold transition-all ${mainTab === 'metadata' ? 'bg-white text-[#1A1C23] shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Metadata</button>
         <button onClick={() => setMainTab('support')} className={`flex-shrink-0 px-6 py-2.5 rounded-lg text-sm font-bold transition-all ${mainTab === 'support' ? 'bg-white text-[#1A1C23] shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Support Chat</button>
         <button onClick={() => setMainTab('timeline')} className={`flex-shrink-0 px-6 py-2.5 rounded-lg text-sm font-bold transition-all ${mainTab === 'timeline' ? 'bg-white text-[#1A1C23] shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Store Timeline</button>
         <button onClick={() => setMainTab('tips')} className={`flex-shrink-0 px-6 py-2.5 rounded-lg text-sm font-bold transition-all ${mainTab === 'tips' ? 'bg-white text-[#1A1C23] shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Tips</button>
@@ -864,7 +877,7 @@ const VendorPage = () => {
 
       {/* Store Settings Tab */}
       {mainTab === 'settings' && (
-        <div className="bg-white border border-gray-200 rounded-[12px] p-5 mb-6 shadow-sm">
+        <div className="bg-white/70 backdrop-blur-xl border border-white/20 rounded-3xl p-5 mb-6 shadow-[0_8px_30px_rgb(0,0,0,0.04)]">
           <h2 className="text-xl font-bold text-[#1A1C23] mb-4">Store Settings</h2>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
@@ -901,6 +914,18 @@ const VendorPage = () => {
                   <button key={preset} onClick={() => setThemeColorInput(preset)} className={`w-8 h-8 rounded-full border-2 shadow-sm transition-transform hover:scale-110 ${themeColorInput === preset ? 'border-gray-900' : 'border-white'}`} style={{ backgroundColor: preset }} aria-label={`Theme ${preset}`} />
                 ))}
               </div>
+            </div>
+
+            <div className="rounded-2xl bg-white/70 backdrop-blur-xl border border-white/20 p-4">
+              <label className="block text-xs font-black uppercase tracking-wider text-gray-500 mb-2">Storefront Display Limit</label>
+              <input
+                type="number"
+                min={1}
+                value={storefrontDisplayLimit}
+                onChange={(e) => setStorefrontDisplayLimit(e.target.value)}
+                className="w-full p-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none font-semibold"
+              />
+              <p className="text-xs text-gray-500 mt-2">By default, only your latest items show to customers to keep your page fast. Increase this to show more.</p>
             </div>
 
             <div>
@@ -1130,6 +1155,27 @@ const VendorPage = () => {
               </div>
             </div>
           )}
+        </div>
+      )}
+
+
+      {mainTab === 'metadata' && (
+        <div className="bg-white/70 backdrop-blur-xl border border-white/20 rounded-3xl p-6 shadow-[0_8px_30px_rgb(0,0,0,0.04)]">
+          <h2 className="text-2xl font-black tracking-tight text-gray-900 mb-2">Metadata</h2>
+          <p className="text-sm text-gray-500 mb-5">Set your business classification for better customer context.</p>
+          <div className="max-w-md">
+            <label className="block text-xs font-black uppercase tracking-wider text-gray-500 mb-2">Business Type</label>
+            <select
+              value={businessTypeInput}
+              onChange={(e) => setBusinessTypeInput(e.target.value)}
+              className="w-full p-3 border border-gray-200 rounded-xl bg-white focus:ring-2 focus:ring-blue-500 outline-none font-semibold"
+            >
+              {['Electronics', 'Computer Accessories', 'Computers', 'Phones and Laptops', 'Agriculture', 'Fashion', 'Real Estate', 'Vehicles', 'Services', 'Other'].map((option) => (
+                <option key={option} value={option}>{option}</option>
+              ))}
+            </select>
+            <p className="text-xs text-gray-500 mt-2">Click Save Settings in Store Settings to persist this value to Firebase.</p>
+          </div>
         </div>
       )}
 
