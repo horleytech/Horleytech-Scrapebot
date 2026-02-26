@@ -73,6 +73,75 @@ const formatTimelineDate = (isoDate) => {
   return date.toLocaleString();
 };
 
+const parseDateValue = (value) => {
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+};
+
+const isWithinDateRange = (value, startDate, endDate) => {
+  const parsedDate = parseDateValue(value);
+  if (!parsedDate) return false;
+
+  if (startDate) {
+    const start = new Date(startDate);
+    start.setHours(0, 0, 0, 0);
+    if (parsedDate < start) return false;
+  }
+
+  if (endDate) {
+    const end = new Date(endDate);
+    end.setHours(23, 59, 59, 999);
+    if (parsedDate > end) return false;
+  }
+
+  return true;
+};
+
+const getConditionRank = (condition) => {
+  const normalized = String(condition || '').toLowerCase();
+  if (normalized.includes('brand new') || normalized.includes('pristine boxed') || normalized.includes('new')) return 0;
+  if (normalized.includes('grade a uk used') || normalized.includes('grade a used') || normalized.includes('used')) return 1;
+  return 2;
+};
+
+const isCleanCondition = (condition) => {
+  const normalized = String(condition || '').toLowerCase();
+  return normalized.includes('new') || normalized.includes('used');
+};
+
+const extractDeviceVersion = (deviceType) => {
+  const matches = String(deviceType || '').match(/\d+(?:\.\d+)?/g);
+  if (!matches?.length) return -1;
+  return Math.max(...matches.map((entry) => Number(entry) || 0));
+};
+
+const getDeviceTierWeight = (deviceType) => {
+  const normalized = String(deviceType || '').toLowerCase();
+  if (normalized.includes('pro max')) return 3;
+  if (normalized.includes('pro')) return 2;
+  if (normalized.includes('plus')) return 1;
+  return 0;
+};
+
+const getSimRank = (specification) => {
+  const normalized = String(specification || '').toLowerCase();
+  if (normalized.includes('dual sim') || normalized.includes('physical sim+esim') || (normalized.includes('physical sim') && normalized.includes('esim'))) return 0;
+  if (normalized.includes('physical sim')) return 1;
+  if (normalized.includes('esim')) return 2;
+  if (normalized.includes('locked') || normalized.includes('wi-fi only') || normalized.includes('wifi only')) return 3;
+  return 4;
+};
+
+const getStorageRank = (storage) => {
+  const normalized = String(storage || '').toLowerCase();
+  const match = normalized.match(/(\d+(?:\.\d+)?)\s*(tb|gb)/);
+  if (!match) return -1;
+  const value = Number(match[1]) || 0;
+  const unit = match[2];
+  return unit === 'tb' ? value * 1024 : value;
+};
+
 const AdminDashboard = () => {
   const location = useLocation();
   const isAdmin = true;
@@ -85,13 +154,16 @@ const AdminDashboard = () => {
   const [productCategoryFilter, setProductCategoryFilter] = useState('All');
   const [productConditionFilter, setProductConditionFilter] = useState('All');
   const [productSortMode, setProductSortMode] = useState('hierarchy');
+  const [analyticsDataMode, setAnalyticsDataMode] = useState('clean');
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
   const [expandedProductGroups, setExpandedProductGroups] = useState([]);
   const itemsPerPage = 50;
   
   const [offlineVendors, setOfflineVendors] = useState([]);
   const [backups, setBackups] = useState([]);
-  const [loadingSearch, setLoadingSearch] = useState(false);
-  const [loadingBackups, setLoadingBackups] = useState(false);
+  const [, setLoadingSearch] = useState(false);
+  const [, setLoadingBackups] = useState(false);
   const [selectedVendorIds, setSelectedVendorIds] = useState([]);
   const [bulkUpdating, setBulkUpdating] = useState(false);
   const [manualBackupLoading, setManualBackupLoading] = useState(false);
@@ -357,54 +429,14 @@ const AdminDashboard = () => {
     [offlineVendors, searchQuery]
   );
 
-  const normalizedDevicePriority = useMemo(() => {
-    const iphonePriority = [
-      'iphone 17 pro max', 'iphone 17 pro', 'iphone 17 plus', 'iphone 17',
-      'iphone 16 pro max', 'iphone 16 pro', 'iphone 16 plus', 'iphone 16',
-      'iphone 15 pro max', 'iphone 15 pro', 'iphone 15 plus', 'iphone 15',
-      'iphone 14 pro max', 'iphone 14 pro', 'iphone 14 plus', 'iphone 14',
-      'iphone 13 pro max', 'iphone 13 pro', 'iphone 13',
-      'iphone 12 pro max', 'iphone 12 pro', 'iphone 12',
-      'iphone 11 pro max', 'iphone 11 pro', 'iphone 11',
-      'iphone x',
-    ];
-
-    const samsungPriority = [
-      'samsung galaxy z fold6', 'samsung galaxy z fold5', 'samsung galaxy z fold4', 'samsung galaxy z fold3',
-      'samsung galaxy s24 ultra', 'samsung galaxy s24 plus', 'samsung galaxy s24',
-      'samsung galaxy s23 ultra', 'samsung galaxy s23 plus', 'samsung galaxy s23',
-      'samsung galaxy s22 ultra', 'samsung galaxy s22 plus', 'samsung galaxy s22',
-      'samsung galaxy s21 ultra', 'samsung galaxy s21 plus', 'samsung galaxy s21',
-      'samsung galaxy s20 ultra', 'samsung galaxy s20 plus', 'samsung galaxy s20',
-      'samsung galaxy s10', 'samsung galaxy s9', 'samsung galaxy s8',
-    ];
-
-    const pixelPriority = [
-      'google pixel 9 pro xl', 'google pixel 9 pro', 'google pixel 9',
-      'google pixel 8 pro', 'google pixel 8',
-      'google pixel 7 pro', 'google pixel 7',
-      'google pixel 6 pro', 'google pixel 6',
-      'google pixel',
-    ];
-
-    const ipadPriority = [
-      'ipad pro 13', 'ipad pro 12.9', 'ipad pro 11',
-      'ipad air 13', 'ipad air 11', 'ipad air',
-      'ipad mini',
-      'ipad 10th gen',
-    ];
-
-    return {
-      smartphones: [...iphonePriority, ...samsungPriority, ...pixelPriority],
-      tablets: [...ipadPriority],
-    };
-  }, []);
-
   const groupedGlobalProducts = useMemo(() => {
     const grouped = new Map();
 
     offlineVendors.forEach((vendor) => {
       (vendor.products || []).forEach((product, index) => {
+        const productDate = product.DatePosted || vendor.lastUpdated;
+        if (!isWithinDateRange(productDate, startDate, endDate)) return;
+
         const category = (product.Category || 'Uncategorized').trim() || 'Uncategorized';
         const deviceType = (product['Device Type'] || 'Unknown Device').trim() || 'Unknown Device';
         const condition = (product.Condition || 'Unknown').trim() || 'Unknown';
@@ -442,61 +474,34 @@ const AdminDashboard = () => {
       });
     });
 
-    const categoryRank = (category) => {
-      const normalized = String(category || '').toLowerCase();
-      if (normalized.includes('smart')) return 0;
-      if (normalized.includes('tablet') || normalized.includes('ipad')) return 1;
-      return 2;
-    };
-
-    const deviceRank = (category, deviceType) => {
-      const normalizedCategory = String(category || '').toLowerCase();
-      const normalizedDevice = String(deviceType || '').toLowerCase();
-
-      const priorityList = normalizedCategory.includes('smart')
-        ? normalizedDevicePriority.smartphones
-        : normalizedCategory.includes('tablet') || normalizedCategory.includes('ipad')
-          ? normalizedDevicePriority.tablets
-          : [];
-
-      const index = priorityList.findIndex((entry) => normalizedDevice.includes(entry));
-      return index === -1 ? Number.MAX_SAFE_INTEGER : index;
-    };
-
-    const conditionRank = (condition) => {
-      const normalized = String(condition || '').toLowerCase();
-      if (normalized.includes('brand new')) return 0;
-      if (normalized.includes('used')) return 1;
-      return 2;
-    };
-
     return Array.from(grouped.values()).sort((a, b) => {
-      const categoryDiff = categoryRank(a.category) - categoryRank(b.category);
-      if (categoryDiff !== 0) {
-        if (categoryRank(a.category) >= 2 && categoryRank(b.category) >= 2) {
-          return a.category.localeCompare(b.category);
-        }
-        return categoryDiff;
-      }
-
-      const deviceA = deviceRank(a.category, a.deviceType);
-      const deviceB = deviceRank(b.category, b.deviceType);
-      if (deviceA !== deviceB) return deviceA - deviceB;
-
-      if (deviceA === Number.MAX_SAFE_INTEGER && deviceB === Number.MAX_SAFE_INTEGER) {
-        const alphaDeviceSort = a.deviceType.localeCompare(b.deviceType);
-        if (alphaDeviceSort !== 0) return alphaDeviceSort;
-      }
-
-      const conditionDiff = conditionRank(a.condition) - conditionRank(b.condition);
+      const conditionDiff = getConditionRank(a.condition) - getConditionRank(b.condition);
       if (conditionDiff !== 0) return conditionDiff;
+
+      const versionDiff = extractDeviceVersion(b.deviceType) - extractDeviceVersion(a.deviceType);
+      if (versionDiff !== 0) return versionDiff;
+
+      const tierDiff = getDeviceTierWeight(b.deviceType) - getDeviceTierWeight(a.deviceType);
+      if (tierDiff !== 0) return tierDiff;
+
+      const deviceDiff = a.deviceType.localeCompare(b.deviceType);
+      if (deviceDiff !== 0) return deviceDiff;
+
+      const simDiff = getSimRank(a.specification) - getSimRank(b.specification);
+      if (simDiff !== 0) return simDiff;
+
+      const storageDiff = getStorageRank(b.storage) - getStorageRank(a.storage);
+      if (storageDiff !== 0) return storageDiff;
 
       const specDiff = a.specification.localeCompare(b.specification);
       if (specDiff !== 0) return specDiff;
 
+      const categoryDiff = a.category.localeCompare(b.category);
+      if (categoryDiff !== 0) return categoryDiff;
+
       return a.storage.localeCompare(b.storage);
     });
-  }, [offlineVendors, normalizedDevicePriority]);
+  }, [offlineVendors, startDate, endDate]);
 
   const filteredGlobalProducts = useMemo(() => {
     const queryText = productSearchQuery.trim().toLowerCase();
@@ -583,24 +588,43 @@ const AdminDashboard = () => {
   }, [offlineVendors]);
 
   const analytics = useMemo(() => {
-    const totalVendors = offlineVendors.length;
-    const totalInventoryValue = offlineVendors.reduce((sum, vendor) => sum + (vendor.inventoryValue || 0), 0);
-    const totalStoreViews = offlineVendors.reduce((sum, vendor) => sum + (vendor.viewCount || 0), 0);
-    const totalWhatsAppOrders = offlineVendors.reduce((sum, vendor) => sum + (vendor.whatsappClicks || 0), 0);
-
-    const deviceFrequency = {};
+    const scopedProducts = [];
     offlineVendors.forEach((vendor) => {
       (vendor.products || []).forEach((product) => {
-        const key = product['Device Type'] || 'Unknown';
-        deviceFrequency[key] = (deviceFrequency[key] || 0) + 1;
+        const productDate = product.DatePosted || vendor.lastUpdated;
+        if (!isWithinDateRange(productDate, startDate, endDate)) return;
+        if (analyticsDataMode === 'clean' && !isCleanCondition(product.Condition)) return;
+        scopedProducts.push({ vendor, product });
       });
     });
 
-    const mostTrackedDevice = Object.entries(deviceFrequency).sort((a, b) => b[1] - a[1])[0]?.[0] || 'N/A';
-    const topVendor = [...offlineVendors].sort((a, b) => (b.whatsappClicks || 0) - (a.whatsappClicks || 0))[0]?.vendorName || 'N/A';
+    const vendorSet = new Set(scopedProducts.map(({ vendor }) => vendor.docId));
+    const totalVendors = offlineVendors.length;
+    const filteredVendorCount = vendorSet.size;
+    const vendorSource = offlineVendors.filter((vendor) => vendorSet.has(vendor.docId));
+    const totalInventoryValue = scopedProducts.reduce((sum, { product }) => sum + parseNairaValue(product['Regular price']), 0);
+    const totalStoreViews = vendorSource.reduce((sum, vendor) => sum + (vendor.viewCount || 0), 0);
+    const totalWhatsAppOrders = vendorSource.reduce((sum, vendor) => sum + (vendor.whatsappClicks || 0), 0);
 
-    return { totalVendors, totalInventoryValue, totalStoreViews, totalWhatsAppOrders, mostTrackedDevice, topVendor };
-  }, [offlineVendors]);
+    const deviceFrequency = {};
+    scopedProducts.forEach(({ product }) => {
+      const key = product['Device Type'] || 'Unknown';
+      deviceFrequency[key] = (deviceFrequency[key] || 0) + 1;
+    });
+
+    const mostTrackedDevice = Object.entries(deviceFrequency).sort((a, b) => b[1] - a[1])[0]?.[0] || 'N/A';
+    const topVendor = [...vendorSource].sort((a, b) => (b.whatsappClicks || 0) - (a.whatsappClicks || 0))[0]?.vendorName || 'N/A';
+
+    return {
+      totalVendors,
+      filteredVendorCount,
+      totalInventoryValue,
+      totalStoreViews,
+      totalWhatsAppOrders,
+      mostTrackedDevice,
+      topVendor,
+    };
+  }, [offlineVendors, analyticsDataMode, startDate, endDate]);
 
   const insightCharts = useMemo(() => {
     const categoryCount = {};
@@ -614,6 +638,10 @@ const AdminDashboard = () => {
 
     offlineVendors.forEach((vendor) => {
       (vendor.products || []).forEach((product) => {
+        const productDate = product.DatePosted || vendor.lastUpdated;
+        if (!isWithinDateRange(productDate, startDate, endDate)) return;
+        if (analyticsDataMode === 'clean' && !isCleanCondition(product.Condition)) return;
+
         const category = product.Category || 'Others';
         categoryCount[category] = (categoryCount[category] || 0) + 1;
 
@@ -653,7 +681,7 @@ const AdminDashboard = () => {
       conditionMix: Object.entries(conditionMap).map(([condition, count]) => ({ condition, count })),
       leadVelocity,
     };
-  }, [offlineVendors]);
+  }, [offlineVendors, analyticsDataMode, startDate, endDate]);
 
   const unreadMessages = useMemo(
     () => allMessages.filter((message) => message.sender === 'vendor' && !message.readByAdmin),
@@ -916,6 +944,10 @@ const AdminDashboard = () => {
 
     offlineVendors.forEach((vendor) => {
       (vendor.products || []).forEach((product) => {
+        const productDate = product.DatePosted || vendor.lastUpdated;
+        if (!isWithinDateRange(productDate, startDate, endDate)) return;
+        if (analyticsDataMode === 'clean' && !isCleanCondition(product.Condition)) return;
+
         const key = `${product['Device Type'] || 'Unknown'} (${product.Condition || 'Unknown'})`;
         if (!buckets[key]) buckets[key] = { total: 0, count: 0 };
         buckets[key].total += parseNairaValue(product['Regular price']);
@@ -947,7 +979,7 @@ const AdminDashboard = () => {
       actionHeatmap: Object.entries(heat).map(([type, frequency]) => ({ type, frequency })),
       scraperAccuracy: Object.entries(accuracy).map(([name, value]) => ({ name, value })),
     };
-  }, [offlineVendors]);
+  }, [offlineVendors, analyticsDataMode, startDate, endDate]);
 
   return (
     <AdminDashboardLayout notificationCount={unreadMessages.length} onNotificationClick={() => setNotificationOpen(true)}>
@@ -1035,7 +1067,35 @@ const AdminDashboard = () => {
           {/* Conditional Rendering of Tabs */}
           {activeTab === 'analytics' ? (
             <div className="bg-white shadow-lg rounded-xl overflow-hidden mb-10 p-6 border border-gray-200">
-              <h2 className="text-2xl font-black text-[#1A1C23] mb-8">📊 Platform Data Insights</h2>
+              <div className="flex flex-col xl:flex-row xl:items-end xl:justify-between gap-4 mb-8">
+                <div>
+                  <h2 className="text-2xl font-black text-[#1A1C23]">📊 Platform Data Insights</h2>
+                  <p className="text-xs text-gray-500 mt-2">Showing {analytics.filteredVendorCount} vendors in selected range/mode.</p>
+                </div>
+                <div className="flex flex-col sm:flex-row gap-3">
+                  <div className="grid grid-cols-2 gap-3">
+                    <input
+                      type="date"
+                      value={startDate}
+                      onChange={(e) => setStartDate(e.target.value)}
+                      className="px-4 py-2.5 rounded-xl border border-gray-100 bg-white text-sm outline-none focus:ring-2 focus:ring-gray-300"
+                    />
+                    <input
+                      type="date"
+                      value={endDate}
+                      onChange={(e) => setEndDate(e.target.value)}
+                      className="px-4 py-2.5 rounded-xl border border-gray-100 bg-white text-sm outline-none focus:ring-2 focus:ring-gray-300"
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setAnalyticsDataMode((prev) => (prev === 'clean' ? 'all' : 'clean'))}
+                    className="px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider border border-gray-200 bg-gray-50 hover:bg-gray-100 text-gray-700"
+                  >
+                    {analyticsDataMode === 'clean' ? 'Clean Data Only' : 'All Data (Including Uncategorized/Other)'}
+                  </button>
+                </div>
+              </div>
               <div className="grid grid-cols-1 xl:grid-cols-2 gap-8 mb-8">
                 {/* Pie Chart: Category Mix */}
                 <div className="h-[380px] border border-gray-100 rounded-2xl p-5 shadow-sm bg-gray-50">
@@ -1051,9 +1111,10 @@ const AdminDashboard = () => {
                         outerRadius={110}
                         label
                         onClick={(entry) => {
-                          if (!entry?.name) return;
+                          const category = entry?.name || entry?.payload?.name;
+                          if (!category) return;
                           setActiveTab('products');
-                          setProductCategoryFilter(entry.name);
+                          setProductCategoryFilter(category);
                           setProductSortMode('hierarchy');
                         }}
                       >
@@ -1082,9 +1143,10 @@ const AdminDashboard = () => {
                         radius={[6, 6, 0, 0]}
                         name="Products by Condition"
                         onClick={(entry) => {
-                          if (!entry?.condition) return;
+                          const condition = entry?.condition || entry?.payload?.condition || entry?.activePayload?.[0]?.payload?.condition;
+                          if (!condition) return;
                           setActiveTab('products');
-                          setProductConditionFilter(entry.condition);
+                          setProductConditionFilter(condition);
                           setProductSortMode('hierarchy');
                         }}
                       />
@@ -1188,6 +1250,20 @@ const AdminDashboard = () => {
                     <option value="highest_price">Highest Total Price</option>
                     <option value="highest_demand">Highest Demand</option>
                   </select>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full lg:w-auto">
+                  <input
+                    type="date"
+                    value={startDate}
+                    onChange={(e) => setStartDate(e.target.value)}
+                    className="px-4 py-3 rounded-2xl border border-gray-100 bg-white/80 text-sm outline-none focus:ring-2 focus:ring-gray-300"
+                  />
+                  <input
+                    type="date"
+                    value={endDate}
+                    onChange={(e) => setEndDate(e.target.value)}
+                    className="px-4 py-3 rounded-2xl border border-gray-100 bg-white/80 text-sm outline-none focus:ring-2 focus:ring-gray-300"
+                  />
                 </div>
               </div>
 
