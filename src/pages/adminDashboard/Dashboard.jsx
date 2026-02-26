@@ -15,6 +15,11 @@ const COLLECTIONS = {
 };
 
 const CHART_COLORS = ['#16a34a', '#2563eb', '#f59e0b', '#7c3aed', '#ef4444', '#14b8a6', '#f97316'];
+const MASTER_DICTIONARY_STORAGE_KEY = 'admin-master-dictionary-v1';
+const FALLBACK_MASTER_DICTIONARY_CSV = 'https://example.com/master-dictionary.csv';
+
+const BRAND_NEW_CONDITIONS = new Set(['brand new', 'pristine boxed', 'new']);
+const USED_CONDITIONS = new Set(['grade a uk used', 'grade a used', 'used']);
 
 const toCsv = (rows) => {
   if (!rows.length) return '';
@@ -81,7 +86,7 @@ const parseDateValue = (value) => {
 
 const isWithinDateRange = (value, startDate, endDate) => {
   const parsedDate = parseDateValue(value);
-  if (!parsedDate) return false;
+  if (!parsedDate) return !startDate && !endDate;
 
   if (startDate) {
     const start = new Date(startDate);
@@ -98,17 +103,74 @@ const isWithinDateRange = (value, startDate, endDate) => {
   return true;
 };
 
+const normalizeDictionaryKey = (value) => String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+
+const parseCsvLine = (line = '') => {
+  const parsed = [];
+  let current = '';
+  let inQuotes = false;
+
+  for (let i = 0; i < line.length; i += 1) {
+    const char = line[i];
+    if (char === '"') {
+      if (inQuotes && line[i + 1] === '"') {
+        current += '"';
+        i += 1;
+      } else {
+        inQuotes = !inQuotes;
+      }
+      continue;
+    }
+    if (char === ',' && !inQuotes) {
+      parsed.push(current.trim());
+      current = '';
+      continue;
+    }
+    current += char;
+  }
+
+  parsed.push(current.trim());
+  return parsed;
+};
+
+const parseMasterDictionaryCsv = (csvText = '') => {
+  const lines = csvText.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  if (!lines.length) return {};
+
+  const headers = parseCsvLine(lines[0]).map((header) => header.toLowerCase());
+  const rawNameIndex = headers.findIndex((header) => header.includes('raw name'));
+  const standardNameIndex = headers.findIndex((header) => header.includes('standard name'));
+
+  if (rawNameIndex === -1 || standardNameIndex === -1) {
+    throw new Error('CSV must include "Raw Name" and "Standard Name" columns.');
+  }
+
+  return lines.slice(1).reduce((acc, line) => {
+    const values = parseCsvLine(line);
+    const rawName = values[rawNameIndex];
+    const standardName = values[standardNameIndex];
+    const rawKey = normalizeDictionaryKey(rawName);
+
+    if (!rawKey || !standardName) return acc;
+    acc[rawKey] = standardName.trim();
+    return acc;
+  }, {});
+};
+
+const standardizeCondition = (condition) => {
+  const normalized = String(condition || '').toLowerCase().trim();
+  if (BRAND_NEW_CONDITIONS.has(normalized)) return 'Brand New';
+  if (USED_CONDITIONS.has(normalized)) return 'Used';
+  return 'Unclean';
+};
+
 const getConditionRank = (condition) => {
-  const normalized = String(condition || '').toLowerCase();
-  if (normalized.includes('brand new') || normalized.includes('pristine boxed') || normalized.includes('new')) return 0;
-  if (normalized.includes('grade a uk used') || normalized.includes('grade a used') || normalized.includes('used')) return 1;
+  const standardized = standardizeCondition(condition);
+  if (standardized === 'Brand New') return 0;
+  if (standardized === 'Used') return 1;
   return 2;
 };
 
-const isCleanCondition = (condition) => {
-  const normalized = String(condition || '').toLowerCase();
-  return normalized.includes('new') || normalized.includes('used');
-};
 
 const extractDeviceVersion = (deviceType) => {
   const matches = String(deviceType || '').match(/\d+(?:\.\d+)?/g);
@@ -154,7 +216,9 @@ const AdminDashboard = () => {
   const [productCategoryFilter, setProductCategoryFilter] = useState('All');
   const [productConditionFilter, setProductConditionFilter] = useState('All');
   const [productSortMode, setProductSortMode] = useState('hierarchy');
-  const [analyticsDataMode, setAnalyticsDataMode] = useState('clean');
+  const [dataPurity, setDataPurity] = useState('clean');
+  const [masterDictionary, setMasterDictionary] = useState({});
+  const [syncingDictionary, setSyncingDictionary] = useState(false);
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [expandedProductGroups, setExpandedProductGroups] = useState([]);
@@ -424,6 +488,40 @@ const AdminDashboard = () => {
     }
   }, [activeTab]);
 
+  useEffect(() => {
+    try {
+      const cached = localStorage.getItem(MASTER_DICTIONARY_STORAGE_KEY);
+      if (!cached) return;
+      const parsed = JSON.parse(cached);
+      if (parsed && typeof parsed === 'object') {
+        setMasterDictionary(parsed);
+      }
+    } catch (error) {
+      console.error('Failed to load cached master dictionary:', error);
+    }
+  }, []);
+
+  const syncMasterDictionary = async () => {
+    const csvUrl = import.meta.env.VITE_MASTER_DICTIONARY_CSV || FALLBACK_MASTER_DICTIONARY_CSV;
+    setSyncingDictionary(true);
+
+    try {
+      const response = await fetch(csvUrl, { headers: { Accept: 'text/csv,text/plain,*/*' } });
+      if (!response.ok) throw new Error(`Unable to fetch CSV (${response.status})`);
+
+      const csvText = await response.text();
+      const parsedDictionary = parseMasterDictionaryCsv(csvText);
+      setMasterDictionary(parsedDictionary);
+      localStorage.setItem(MASTER_DICTIONARY_STORAGE_KEY, JSON.stringify(parsedDictionary));
+      alert(`✅ Synced ${Object.keys(parsedDictionary).length} dictionary mappings.`);
+    } catch (error) {
+      console.error('Master dictionary sync failed:', error);
+      alert(`❌ Failed to sync dictionary: ${error.message}`);
+    } finally {
+      setSyncingDictionary(false);
+    }
+  };
+
   const filteredOffline = useMemo(
     () => offlineVendors.filter((v) => !searchQuery || v.vendorName?.toLowerCase().includes(searchQuery.toLowerCase())),
     [offlineVendors, searchQuery]
@@ -438,18 +536,21 @@ const AdminDashboard = () => {
         if (!isWithinDateRange(productDate, startDate, endDate)) return;
 
         const category = (product.Category || 'Uncategorized').trim() || 'Uncategorized';
-        const deviceType = (product['Device Type'] || 'Unknown Device').trim() || 'Unknown Device';
-        const condition = (product.Condition || 'Unknown').trim() || 'Unknown';
+        const rawDeviceType = (product['Device Type'] || 'Unknown Device').trim() || 'Unknown Device';
+        const mappedDeviceType = masterDictionary[normalizeDictionaryKey(rawDeviceType)] || rawDeviceType;
+        const condition = standardizeCondition(product.Condition || 'Unknown');
+        if (dataPurity === 'clean' && condition === 'Unclean') return;
+
         const specification = (product['SIM Type/Model/Processor'] || 'N/A').trim() || 'N/A';
         const storage = (product['Storage Capacity/Configuration'] || 'N/A').trim() || 'N/A';
         const priceValue = parseNairaValue(product['Regular price']);
-        const groupKey = `${category}__${deviceType}__${condition}__${specification}__${storage}`;
+        const groupKey = `${category}__${mappedDeviceType}__${condition}__${specification}__${storage}`;
 
         if (!grouped.has(groupKey)) {
           grouped.set(groupKey, {
             groupKey,
             category,
-            deviceType,
+            deviceType: mappedDeviceType,
             condition,
             specification,
             storage,
@@ -463,7 +564,7 @@ const AdminDashboard = () => {
         entry.totalAccumulatedPrice += priceValue;
         entry.stockCount += 1;
         entry.items.push({
-          id: `${vendor.docId}-${index}-${deviceType}`,
+          id: `${vendor.docId}-${index}-${mappedDeviceType}`,
           vendorName: vendor.vendorName,
           vendorLink: vendor.shareableLink,
           price: product['Regular price'] || 'N/A',
@@ -501,7 +602,7 @@ const AdminDashboard = () => {
 
       return a.storage.localeCompare(b.storage);
     });
-  }, [offlineVendors, startDate, endDate]);
+  }, [offlineVendors, startDate, endDate, masterDictionary, dataPurity]);
 
   const filteredGlobalProducts = useMemo(() => {
     const queryText = productSearchQuery.trim().toLowerCase();
@@ -517,8 +618,9 @@ const AdminDashboard = () => {
 
       const matchesCategory = productCategoryFilter === 'All' || group.category === productCategoryFilter;
       const matchesCondition = productConditionFilter === 'All' || group.condition === productConditionFilter;
+      const matchesDateRange = group.items.some((item) => isWithinDateRange(item.date, startDate, endDate));
 
-      return matchesQuery && matchesCategory && matchesCondition;
+      return matchesQuery && matchesCategory && matchesCondition && matchesDateRange;
     });
 
     if (productSortMode === 'highest_price') {
@@ -528,7 +630,7 @@ const AdminDashboard = () => {
     }
 
     return filtered;
-  }, [groupedGlobalProducts, productSearchQuery, productCategoryFilter, productConditionFilter, productSortMode]);
+  }, [groupedGlobalProducts, productSearchQuery, productCategoryFilter, productConditionFilter, productSortMode, startDate, endDate]);
 
   const totalPages = Math.max(1, Math.ceil(filteredOffline.length / itemsPerPage));
 
@@ -593,8 +695,9 @@ const AdminDashboard = () => {
       (vendor.products || []).forEach((product) => {
         const productDate = product.DatePosted || vendor.lastUpdated;
         if (!isWithinDateRange(productDate, startDate, endDate)) return;
-        if (analyticsDataMode === 'clean' && !isCleanCondition(product.Condition)) return;
-        scopedProducts.push({ vendor, product });
+        const normalizedCondition = standardizeCondition(product.Condition || 'Unknown');
+        if (dataPurity === 'clean' && normalizedCondition === 'Unclean') return;
+        scopedProducts.push({ vendor, product, normalizedCondition });
       });
     });
 
@@ -608,7 +711,8 @@ const AdminDashboard = () => {
 
     const deviceFrequency = {};
     scopedProducts.forEach(({ product }) => {
-      const key = product['Device Type'] || 'Unknown';
+      const rawDeviceType = product['Device Type'] || 'Unknown';
+      const key = masterDictionary[normalizeDictionaryKey(rawDeviceType)] || rawDeviceType;
       deviceFrequency[key] = (deviceFrequency[key] || 0) + 1;
     });
 
@@ -624,7 +728,7 @@ const AdminDashboard = () => {
       mostTrackedDevice,
       topVendor,
     };
-  }, [offlineVendors, analyticsDataMode, startDate, endDate]);
+  }, [offlineVendors, dataPurity, startDate, endDate, masterDictionary]);
 
   const insightCharts = useMemo(() => {
     const categoryCount = {};
@@ -640,7 +744,8 @@ const AdminDashboard = () => {
       (vendor.products || []).forEach((product) => {
         const productDate = product.DatePosted || vendor.lastUpdated;
         if (!isWithinDateRange(productDate, startDate, endDate)) return;
-        if (analyticsDataMode === 'clean' && !isCleanCondition(product.Condition)) return;
+        const condition = standardizeCondition(product.Condition || 'Unknown');
+        if (dataPurity === 'clean' && condition === 'Unclean') return;
 
         const category = product.Category || 'Others';
         categoryCount[category] = (categoryCount[category] || 0) + 1;
@@ -650,7 +755,6 @@ const AdminDashboard = () => {
         else if (price >= 100000 && price <= 500000) priceDensityMap['₦100k - ₦500k'] += 1;
         else if (price > 500000) priceDensityMap['₦500k+'] += 1;
 
-        const condition = product.Condition || 'Unknown';
         conditionMap[condition] = (conditionMap[condition] || 0) + 1;
       });
 
@@ -681,7 +785,7 @@ const AdminDashboard = () => {
       conditionMix: Object.entries(conditionMap).map(([condition, count]) => ({ condition, count })),
       leadVelocity,
     };
-  }, [offlineVendors, analyticsDataMode, startDate, endDate]);
+  }, [offlineVendors, dataPurity, startDate, endDate]);
 
   const unreadMessages = useMemo(
     () => allMessages.filter((message) => message.sender === 'vendor' && !message.readByAdmin),
@@ -711,6 +815,22 @@ const AdminDashboard = () => {
     setExpandedProductGroups((prev) =>
       prev.includes(groupKey) ? prev.filter((key) => key !== groupKey) : [...prev, groupKey]
     );
+  };
+
+  const handleCategoryChartClick = (entry) => {
+    const category = entry?.name || entry?.payload?.name || entry?.payload?.payload?.name;
+    if (!category) return;
+    setActiveTab('products');
+    setProductCategoryFilter(category);
+    setProductSortMode('hierarchy');
+  };
+
+  const handleConditionChartClick = (entry) => {
+    const condition = entry?.condition || entry?.payload?.condition || entry?.payload?.payload?.condition;
+    if (!condition) return;
+    setActiveTab('products');
+    setProductConditionFilter(condition);
+    setProductSortMode('hierarchy');
   };
 
   const toggleAdvancedTools = async (vendor) => {
@@ -946,9 +1066,12 @@ const AdminDashboard = () => {
       (vendor.products || []).forEach((product) => {
         const productDate = product.DatePosted || vendor.lastUpdated;
         if (!isWithinDateRange(productDate, startDate, endDate)) return;
-        if (analyticsDataMode === 'clean' && !isCleanCondition(product.Condition)) return;
+        const normalizedCondition = standardizeCondition(product.Condition || 'Unknown');
+        if (dataPurity === 'clean' && normalizedCondition === 'Unclean') return;
 
-        const key = `${product['Device Type'] || 'Unknown'} (${product.Condition || 'Unknown'})`;
+        const rawDeviceType = product['Device Type'] || 'Unknown';
+        const mappedDeviceType = masterDictionary[normalizeDictionaryKey(rawDeviceType)] || rawDeviceType;
+        const key = `${mappedDeviceType} (${normalizedCondition})`;
         if (!buckets[key]) buckets[key] = { total: 0, count: 0 };
         buckets[key].total += parseNairaValue(product['Regular price']);
         buckets[key].count += 1;
@@ -979,7 +1102,7 @@ const AdminDashboard = () => {
       actionHeatmap: Object.entries(heat).map(([type, frequency]) => ({ type, frequency })),
       scraperAccuracy: Object.entries(accuracy).map(([name, value]) => ({ name, value })),
     };
-  }, [offlineVendors, analyticsDataMode, startDate, endDate]);
+  }, [offlineVendors, dataPurity, startDate, endDate, masterDictionary]);
 
   return (
     <AdminDashboardLayout notificationCount={unreadMessages.length} onNotificationClick={() => setNotificationOpen(true)}>
@@ -1066,33 +1189,33 @@ const AdminDashboard = () => {
 
           {/* Conditional Rendering of Tabs */}
           {activeTab === 'analytics' ? (
-            <div className="bg-white shadow-lg rounded-xl overflow-hidden mb-10 p-6 border border-gray-200">
+            <div className="bg-white/70 backdrop-blur-xl rounded-3xl overflow-hidden mb-10 p-6 border border-gray-100 shadow-sm">
               <div className="flex flex-col xl:flex-row xl:items-end xl:justify-between gap-4 mb-8">
                 <div>
                   <h2 className="text-2xl font-black text-[#1A1C23]">📊 Platform Data Insights</h2>
                   <p className="text-xs text-gray-500 mt-2">Showing {analytics.filteredVendorCount} vendors in selected range/mode.</p>
                 </div>
                 <div className="flex flex-col sm:flex-row gap-3">
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-2 gap-3 bg-white/70 backdrop-blur-xl rounded-2xl border border-gray-100 shadow-sm p-2">
                     <input
                       type="date"
                       value={startDate}
                       onChange={(e) => setStartDate(e.target.value)}
-                      className="px-4 py-2.5 rounded-xl border border-gray-100 bg-white text-sm outline-none focus:ring-2 focus:ring-gray-300"
+                      className="px-4 py-2.5 rounded-xl border border-gray-100 bg-white/80 text-sm outline-none focus:ring-2 focus:ring-gray-300"
                     />
                     <input
                       type="date"
                       value={endDate}
                       onChange={(e) => setEndDate(e.target.value)}
-                      className="px-4 py-2.5 rounded-xl border border-gray-100 bg-white text-sm outline-none focus:ring-2 focus:ring-gray-300"
+                      className="px-4 py-2.5 rounded-xl border border-gray-100 bg-white/80 text-sm outline-none focus:ring-2 focus:ring-gray-300"
                     />
                   </div>
                   <button
                     type="button"
-                    onClick={() => setAnalyticsDataMode((prev) => (prev === 'clean' ? 'all' : 'clean'))}
-                    className="px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider border border-gray-200 bg-gray-50 hover:bg-gray-100 text-gray-700"
+                    onClick={() => setDataPurity((prev) => (prev === 'clean' ? 'all' : 'clean'))}
+                    className="px-4 py-2.5 rounded-2xl text-xs font-black uppercase tracking-wider border border-gray-100 bg-white/70 backdrop-blur-xl shadow-sm hover:bg-white text-gray-700"
                   >
-                    {analyticsDataMode === 'clean' ? 'Clean Data Only' : 'All Data (Including Uncategorized/Other)'}
+                    {dataPurity === 'clean' ? 'Clean Data: ON' : 'Clean Data: OFF'}
                   </button>
                 </div>
               </div>
@@ -1110,13 +1233,7 @@ const AdminDashboard = () => {
                         cy="50%"
                         outerRadius={110}
                         label
-                        onClick={(entry) => {
-                          const category = entry?.name || entry?.payload?.name;
-                          if (!category) return;
-                          setActiveTab('products');
-                          setProductCategoryFilter(category);
-                          setProductSortMode('hierarchy');
-                        }}
+                        onClick={handleCategoryChartClick}
                       >
                         {insightCharts.categoryMix.map((entry, index) => (
                           <Cell key={`cell-${index}`} fill={CHART_COLORS[index % CHART_COLORS.length]} />
@@ -1142,13 +1259,7 @@ const AdminDashboard = () => {
                         fill="#3b82f6"
                         radius={[6, 6, 0, 0]}
                         name="Products by Condition"
-                        onClick={(entry) => {
-                          const condition = entry?.condition || entry?.payload?.condition || entry?.activePayload?.[0]?.payload?.condition;
-                          if (!condition) return;
-                          setActiveTab('products');
-                          setProductConditionFilter(condition);
-                          setProductSortMode('hierarchy');
-                        }}
+                        onClick={handleConditionChartClick}
                       />
                     </BarChart>
                   </ResponsiveContainer>
@@ -1265,6 +1376,18 @@ const AdminDashboard = () => {
                     className="px-4 py-3 rounded-2xl border border-gray-100 bg-white/80 text-sm outline-none focus:ring-2 focus:ring-gray-300"
                   />
                 </div>
+              </div>
+
+              <div className="mb-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 bg-white/70 backdrop-blur-xl rounded-2xl border border-gray-100 shadow-sm p-4">
+                <p className="text-xs font-bold uppercase tracking-wider text-gray-500">Dictionary Mappings: {Object.keys(masterDictionary).length}</p>
+                <button
+                  type="button"
+                  onClick={syncMasterDictionary}
+                  disabled={syncingDictionary}
+                  className="px-4 py-2.5 rounded-2xl text-xs font-black uppercase tracking-wider border border-gray-100 bg-white/80 hover:bg-white disabled:opacity-50"
+                >
+                  {syncingDictionary ? 'Syncing...' : 'Sync Master Dictionary'}
+                </button>
               </div>
 
               <div className="overflow-x-auto rounded-3xl border border-gray-100">
