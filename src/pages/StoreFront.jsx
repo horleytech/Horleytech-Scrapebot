@@ -88,17 +88,19 @@ const StoreFront = () => {
         )
       : null;
 
-    return products.filter((product) => {
-      const isVisible = product?.isVisible !== false;
-      if (!isVisible) return false;
+    return products
+      .filter((product) => {
+        const isVisible = product?.isVisible !== false;
+        if (!isVisible) return false;
 
-      if (hasConfiguredAllowedGroups) {
-        const productGroup = String(product?.groupName || 'Direct Message').trim().toLowerCase();
-        return normalizedAllowedGroups.has(productGroup);
-      }
+        if (hasConfiguredAllowedGroups) {
+          const productGroup = String(product?.groupName || 'Direct Message').trim().toLowerCase();
+          return normalizedAllowedGroups.has(productGroup);
+        }
 
-      return true;
-    });
+        return true;
+      })
+      .slice(0, vendorData?.storefrontDisplayLimit || 20);
   }, [vendorData]);
 
   const pickStaffNumber = () => {
@@ -186,10 +188,10 @@ const StoreFront = () => {
 
   const pageClassName = isDarkLayout
     ? 'min-h-screen py-8 px-4 md:px-8 bg-[#121212] text-gray-100'
-    : 'min-h-screen bg-gray-50 py-8 px-4 md:px-8';
+    : 'min-h-screen bg-gradient-to-b from-slate-100 via-white to-slate-100 py-8 px-4 md:px-8';
 
   const renderClassicTable = () => (
-    <div className={`overflow-x-auto rounded-2xl shadow-xl border ${isDarkLayout ? 'bg-[#181818] border-[#2b2b2b]' : 'bg-white border-gray-100'}`}>
+    <div className={`overflow-x-auto rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] border ${isDarkLayout ? 'bg-[#181818] border-[#2b2b2b]' : 'bg-white/70 backdrop-blur-xl border-white/20'}`}>
       <table className="min-w-full text-left border-collapse">
         <thead className="text-white uppercase tracking-wider" style={{ backgroundColor: themeColor }}>
           <tr>
@@ -265,7 +267,7 @@ const StoreFront = () => {
   const renderGridLayout = () => (
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
       {visibleProducts.map((product, index) => (
-        <div key={index} className={`rounded-2xl overflow-hidden border shadow-sm ${isDarkLayout ? 'bg-[#1a1a1a] border-[#2b2b2b]' : 'bg-white border-gray-100'}`}>
+        <div key={index} className={`rounded-3xl overflow-hidden border shadow-[0_8px_30px_rgb(0,0,0,0.04)] ${isDarkLayout ? 'bg-[#1a1a1a] border-[#2b2b2b]' : 'bg-white/70 backdrop-blur-xl border-white/20'}`}>
           {product.productImageBase64 ? (
             <img src={product.productImageBase64} alt={product['Device Type'] || 'Product'} style={HD_IMAGE_STYLE} className="w-full h-48 object-cover" />
           ) : (
@@ -293,7 +295,7 @@ const StoreFront = () => {
   );
 
   const renderListLayout = (variant) => (
-    <div className={`rounded-2xl overflow-hidden border ${isDarkLayout ? 'bg-[#181818] border-[#2b2b2b]' : 'bg-white border-gray-100'}`}>
+    <div className={`rounded-3xl overflow-hidden border shadow-[0_8px_30px_rgb(0,0,0,0.04)] ${isDarkLayout ? 'bg-[#181818] border-[#2b2b2b]' : 'bg-white/70 backdrop-blur-xl border-white/20'}`}>
       {visibleProducts.map((product, index) => (
         <div key={index} className={`flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b last:border-b-0 ${isDarkLayout ? 'border-[#2b2b2b]' : 'border-gray-200'} ${variant === 'compact' ? 'px-4 py-3 text-xs' : 'px-6 py-6 text-sm'}`}>
           <div className="min-w-0 w-full">
@@ -341,7 +343,7 @@ const StoreFront = () => {
     <div className={pageClassName}>
       <div className="max-w-7xl mx-auto">
         <div
-          className="mb-6 p-6 rounded-2xl text-white shadow-xl transition-all"
+          className="mb-6 p-6 rounded-3xl text-white shadow-[0_8px_30px_rgb(0,0,0,0.14)] transition-all"
           style={{
             background: storeLayout === 'dark'
               ? `linear-gradient(135deg, ${themeColor}, #000000)`
@@ -363,7 +365,7 @@ const StoreFront = () => {
               </div>
             )}
             <div className="text-center md:text-left flex-1">
-              <h1 className="text-4xl font-black tracking-tight">{vendorData.vendorName || vendorId}</h1>
+              <h1 className="text-4xl font-black tracking-tight text-white">{vendorData.vendorName || vendorId}</h1>
               {vendorData.storeDescription && (
                 <p className="text-white/80 mt-2 text-sm max-w-2xl leading-relaxed italic">
                   {vendorData.storeDescription}

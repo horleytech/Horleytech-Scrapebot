@@ -79,6 +79,9 @@ const AdminDashboard = () => {
 
   const [activeTab, setActiveTab] = useState('offline');
   const [searchQuery, setSearchQuery] = useState('');
+  const [productSearchQuery, setProductSearchQuery] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 50;
   const [offlineVendors, setOfflineVendors] = useState([]);
   const [backups, setBackups] = useState([]);
   const [loadingSearch, setLoadingSearch] = useState(false);
@@ -347,6 +350,41 @@ const AdminDashboard = () => {
     () => offlineVendors.filter((v) => !searchQuery || v.vendorName?.toLowerCase().includes(searchQuery.toLowerCase())),
     [offlineVendors, searchQuery]
   );
+
+  const flattenedProducts = useMemo(() =>
+    offlineVendors.flatMap((vendor) =>
+      (vendor.products || []).map((product, index) => ({
+        id: `${vendor.docId}-${index}-${product['Device Type'] || 'item'}`,
+        vendorName: vendor.vendorName,
+        productName: product['Device Type'] || 'Unnamed product',
+        category: product.Category || 'Uncategorized',
+        price: product['Regular price'] || 'N/A',
+        date: product.DatePosted || vendor.lastUpdated || 'N/A',
+      }))
+    ), [offlineVendors]);
+
+  const filteredGlobalProducts = useMemo(() => {
+    const queryText = productSearchQuery.trim().toLowerCase();
+    if (!queryText) return flattenedProducts;
+    return flattenedProducts.filter((product) =>
+      product.productName.toLowerCase().includes(queryText) || product.category.toLowerCase().includes(queryText)
+    );
+  }, [flattenedProducts, productSearchQuery]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredOffline.length / itemsPerPage));
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery]);
+
+  useEffect(() => {
+    if (currentPage > totalPages) setCurrentPage(totalPages);
+  }, [currentPage, totalPages]);
+
+  const paginatedOffline = useMemo(() => {
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    return filteredOffline.slice(startIndex, startIndex + itemsPerPage);
+  }, [filteredOffline, currentPage, itemsPerPage]);
 
   const platformActivityTimeline = useMemo(() => {
     const allEntries = [];
@@ -746,11 +784,20 @@ const AdminDashboard = () => {
               <p className="text-3xl font-black text-teal-700 mt-3 leading-none">{analytics.totalWhatsAppOrders}</p>
               <p className="text-xs text-teal-600/80 mt-2">Buyer intent clicks</p>
             </div>
-            <div className="group bg-gradient-to-br from-orange-50 via-white to-amber-50 border border-orange-200/70 rounded-2xl p-5 shadow-sm hover:shadow-md transition-all">
+            <button
+              type="button"
+              onClick={() => {
+                if (analytics.mostTrackedDevice && analytics.mostTrackedDevice !== 'N/A') {
+                  setActiveTab('products');
+                  setProductSearchQuery(analytics.mostTrackedDevice);
+                }
+              }}
+              className="group text-left bg-gradient-to-br from-orange-50 via-white to-amber-50 border border-orange-200/70 rounded-2xl p-5 shadow-sm hover:shadow-md transition-all"
+            >
               <p className="text-[11px] font-extrabold text-orange-700 uppercase tracking-[0.15em]">Top Device</p>
               <p className="text-lg font-black text-[#12141B] mt-3 leading-tight break-words">{analytics.mostTrackedDevice}</p>
               <p className="text-xs text-orange-600/80 mt-2">Most listed category</p>
-            </div>
+            </button>
             <div className="group bg-gradient-to-br from-violet-50 via-white to-purple-50 border border-violet-200/70 rounded-2xl p-5 shadow-sm hover:shadow-md transition-all">
               <p className="text-[11px] font-extrabold text-violet-700 uppercase tracking-[0.15em]">Star Vendor</p>
               <p className="text-lg font-black text-[#12141B] mt-3 leading-tight break-all">{analytics.topVendor}</p>
@@ -764,6 +811,7 @@ const AdminDashboard = () => {
               <button onClick={() => setActiveTab('offline')} className={`flex-shrink-0 px-4 py-2.5 rounded-xl text-sm font-bold transition-all ${activeTab === 'offline' ? 'bg-[#1A1C23] text-white shadow-sm' : 'text-gray-600 hover:text-[#1A1C23] hover:bg-gray-100'}`}>Directory</button>
               <button onClick={() => setActiveTab('analytics')} className={`flex-shrink-0 px-4 py-2.5 rounded-xl text-sm font-bold transition-all ${activeTab === 'analytics' ? 'bg-[#1A1C23] text-white shadow-sm' : 'text-gray-600 hover:text-[#1A1C23] hover:bg-gray-100'}`}>Visual Analytics</button>
               <button onClick={() => setActiveTab('activity')} className={`flex-shrink-0 px-4 py-2.5 rounded-xl text-sm font-bold transition-all ${activeTab === 'activity' ? 'bg-[#1A1C23] text-white shadow-sm' : 'text-gray-600 hover:text-[#1A1C23] hover:bg-gray-100'}`}>Activity Log</button>
+              <button onClick={() => setActiveTab('products')} className={`flex-shrink-0 px-4 py-2.5 rounded-xl text-sm font-bold transition-all ${activeTab === 'products' ? 'bg-[#1A1C23] text-white shadow-sm' : 'text-gray-600 hover:text-[#1A1C23] hover:bg-gray-100'}`}>Global Products</button>
               <button onClick={() => setActiveTab('backups')} className={`flex-shrink-0 px-4 py-2.5 rounded-xl text-sm font-bold transition-all ${activeTab === 'backups' ? 'bg-[#1A1C23] text-white shadow-sm' : 'text-gray-600 hover:text-[#1A1C23] hover:bg-gray-100'}`}>Backups</button>
               <button onClick={() => setActiveTab('history')} className={`flex-shrink-0 px-4 py-2.5 rounded-xl text-sm font-bold transition-all ${activeTab === 'history' ? 'bg-[#1A1C23] text-white shadow-sm' : 'text-gray-600 hover:text-[#1A1C23] hover:bg-gray-100'}`}>History</button>
               <button onClick={() => setActiveTab('promote')} className={`flex-shrink-0 px-4 py-2.5 rounded-xl text-sm font-bold transition-all ${activeTab === 'promote' ? 'bg-[#1A1C23] text-white shadow-sm' : 'text-gray-600 hover:text-[#1A1C23] hover:bg-gray-100'}`}>Promote</button>
@@ -861,7 +909,7 @@ const AdminDashboard = () => {
               </div>
             </div>
           ) : activeTab === 'backups' ? (
-            <div className="bg-white shadow-lg rounded-xl overflow-hidden border border-gray-200">
+            <div className="bg-white/70 backdrop-blur-xl border border-white/20 rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] overflow-hidden">
               <div className="p-5 bg-gray-50 border-b flex justify-between items-center gap-4">
                 <h2 className="text-lg font-bold text-[#1A1C23]">Backup Version History ({backups.length})</h2>
                 <div>
@@ -900,7 +948,7 @@ const AdminDashboard = () => {
               </table>
             </div>
           ) : activeTab === 'activity' ? (
-            <div className="bg-white shadow-lg rounded-xl overflow-hidden border border-gray-200">
+            <div className="bg-white/70 backdrop-blur-xl border border-white/20 rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] overflow-hidden">
               <div className="p-5 bg-gray-50 border-b">
                 <h2 className="text-lg font-bold text-[#1A1C23]">Global Platform Activity (Newest 50)</h2>
               </div>
@@ -917,8 +965,53 @@ const AdminDashboard = () => {
                 {platformActivityTimeline.length === 0 && <p className="p-10 text-center text-gray-400 font-bold uppercase tracking-widest">No activity logs recorded.</p>}
               </div>
             </div>
-          ) : activeTab === 'history' ? (
-            <div className="bg-white shadow-lg rounded-xl overflow-hidden border border-gray-200">
+          
+          ) : activeTab === 'products' ? (
+            <div className="bg-white/70 backdrop-blur-xl border border-white/20 rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] p-6">
+              <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6">
+                <div>
+                  <h2 className="text-2xl font-black tracking-tight text-gray-900">Global Products</h2>
+                  <p className="text-sm text-gray-500">Unified inventory view across all vendors.</p>
+                </div>
+                <div className="w-full md:w-[380px] relative">
+                  <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400">🔍</span>
+                  <input
+                    type="text"
+                    value={productSearchQuery}
+                    onChange={(e) => setProductSearchQuery(e.target.value)}
+                    placeholder="Search product name or category"
+                    className="w-full pl-11 pr-4 py-3 rounded-2xl border border-white/20 bg-white/70 backdrop-blur-xl outline-none focus:ring-2 focus:ring-gray-400"
+                  />
+                </div>
+              </div>
+              <div className="overflow-x-auto rounded-2xl border border-white/20">
+                <table className="w-full text-left">
+                  <thead className="bg-white/70">
+                    <tr className="text-[11px] font-black uppercase tracking-widest text-gray-500">
+                      <th className="p-4">Vendor</th>
+                      <th className="p-4">Product</th>
+                      <th className="p-4">Category</th>
+                      <th className="p-4">Price</th>
+                      <th className="p-4">Date</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-white/30">
+                    {filteredGlobalProducts.map((product) => (
+                      <tr key={product.id} className="hover:bg-white/70 transition-colors">
+                        <td className="p-4 text-sm font-semibold text-gray-700">{product.vendorName}</td>
+                        <td className="p-4 text-sm font-semibold text-gray-900">{product.productName}</td>
+                        <td className="p-4 text-sm text-gray-600">{product.category}</td>
+                        <td className="p-4 text-sm font-semibold text-gray-900">{product.price}</td>
+                        <td className="p-4 text-sm text-gray-500">{formatTimelineDate(product.date)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {filteredGlobalProducts.length === 0 && <p className="text-center text-sm text-gray-400 py-8">No products match your search.</p>}
+            </div>
+) : activeTab === 'history' ? (
+            <div className="bg-white/70 backdrop-blur-xl border border-white/20 rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] overflow-hidden">
               <div className="p-5 border-b bg-gray-50 flex items-center justify-between">
                 <h2 className="text-xl font-black text-[#1A1C23]">Audit Trail</h2>
                 <button onClick={fetchAuditLogs} className="text-xs font-bold uppercase tracking-wider bg-gray-100 px-4 py-2 rounded-lg">Refresh</button>
@@ -1049,7 +1142,7 @@ const AdminDashboard = () => {
               )}
 
               {/* Vendor Directory */}
-              <div className="bg-white shadow-lg rounded-xl overflow-hidden border border-gray-200">
+              <div className="bg-white/70 backdrop-blur-xl border border-white/20 rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] overflow-hidden">
                 <table className="w-full text-left">
                   <thead className="bg-gray-50 border-b border-gray-100">
                     <tr className="text-gray-400 text-[11px] font-black uppercase tracking-widest">
@@ -1065,7 +1158,7 @@ const AdminDashboard = () => {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-50">
-                    {filteredOffline.map(vendor => (
+                    {paginatedOffline.map(vendor => (
                       <tr key={vendor.docId} className="hover:bg-blue-50/30 transition-colors">
                         <td className="p-4 pl-6"><input type="checkbox" checked={selectedVendorIds.includes(vendor.docId)} onChange={() => toggleVendor(vendor.docId)} className="w-4 h-4 rounded border-gray-300 cursor-pointer" /></td>
                         <td className="p-4 font-bold text-blue-600 hover:text-blue-800"><Link to={vendor.shareableLink} target="_blank" rel="noopener noreferrer">{vendor.vendorName}</Link></td>
@@ -1104,6 +1197,29 @@ const AdminDashboard = () => {
                   </tbody>
                 </table>
                 {filteredOffline.length === 0 && <div className="p-20 text-center text-gray-400 font-bold uppercase tracking-widest">No vendors found.</div>}
+                {filteredOffline.length > 0 && (
+                  <div className="flex items-center justify-between px-6 py-4 border-t border-white/20 bg-white/50">
+                    <p className="text-xs font-semibold text-gray-600">Page {currentPage} of {totalPages} • Showing {paginatedOffline.length} of {filteredOffline.length} vendors</p>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
+                        disabled={currentPage === 1}
+                        className="px-4 py-2 rounded-xl text-xs font-black uppercase border border-white/20 bg-white/80 disabled:opacity-40"
+                      >
+                        Prev
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setCurrentPage((prev) => Math.min(totalPages, prev + 1))}
+                        disabled={currentPage === totalPages}
+                        className="px-4 py-2 rounded-xl text-xs font-black uppercase border border-white/20 bg-white/80 disabled:opacity-40"
+                      >
+                        Next
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             </>
           )}
