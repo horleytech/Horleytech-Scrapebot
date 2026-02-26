@@ -81,7 +81,13 @@ const AdminDashboard = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [productSearchQuery, setProductSearchQuery] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
+  const [currentProductPage, setCurrentProductPage] = useState(1);
+  const [productCategoryFilter, setProductCategoryFilter] = useState('All');
+  const [productConditionFilter, setProductConditionFilter] = useState('All');
+  const [productSortMode, setProductSortMode] = useState('hierarchy');
+  const [expandedProductGroups, setExpandedProductGroups] = useState([]);
   const itemsPerPage = 50;
+  
   const [offlineVendors, setOfflineVendors] = useState([]);
   const [backups, setBackups] = useState([]);
   const [loadingSearch, setLoadingSearch] = useState(false);
@@ -351,25 +357,173 @@ const AdminDashboard = () => {
     [offlineVendors, searchQuery]
   );
 
-  const flattenedProducts = useMemo(() =>
-    offlineVendors.flatMap((vendor) =>
-      (vendor.products || []).map((product, index) => ({
-        id: `${vendor.docId}-${index}-${product['Device Type'] || 'item'}`,
-        vendorName: vendor.vendorName,
-        productName: product['Device Type'] || 'Unnamed product',
-        category: product.Category || 'Uncategorized',
-        price: product['Regular price'] || 'N/A',
-        date: product.DatePosted || vendor.lastUpdated || 'N/A',
-      }))
-    ), [offlineVendors]);
+  const normalizedDevicePriority = useMemo(() => {
+    const iphonePriority = [
+      'iphone 17 pro max', 'iphone 17 pro', 'iphone 17 plus', 'iphone 17',
+      'iphone 16 pro max', 'iphone 16 pro', 'iphone 16 plus', 'iphone 16',
+      'iphone 15 pro max', 'iphone 15 pro', 'iphone 15 plus', 'iphone 15',
+      'iphone 14 pro max', 'iphone 14 pro', 'iphone 14 plus', 'iphone 14',
+      'iphone 13 pro max', 'iphone 13 pro', 'iphone 13',
+      'iphone 12 pro max', 'iphone 12 pro', 'iphone 12',
+      'iphone 11 pro max', 'iphone 11 pro', 'iphone 11',
+      'iphone x',
+    ];
+
+    const samsungPriority = [
+      'samsung galaxy z fold6', 'samsung galaxy z fold5', 'samsung galaxy z fold4', 'samsung galaxy z fold3',
+      'samsung galaxy s24 ultra', 'samsung galaxy s24 plus', 'samsung galaxy s24',
+      'samsung galaxy s23 ultra', 'samsung galaxy s23 plus', 'samsung galaxy s23',
+      'samsung galaxy s22 ultra', 'samsung galaxy s22 plus', 'samsung galaxy s22',
+      'samsung galaxy s21 ultra', 'samsung galaxy s21 plus', 'samsung galaxy s21',
+      'samsung galaxy s20 ultra', 'samsung galaxy s20 plus', 'samsung galaxy s20',
+      'samsung galaxy s10', 'samsung galaxy s9', 'samsung galaxy s8',
+    ];
+
+    const pixelPriority = [
+      'google pixel 9 pro xl', 'google pixel 9 pro', 'google pixel 9',
+      'google pixel 8 pro', 'google pixel 8',
+      'google pixel 7 pro', 'google pixel 7',
+      'google pixel 6 pro', 'google pixel 6',
+      'google pixel',
+    ];
+
+    const ipadPriority = [
+      'ipad pro 13', 'ipad pro 12.9', 'ipad pro 11',
+      'ipad air 13', 'ipad air 11', 'ipad air',
+      'ipad mini',
+      'ipad 10th gen',
+    ];
+
+    return {
+      smartphones: [...iphonePriority, ...samsungPriority, ...pixelPriority],
+      tablets: [...ipadPriority],
+    };
+  }, []);
+
+  const groupedGlobalProducts = useMemo(() => {
+    const grouped = new Map();
+
+    offlineVendors.forEach((vendor) => {
+      (vendor.products || []).forEach((product, index) => {
+        const category = (product.Category || 'Uncategorized').trim() || 'Uncategorized';
+        const deviceType = (product['Device Type'] || 'Unknown Device').trim() || 'Unknown Device';
+        const condition = (product.Condition || 'Unknown').trim() || 'Unknown';
+        const specification = (product['SIM Type/Model/Processor'] || 'N/A').trim() || 'N/A';
+        const storage = (product['Storage Capacity/Configuration'] || 'N/A').trim() || 'N/A';
+        const priceValue = parseNairaValue(product['Regular price']);
+        const groupKey = `${category}__${deviceType}__${condition}__${specification}__${storage}`;
+
+        if (!grouped.has(groupKey)) {
+          grouped.set(groupKey, {
+            groupKey,
+            category,
+            deviceType,
+            condition,
+            specification,
+            storage,
+            totalAccumulatedPrice: 0,
+            stockCount: 0,
+            items: [],
+          });
+        }
+
+        const entry = grouped.get(groupKey);
+        entry.totalAccumulatedPrice += priceValue;
+        entry.stockCount += 1;
+        entry.items.push({
+          id: `${vendor.docId}-${index}-${deviceType}`,
+          vendorName: vendor.vendorName,
+          vendorLink: vendor.shareableLink,
+          price: product['Regular price'] || 'N/A',
+          priceValue,
+          date: product.DatePosted || vendor.lastUpdated || 'N/A',
+          whatsappClicks: vendor.whatsappClicks || 0,
+        });
+      });
+    });
+
+    const categoryRank = (category) => {
+      const normalized = String(category || '').toLowerCase();
+      if (normalized.includes('smart')) return 0;
+      if (normalized.includes('tablet') || normalized.includes('ipad')) return 1;
+      return 2;
+    };
+
+    const deviceRank = (category, deviceType) => {
+      const normalizedCategory = String(category || '').toLowerCase();
+      const normalizedDevice = String(deviceType || '').toLowerCase();
+
+      const priorityList = normalizedCategory.includes('smart')
+        ? normalizedDevicePriority.smartphones
+        : normalizedCategory.includes('tablet') || normalizedCategory.includes('ipad')
+          ? normalizedDevicePriority.tablets
+          : [];
+
+      const index = priorityList.findIndex((entry) => normalizedDevice.includes(entry));
+      return index === -1 ? Number.MAX_SAFE_INTEGER : index;
+    };
+
+    const conditionRank = (condition) => {
+      const normalized = String(condition || '').toLowerCase();
+      if (normalized.includes('brand new')) return 0;
+      if (normalized.includes('used')) return 1;
+      return 2;
+    };
+
+    return Array.from(grouped.values()).sort((a, b) => {
+      const categoryDiff = categoryRank(a.category) - categoryRank(b.category);
+      if (categoryDiff !== 0) {
+        if (categoryRank(a.category) >= 2 && categoryRank(b.category) >= 2) {
+          return a.category.localeCompare(b.category);
+        }
+        return categoryDiff;
+      }
+
+      const deviceA = deviceRank(a.category, a.deviceType);
+      const deviceB = deviceRank(b.category, b.deviceType);
+      if (deviceA !== deviceB) return deviceA - deviceB;
+
+      if (deviceA === Number.MAX_SAFE_INTEGER && deviceB === Number.MAX_SAFE_INTEGER) {
+        const alphaDeviceSort = a.deviceType.localeCompare(b.deviceType);
+        if (alphaDeviceSort !== 0) return alphaDeviceSort;
+      }
+
+      const conditionDiff = conditionRank(a.condition) - conditionRank(b.condition);
+      if (conditionDiff !== 0) return conditionDiff;
+
+      const specDiff = a.specification.localeCompare(b.specification);
+      if (specDiff !== 0) return specDiff;
+
+      return a.storage.localeCompare(b.storage);
+    });
+  }, [offlineVendors, normalizedDevicePriority]);
 
   const filteredGlobalProducts = useMemo(() => {
     const queryText = productSearchQuery.trim().toLowerCase();
-    if (!queryText) return flattenedProducts;
-    return flattenedProducts.filter((product) =>
-      product.productName.toLowerCase().includes(queryText) || product.category.toLowerCase().includes(queryText)
-    );
-  }, [flattenedProducts, productSearchQuery]);
+
+    let filtered = groupedGlobalProducts.filter((group) => {
+      const matchesQuery = !queryText || [
+        group.category,
+        group.deviceType,
+        group.condition,
+        group.specification,
+        group.storage,
+      ].some((field) => String(field || '').toLowerCase().includes(queryText));
+
+      const matchesCategory = productCategoryFilter === 'All' || group.category === productCategoryFilter;
+      const matchesCondition = productConditionFilter === 'All' || group.condition === productConditionFilter;
+
+      return matchesQuery && matchesCategory && matchesCondition;
+    });
+
+    if (productSortMode === 'highest_price') {
+      filtered = [...filtered].sort((a, b) => b.totalAccumulatedPrice - a.totalAccumulatedPrice);
+    } else if (productSortMode === 'highest_demand') {
+      filtered = [...filtered].sort((a, b) => b.stockCount - a.stockCount);
+    }
+
+    return filtered;
+  }, [groupedGlobalProducts, productSearchQuery, productCategoryFilter, productConditionFilter, productSortMode]);
 
   const totalPages = Math.max(1, Math.ceil(filteredOffline.length / itemsPerPage));
 
@@ -385,6 +539,32 @@ const AdminDashboard = () => {
     const startIndex = (currentPage - 1) * itemsPerPage;
     return filteredOffline.slice(startIndex, startIndex + itemsPerPage);
   }, [filteredOffline, currentPage, itemsPerPage]);
+
+  const totalProductPages = Math.max(1, Math.ceil(filteredGlobalProducts.length / itemsPerPage));
+
+  useEffect(() => {
+    setCurrentProductPage(1);
+    setExpandedProductGroups([]);
+  }, [productSearchQuery, productCategoryFilter, productConditionFilter, productSortMode]);
+
+  useEffect(() => {
+    if (currentProductPage > totalProductPages) setCurrentProductPage(totalProductPages);
+  }, [currentProductPage, totalProductPages]);
+
+  const paginatedGroupedProducts = useMemo(() => {
+    const startIndex = (currentProductPage - 1) * itemsPerPage;
+    return filteredGlobalProducts.slice(startIndex, startIndex + itemsPerPage);
+  }, [filteredGlobalProducts, currentProductPage, itemsPerPage]);
+
+  const uniqueGlobalCategories = useMemo(
+    () => ['All', ...new Set(groupedGlobalProducts.map((group) => group.category))],
+    [groupedGlobalProducts]
+  );
+
+  const uniqueGlobalConditions = useMemo(
+    () => ['All', ...new Set(groupedGlobalProducts.map((group) => group.condition))],
+    [groupedGlobalProducts]
+  );
 
   const platformActivityTimeline = useMemo(() => {
     const allEntries = [];
@@ -429,6 +609,7 @@ const AdminDashboard = () => {
       '₦100k - ₦500k': 0,
       '₦500k+': 0,
     };
+    const conditionMap = {};
     const leadMap = {};
 
     offlineVendors.forEach((vendor) => {
@@ -440,6 +621,9 @@ const AdminDashboard = () => {
         if (price > 0 && price < 100000) priceDensityMap['< ₦100k'] += 1;
         else if (price >= 100000 && price <= 500000) priceDensityMap['₦100k - ₦500k'] += 1;
         else if (price > 500000) priceDensityMap['₦500k+'] += 1;
+
+        const condition = product.Condition || 'Unknown';
+        conditionMap[condition] = (conditionMap[condition] || 0) + 1;
       });
 
       const customerLogs = normalizeLogs(vendor.logs).customer || [];
@@ -466,6 +650,7 @@ const AdminDashboard = () => {
     return {
       categoryMix: Object.entries(categoryCount).map(([name, value]) => ({ name, value })),
       priceDensity: Object.entries(priceDensityMap).map(([range, count]) => ({ range, count })),
+      conditionMix: Object.entries(conditionMap).map(([condition, count]) => ({ condition, count })),
       leadVelocity,
     };
   }, [offlineVendors]);
@@ -491,6 +676,12 @@ const AdminDashboard = () => {
   const toggleVendor = (docId) => {
     setSelectedVendorIds((prev) =>
       prev.includes(docId) ? prev.filter((id) => id !== docId) : [...prev, docId]
+    );
+  };
+
+  const toggleProductGroup = (groupKey) => {
+    setExpandedProductGroups((prev) =>
+      prev.includes(groupKey) ? prev.filter((key) => key !== groupKey) : [...prev, groupKey]
     );
   };
 
@@ -764,32 +955,47 @@ const AdminDashboard = () => {
         <div className="p-6">
           {/* Analytics Hub Top Row */}
           <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6 gap-4 mb-6">
-            <div className="group bg-gradient-to-br from-white to-slate-50 border border-slate-200/80 rounded-2xl p-5 shadow-sm hover:shadow-md transition-all">
+            <button type="button" onClick={() => setActiveTab('offline')} className="group text-left bg-gradient-to-br from-white to-slate-50 border border-slate-200/80 rounded-2xl p-5 shadow-sm hover:shadow-md transition-all">
               <p className="text-[11px] font-extrabold text-slate-500 uppercase tracking-[0.15em]">Total Vendors</p>
               <p className="text-3xl font-black text-[#12141B] mt-3 leading-none">{analytics.totalVendors}</p>
               <p className="text-xs text-slate-400 mt-2">Registered storefronts</p>
-            </div>
-            <div className="group bg-gradient-to-br from-emerald-50 via-white to-green-50 border border-emerald-200/70 rounded-2xl p-5 shadow-sm hover:shadow-md transition-all">
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setActiveTab('products');
+                setProductSortMode('highest_price');
+              }}
+              className="group text-left bg-gradient-to-br from-emerald-50 via-white to-green-50 border border-emerald-200/70 rounded-2xl p-5 shadow-sm hover:shadow-md transition-all"
+            >
               <p className="text-[11px] font-extrabold text-emerald-700 uppercase tracking-[0.15em]">Inventory Value</p>
               <p className="text-[clamp(1.2rem,2.1vw,2rem)] font-black text-emerald-700 mt-3 leading-tight break-words">{formatNaira(analytics.totalInventoryValue)}</p>
               <p className="text-xs text-emerald-600/80 mt-2">~ {formatCompactNaira(analytics.totalInventoryValue)}</p>
-            </div>
-            <div className="group bg-gradient-to-br from-blue-50 via-white to-indigo-50 border border-blue-200/70 rounded-2xl p-5 shadow-sm hover:shadow-md transition-all">
+            </button>
+            <button type="button" onClick={() => setActiveTab('offline')} className="group text-left bg-gradient-to-br from-blue-50 via-white to-indigo-50 border border-blue-200/70 rounded-2xl p-5 shadow-sm hover:shadow-md transition-all">
               <p className="text-[11px] font-extrabold text-blue-700 uppercase tracking-[0.15em]">Store Views</p>
               <p className="text-3xl font-black text-blue-700 mt-3 leading-none">{analytics.totalStoreViews}</p>
               <p className="text-xs text-blue-600/80 mt-2">Traffic this period</p>
-            </div>
-            <div className="group bg-gradient-to-br from-teal-50 via-white to-emerald-50 border border-teal-200/70 rounded-2xl p-5 shadow-sm hover:shadow-md transition-all">
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setActiveTab('products');
+                setProductSortMode('highest_demand');
+              }}
+              className="group text-left bg-gradient-to-br from-teal-50 via-white to-emerald-50 border border-teal-200/70 rounded-2xl p-5 shadow-sm hover:shadow-md transition-all"
+            >
               <p className="text-[11px] font-extrabold text-teal-700 uppercase tracking-[0.15em]">WA Orders</p>
               <p className="text-3xl font-black text-teal-700 mt-3 leading-none">{analytics.totalWhatsAppOrders}</p>
               <p className="text-xs text-teal-600/80 mt-2">Buyer intent clicks</p>
-            </div>
+            </button>
             <button
               type="button"
               onClick={() => {
                 if (analytics.mostTrackedDevice && analytics.mostTrackedDevice !== 'N/A') {
                   setActiveTab('products');
                   setProductSearchQuery(analytics.mostTrackedDevice);
+                  setProductSortMode('hierarchy');
                 }
               }}
               className="group text-left bg-gradient-to-br from-orange-50 via-white to-amber-50 border border-orange-200/70 rounded-2xl p-5 shadow-sm hover:shadow-md transition-all"
@@ -798,11 +1004,18 @@ const AdminDashboard = () => {
               <p className="text-lg font-black text-[#12141B] mt-3 leading-tight break-words">{analytics.mostTrackedDevice}</p>
               <p className="text-xs text-orange-600/80 mt-2">Most listed category</p>
             </button>
-            <div className="group bg-gradient-to-br from-violet-50 via-white to-purple-50 border border-violet-200/70 rounded-2xl p-5 shadow-sm hover:shadow-md transition-all">
+            <button
+              type="button"
+              onClick={() => {
+                setActiveTab('offline');
+                setSearchQuery(analytics.topVendor === 'N/A' ? '' : analytics.topVendor);
+              }}
+              className="group text-left bg-gradient-to-br from-violet-50 via-white to-purple-50 border border-violet-200/70 rounded-2xl p-5 shadow-sm hover:shadow-md transition-all"
+            >
               <p className="text-[11px] font-extrabold text-violet-700 uppercase tracking-[0.15em]">Star Vendor</p>
               <p className="text-lg font-black text-[#12141B] mt-3 leading-tight break-all">{analytics.topVendor}</p>
               <p className="text-xs text-violet-600/80 mt-2">Highest WA conversions</p>
-            </div>
+            </button>
           </div>
 
           {/* Tab Navigation */}
@@ -829,7 +1042,21 @@ const AdminDashboard = () => {
                   <h3 className="font-bold text-gray-700 mb-4 uppercase tracking-widest text-xs">Category Distribution</h3>
                   <ResponsiveContainer width="100%" height="90%">
                     <PieChart>
-                      <Pie data={insightCharts.categoryMix} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={110} label>
+                      <Pie
+                        data={insightCharts.categoryMix}
+                        dataKey="value"
+                        nameKey="name"
+                        cx="50%"
+                        cy="50%"
+                        outerRadius={110}
+                        label
+                        onClick={(entry) => {
+                          if (!entry?.name) return;
+                          setActiveTab('products');
+                          setProductCategoryFilter(entry.name);
+                          setProductSortMode('hierarchy');
+                        }}
+                      >
                         {insightCharts.categoryMix.map((entry, index) => (
                           <Cell key={`cell-${index}`} fill={CHART_COLORS[index % CHART_COLORS.length]} />
                         ))}
@@ -840,16 +1067,27 @@ const AdminDashboard = () => {
                   </ResponsiveContainer>
                 </div>
 
-                {/* Bar Chart: Price Density */}
+                {/* Bar Chart: Condition Distribution */}
                 <div className="h-[380px] border border-gray-100 rounded-2xl p-5 shadow-sm bg-gray-50">
-                  <h3 className="font-bold text-gray-700 mb-4 uppercase tracking-widest text-xs">Inventory Price Density</h3>
+                  <h3 className="font-bold text-gray-700 mb-4 uppercase tracking-widest text-xs">Condition Distribution</h3>
                   <ResponsiveContainer width="100%" height="90%">
-                    <BarChart data={insightCharts.priceDensity} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
+                    <BarChart data={insightCharts.conditionMix} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
                       <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                      <XAxis dataKey="range" tick={{ fontSize: 12 }} />
+                      <XAxis dataKey="condition" tick={{ fontSize: 12 }} />
                       <YAxis tick={{ fontSize: 12 }} />
                       <Tooltip cursor={{ fill: 'transparent' }} />
-                      <Bar dataKey="count" fill="#3b82f6" radius={[6, 6, 0, 0]} name="Products in Range" />
+                      <Bar
+                        dataKey="count"
+                        fill="#3b82f6"
+                        radius={[6, 6, 0, 0]}
+                        name="Products by Condition"
+                        onClick={(entry) => {
+                          if (!entry?.condition) return;
+                          setActiveTab('products');
+                          setProductConditionFilter(entry.condition);
+                          setProductSortMode('hierarchy');
+                        }}
+                      />
                     </BarChart>
                   </ResponsiveContainer>
                 </div>
@@ -908,6 +1146,133 @@ const AdminDashboard = () => {
                 </div>
               </div>
             </div>
+          ) : activeTab === 'products' ? (
+            <div className="bg-white/70 backdrop-blur-xl border border-gray-100 rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] p-6">
+              <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4 mb-6">
+                <div>
+                  <h2 className="text-2xl font-black tracking-tight text-gray-900">Global Products</h2>
+                  <p className="text-sm text-gray-500">Grouped inventory view at scale (Category → Device → Specs/Storage).</p>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 w-full lg:w-auto">
+                  <input
+                    type="text"
+                    value={productSearchQuery}
+                    onChange={(e) => setProductSearchQuery(e.target.value)}
+                    placeholder="Search category, device, spec..."
+                    className="px-4 py-3 rounded-2xl border border-gray-100 bg-white/80 text-sm outline-none focus:ring-2 focus:ring-gray-300"
+                  />
+                  <select
+                    value={productCategoryFilter}
+                    onChange={(e) => setProductCategoryFilter(e.target.value)}
+                    className="px-4 py-3 rounded-2xl border border-gray-100 bg-white/80 text-sm outline-none focus:ring-2 focus:ring-gray-300"
+                  >
+                    {uniqueGlobalCategories.map((category) => (
+                      <option key={category} value={category}>{category}</option>
+                    ))}
+                  </select>
+                  <select
+                    value={productConditionFilter}
+                    onChange={(e) => setProductConditionFilter(e.target.value)}
+                    className="px-4 py-3 rounded-2xl border border-gray-100 bg-white/80 text-sm outline-none focus:ring-2 focus:ring-gray-300"
+                  >
+                    {uniqueGlobalConditions.map((condition) => (
+                      <option key={condition} value={condition}>{condition}</option>
+                    ))}
+                  </select>
+                  <select
+                    value={productSortMode}
+                    onChange={(e) => setProductSortMode(e.target.value)}
+                    className="px-4 py-3 rounded-2xl border border-gray-100 bg-white/80 text-sm outline-none focus:ring-2 focus:ring-gray-300"
+                  >
+                    <option value="hierarchy">Apple Hierarchy</option>
+                    <option value="highest_price">Highest Total Price</option>
+                    <option value="highest_demand">Highest Demand</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="overflow-x-auto rounded-3xl border border-gray-100">
+                <table className="w-full text-left">
+                  <thead className="bg-white/80 border-b border-gray-100">
+                    <tr className="text-[11px] font-black uppercase tracking-widest text-gray-500">
+                      <th className="p-4">Category</th>
+                      <th className="p-4">Device Type</th>
+                      <th className="p-4">Condition</th>
+                      <th className="p-4">SIM Type/Model/Processor</th>
+                      <th className="p-4">Storage Capacity/Configuration</th>
+                      <th className="p-4">Total Accumulated Price</th>
+                      <th className="p-4">Stock Count</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {paginatedGroupedProducts.map((group) => {
+                      const expanded = expandedProductGroups.includes(group.groupKey);
+
+                      return (
+                        <React.Fragment key={group.groupKey}>
+                          <tr
+                            onClick={() => toggleProductGroup(group.groupKey)}
+                            className="cursor-pointer border-b border-gray-100 hover:bg-white transition-all duration-300"
+                          >
+                            <td className="p-4"><span className="inline-flex px-3 py-1 rounded-full text-xs font-bold bg-gray-100 text-gray-700">{group.category}</span></td>
+                            <td className="p-4 text-sm font-black text-gray-900">{group.deviceType}</td>
+                            <td className="p-4"><span className="inline-flex px-3 py-1 rounded-full text-xs font-bold bg-slate-100 text-slate-700">{group.condition}</span></td>
+                            <td className="p-4 text-sm text-gray-600">{group.specification}</td>
+                            <td className="p-4 text-sm text-gray-600">{group.storage}</td>
+                            <td className="p-4 text-sm font-black text-gray-900">{formatNaira(group.totalAccumulatedPrice)}</td>
+                            <td className="p-4 text-sm font-bold text-gray-700">{group.stockCount}</td>
+                          </tr>
+                          {expanded && (
+                            <tr className="bg-white/60 transition-all duration-300">
+                              <td colSpan={7} className="p-4">
+                                <div className="rounded-2xl border border-gray-100 overflow-hidden">
+                                  <table className="w-full">
+                                    <thead className="bg-gray-50">
+                                      <tr className="text-[10px] font-black uppercase tracking-widest text-gray-500">
+                                        <th className="p-3 text-left">Vendor Name</th>
+                                        <th className="p-3 text-left">Specific Price</th>
+                                        <th className="p-3 text-left">Posted</th>
+                                        <th className="p-3 text-left">Store Link</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-gray-100">
+                                      {group.items.map((item) => (
+                                        <tr key={item.id}>
+                                          <td className="p-3 text-sm font-semibold text-gray-800">{item.vendorName}</td>
+                                          <td className="p-3 text-sm font-bold text-gray-900">{item.price}</td>
+                                          <td className="p-3 text-xs text-gray-500">{formatTimelineDate(item.date)}</td>
+                                          <td className="p-3">
+                                            <Link to={item.vendorLink} target="_blank" rel="noopener noreferrer" className="text-xs font-black text-blue-600 hover:text-blue-800">Open Store ↗</Link>
+                                          </td>
+                                        </tr>
+                                      ))}
+                                    </tbody>
+                                  </table>
+                                </div>
+                              </td>
+                            </tr>
+                          )}
+                        </React.Fragment>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              {filteredGlobalProducts.length === 0 && (
+                <p className="text-center text-sm text-gray-400 py-8">No grouped products match your filters.</p>
+              )}
+
+              {filteredGlobalProducts.length > 0 && (
+                <div className="flex items-center justify-between px-2 pt-5">
+                  <p className="text-xs font-semibold text-gray-600">Page {currentProductPage} of {totalProductPages} • Showing {paginatedGroupedProducts.length} of {filteredGlobalProducts.length} grouped rows</p>
+                  <div className="flex gap-2">
+                    <button type="button" onClick={() => setCurrentProductPage((prev) => Math.max(1, prev - 1))} disabled={currentProductPage === 1} className="px-4 py-2 rounded-xl text-xs font-black uppercase border border-gray-100 bg-white/80 disabled:opacity-40">Prev</button>
+                    <button type="button" onClick={() => setCurrentProductPage((prev) => Math.min(totalProductPages, prev + 1))} disabled={currentProductPage === totalProductPages} className="px-4 py-2 rounded-xl text-xs font-black uppercase border border-gray-100 bg-white/80 disabled:opacity-40">Next</button>
+                  </div>
+                </div>
+              )}
+            </div>
           ) : activeTab === 'backups' ? (
             <div className="bg-white/70 backdrop-blur-xl border border-white/20 rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] overflow-hidden">
               <div className="p-5 bg-gray-50 border-b flex justify-between items-center gap-4">
@@ -965,52 +1330,7 @@ const AdminDashboard = () => {
                 {platformActivityTimeline.length === 0 && <p className="p-10 text-center text-gray-400 font-bold uppercase tracking-widest">No activity logs recorded.</p>}
               </div>
             </div>
-          
-          ) : activeTab === 'products' ? (
-            <div className="bg-white/70 backdrop-blur-xl border border-white/20 rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] p-6">
-              <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6">
-                <div>
-                  <h2 className="text-2xl font-black tracking-tight text-gray-900">Global Products</h2>
-                  <p className="text-sm text-gray-500">Unified inventory view across all vendors.</p>
-                </div>
-                <div className="w-full md:w-[380px] relative">
-                  <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400">🔍</span>
-                  <input
-                    type="text"
-                    value={productSearchQuery}
-                    onChange={(e) => setProductSearchQuery(e.target.value)}
-                    placeholder="Search product name or category"
-                    className="w-full pl-11 pr-4 py-3 rounded-2xl border border-white/20 bg-white/70 backdrop-blur-xl outline-none focus:ring-2 focus:ring-gray-400"
-                  />
-                </div>
-              </div>
-              <div className="overflow-x-auto rounded-2xl border border-white/20">
-                <table className="w-full text-left">
-                  <thead className="bg-white/70">
-                    <tr className="text-[11px] font-black uppercase tracking-widest text-gray-500">
-                      <th className="p-4">Vendor</th>
-                      <th className="p-4">Product</th>
-                      <th className="p-4">Category</th>
-                      <th className="p-4">Price</th>
-                      <th className="p-4">Date</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-white/30">
-                    {filteredGlobalProducts.map((product) => (
-                      <tr key={product.id} className="hover:bg-white/70 transition-colors">
-                        <td className="p-4 text-sm font-semibold text-gray-700">{product.vendorName}</td>
-                        <td className="p-4 text-sm font-semibold text-gray-900">{product.productName}</td>
-                        <td className="p-4 text-sm text-gray-600">{product.category}</td>
-                        <td className="p-4 text-sm font-semibold text-gray-900">{product.price}</td>
-                        <td className="p-4 text-sm text-gray-500">{formatTimelineDate(product.date)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              {filteredGlobalProducts.length === 0 && <p className="text-center text-sm text-gray-400 py-8">No products match your search.</p>}
-            </div>
-) : activeTab === 'history' ? (
+          ) : activeTab === 'history' ? (
             <div className="bg-white/70 backdrop-blur-xl border border-white/20 rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] overflow-hidden">
               <div className="p-5 border-b bg-gray-50 flex items-center justify-between">
                 <h2 className="text-xl font-black text-[#1A1C23]">Audit Trail</h2>
