@@ -87,6 +87,7 @@ const AdminDashboard = () => {
   const [productSortMode, setProductSortMode] = useState('hierarchy');
   const [expandedProductGroups, setExpandedProductGroups] = useState([]);
   const itemsPerPage = 50;
+  
   const [offlineVendors, setOfflineVendors] = useState([]);
   const [backups, setBackups] = useState([]);
   const [loadingSearch, setLoadingSearch] = useState(false);
@@ -1145,65 +1146,7 @@ const AdminDashboard = () => {
                 </div>
               </div>
             </div>
-          ) : activeTab === 'backups' ? (
-            <div className="bg-white/70 backdrop-blur-xl border border-white/20 rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] overflow-hidden">
-              <div className="p-5 bg-gray-50 border-b flex justify-between items-center gap-4">
-                <h2 className="text-lg font-bold text-[#1A1C23]">Backup Version History ({backups.length})</h2>
-                <div>
-                  <button onClick={triggerManualBackup} disabled={manualBackupLoading} className="bg-blue-600 text-white px-5 py-2.5 rounded-lg text-sm font-bold hover:bg-blue-700 transition-all shadow-md disabled:opacity-50">
-                    {manualBackupLoading ? 'Running...' : 'Run Backup'}
-                  </button>
-                  <p className="text-xs text-gray-400 mt-2">Creates a manual snapshot and uploads it to Cloud Storage and Firebase.</p>
-                </div>
-              </div>
-              <table className="w-full text-left">
-                <thead className="bg-white text-gray-400 text-[11px] font-black uppercase tracking-widest border-b">
-                  <tr>
-                    <th className="p-4 pl-6">Backup ID</th>
-                    <th className="p-4">Created At</th>
-                    <th className="p-4">Total Docs</th>
-                    <th className="p-4">Action</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100">
-                  {backups.map(backup => (
-                    <tr key={backup.id} className="hover:bg-gray-50">
-                      <td className="p-4 pl-6 text-sm font-mono text-blue-600">{backup.id}</td>
-                      <td className="p-4 text-sm text-gray-600 font-medium">{backup.createdAt ? new Date(backup.createdAt).toLocaleString() : 'N/A'}</td>
-                      <td className="p-4 text-sm font-bold text-gray-800">{backup.totalDocuments || 0} Vendors</td>
-                      <td className="p-4">
-                        <div className="flex flex-col items-end">
-                          <button onClick={() => restoreBackup(backup.id)} disabled={restoringBackupId === backup.id} className="bg-red-50 text-red-600 px-4 py-2 rounded-lg text-xs font-black uppercase hover:bg-red-600 hover:text-white transition-all disabled:opacity-50">
-                            {restoringBackupId === backup.id ? 'Restoring...' : 'Restore Version'}
-                          </button>
-                          <p className="text-xs text-gray-400 mt-2 text-right">Reverts the selected item or collection to a previous historical state.</p>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : activeTab === 'activity' ? (
-            <div className="bg-white/70 backdrop-blur-xl border border-white/20 rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] overflow-hidden">
-              <div className="p-5 bg-gray-50 border-b">
-                <h2 className="text-lg font-bold text-[#1A1C23]">Global Platform Activity (Newest 50)</h2>
-              </div>
-              <div className="p-5 space-y-4 max-h-[600px] overflow-y-auto custom-scrollbar">
-                {platformActivityTimeline.map((entry, idx) => (
-                  <div key={idx} className="border-l-4 border-blue-500 pl-4 py-3 bg-gray-50 rounded-r-lg shadow-sm">
-                    <div className="flex justify-between items-start">
-                      <p className="font-bold text-sm text-[#1A1C23] max-w-[80%]">{entry.action}</p>
-                      <span className={`text-[9px] px-2 py-1 rounded-md font-black uppercase tracking-wider ${entry.channel === 'admin' ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700'}`}>{entry.channel}</span>
-                    </div>
-                    <p className="text-[11px] font-bold text-gray-400 mt-2 uppercase tracking-wider">{entry.vendorName} • {formatTimelineDate(entry.date)}</p>
-                  </div>
-                ))}
-                {platformActivityTimeline.length === 0 && <p className="p-10 text-center text-gray-400 font-bold uppercase tracking-widest">No activity logs recorded.</p>}
-              </div>
-            </div>
-          
-                    ) : activeTab === 'products' ? (
+          ) : activeTab === 'products' ? (
             <div className="bg-white/70 backdrop-blur-xl border border-gray-100 rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] p-6">
               <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4 mb-6">
                 <div>
@@ -1268,7 +1211,6 @@ const AdminDashboard = () => {
                       return (
                         <React.Fragment key={group.groupKey}>
                           <tr
-                            key={group.groupKey}
                             onClick={() => toggleProductGroup(group.groupKey)}
                             className="cursor-pointer border-b border-gray-100 hover:bg-white transition-all duration-300"
                           >
@@ -1331,7 +1273,64 @@ const AdminDashboard = () => {
                 </div>
               )}
             </div>
-) : activeTab === 'history' ? (
+          ) : activeTab === 'backups' ? (
+            <div className="bg-white/70 backdrop-blur-xl border border-white/20 rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] overflow-hidden">
+              <div className="p-5 bg-gray-50 border-b flex justify-between items-center gap-4">
+                <h2 className="text-lg font-bold text-[#1A1C23]">Backup Version History ({backups.length})</h2>
+                <div>
+                  <button onClick={triggerManualBackup} disabled={manualBackupLoading} className="bg-blue-600 text-white px-5 py-2.5 rounded-lg text-sm font-bold hover:bg-blue-700 transition-all shadow-md disabled:opacity-50">
+                    {manualBackupLoading ? 'Running...' : 'Run Backup'}
+                  </button>
+                  <p className="text-xs text-gray-400 mt-2">Creates a manual snapshot and uploads it to Cloud Storage and Firebase.</p>
+                </div>
+              </div>
+              <table className="w-full text-left">
+                <thead className="bg-white text-gray-400 text-[11px] font-black uppercase tracking-widest border-b">
+                  <tr>
+                    <th className="p-4 pl-6">Backup ID</th>
+                    <th className="p-4">Created At</th>
+                    <th className="p-4">Total Docs</th>
+                    <th className="p-4">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {backups.map(backup => (
+                    <tr key={backup.id} className="hover:bg-gray-50">
+                      <td className="p-4 pl-6 text-sm font-mono text-blue-600">{backup.id}</td>
+                      <td className="p-4 text-sm text-gray-600 font-medium">{backup.createdAt ? new Date(backup.createdAt).toLocaleString() : 'N/A'}</td>
+                      <td className="p-4 text-sm font-bold text-gray-800">{backup.totalDocuments || 0} Vendors</td>
+                      <td className="p-4">
+                        <div className="flex flex-col items-end">
+                          <button onClick={() => restoreBackup(backup.id)} disabled={restoringBackupId === backup.id} className="bg-red-50 text-red-600 px-4 py-2 rounded-lg text-xs font-black uppercase hover:bg-red-600 hover:text-white transition-all disabled:opacity-50">
+                            {restoringBackupId === backup.id ? 'Restoring...' : 'Restore Version'}
+                          </button>
+                          <p className="text-xs text-gray-400 mt-2 text-right">Reverts the selected item or collection to a previous historical state.</p>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : activeTab === 'activity' ? (
+            <div className="bg-white/70 backdrop-blur-xl border border-white/20 rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] overflow-hidden">
+              <div className="p-5 bg-gray-50 border-b">
+                <h2 className="text-lg font-bold text-[#1A1C23]">Global Platform Activity (Newest 50)</h2>
+              </div>
+              <div className="p-5 space-y-4 max-h-[600px] overflow-y-auto custom-scrollbar">
+                {platformActivityTimeline.map((entry, idx) => (
+                  <div key={idx} className="border-l-4 border-blue-500 pl-4 py-3 bg-gray-50 rounded-r-lg shadow-sm">
+                    <div className="flex justify-between items-start">
+                      <p className="font-bold text-sm text-[#1A1C23] max-w-[80%]">{entry.action}</p>
+                      <span className={`text-[9px] px-2 py-1 rounded-md font-black uppercase tracking-wider ${entry.channel === 'admin' ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700'}`}>{entry.channel}</span>
+                    </div>
+                    <p className="text-[11px] font-bold text-gray-400 mt-2 uppercase tracking-wider">{entry.vendorName} • {formatTimelineDate(entry.date)}</p>
+                  </div>
+                ))}
+                {platformActivityTimeline.length === 0 && <p className="p-10 text-center text-gray-400 font-bold uppercase tracking-widest">No activity logs recorded.</p>}
+              </div>
+            </div>
+          ) : activeTab === 'history' ? (
             <div className="bg-white/70 backdrop-blur-xl border border-white/20 rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] overflow-hidden">
               <div className="p-5 border-b bg-gray-50 flex items-center justify-between">
                 <h2 className="text-xl font-black text-[#1A1C23]">Audit Trail</h2>
