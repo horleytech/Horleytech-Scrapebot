@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Outlet, useLocation, Link } from 'react-router-dom';
-import { collection, getDocs, doc, writeBatch, query, orderBy, updateDoc } from 'firebase/firestore';
+import { collection, getDocs, doc, writeBatch, query, orderBy, updateDoc, setDoc, getDoc } from 'firebase/firestore';
 import { IoMdChatboxes } from 'react-icons/io';
 import {
   PieChart, Pie, Cell, Tooltip, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, LineChart, Line, Legend,
@@ -17,6 +17,7 @@ const COLLECTIONS = {
 const CHART_COLORS = ['#16a34a', '#2563eb', '#f59e0b', '#7c3aed', '#ef4444', '#14b8a6', '#f97316'];
 const MASTER_DICTIONARY_STORAGE_KEY = 'admin-master-dictionary-v1';
 const FALLBACK_MASTER_DICTIONARY_CSV = 'https://example.com/master-dictionary.csv';
+const FALLBACK_COMPANY_PRICING_CSV = 'https://example.com/company-pricing.csv';
 
 const BRAND_NEW_CONDITIONS = new Set(['brand new', 'pristine boxed', 'new']);
 const USED_CONDITIONS = new Set(['grade a uk used', 'grade a used', 'used']);
@@ -46,6 +47,7 @@ const parseNairaValue = (value) => {
   if (typeof value === 'number' && Number.isFinite(value)) return value;
 
   const original = String(value || '');
+  if (/available/i.test(original)) return 0;
   const groupedNumber = original.match(/(\d{1,3}(?:,\d{3})+)/);
   if (groupedNumber) {
     const parsedGrouped = Number(groupedNumber[1].replace(/,/g, ''));
@@ -132,6 +134,25 @@ const isWithinDateRange = (value, startDate, endDate) => {
 
 const normalizeDictionaryKey = (value) => String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
 
+const normalizeGoogleSheetCsvUrl = (url) => {
+  const raw = String(url || '').trim();
+  if (!raw) return raw;
+  if (!raw.includes('docs.google.com/spreadsheets')) return raw;
+  try {
+    const parsed = new URL(raw);
+    const segments = parsed.pathname.split('/').filter(Boolean);
+    const editIndex = segments.findIndex((segment) => segment === 'edit');
+    if (editIndex !== -1) {
+      segments[editIndex] = 'export';
+      parsed.pathname = `/${segments.join('/')}`;
+    }
+    parsed.searchParams.set('format', 'csv');
+    return parsed.toString();
+  } catch {
+    return raw.replace('/edit', '/export').replace(/\?.*$/, '?format=csv');
+  }
+};
+
 const parseCsvLine = (line = '') => {
   const parsed = [];
   let current = '';
@@ -162,26 +183,78 @@ const parseCsvLine = (line = '') => {
 
 const parseMasterDictionaryCsv = (csvText = '') => {
   const lines = csvText.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
-  if (!lines.length) return {};
+  if (!lines.length) return { dictionary: {}, officialTargets: [] };
 
   const headers = parseCsvLine(lines[0]).map((header) => header.toLowerCase());
   const rawNameIndex = headers.findIndex((header) => header.includes('raw name'));
   const standardNameIndex = headers.findIndex((header) => header.includes('standard name'));
+  const deviceTypeIndex = headers.findIndex((header) => header.includes('device type'));
 
-  if (rawNameIndex === -1 || standardNameIndex === -1) {
-    throw new Error('CSV must include "Raw Name" and "Standard Name" columns.');
+  if (rawNameIndex === -1 || (standardNameIndex === -1 && deviceTypeIndex === -1)) {
+    throw new Error('CSV must include "Raw Name" plus either "Standard Name" or "Device Type" columns.');
   }
 
-  return lines.slice(1).reduce((acc, line) => {
+  const dictionary = {};
+  const officialTargetsSet = new Set();
+
+  lines.slice(1).forEach((line) => {
     const values = parseCsvLine(line);
     const rawName = values[rawNameIndex];
-    const standardName = values[standardNameIndex];
+    const deviceType = values[deviceTypeIndex] || values[standardNameIndex] || '';
+    const standardName = values[standardNameIndex] || deviceType;
     const rawKey = normalizeDictionaryKey(rawName);
 
-    if (!rawKey || !standardName) return acc;
-    acc[rawKey] = standardName.trim();
-    return acc;
-  }, {});
+    if (deviceType?.trim()) officialTargetsSet.add(deviceType.trim());
+    if (!rawKey || !standardName) return;
+    dictionary[rawKey] = standardName.trim();
+  });
+
+  return { dictionary, officialTargets: Array.from(officialTargetsSet) };
+};
+
+const smartMapDevice = (rawString, officialTargets = []) => {
+  const original = String(rawString || '').trim();
+  if (!original) return 'Unknown Device';
+
+  const normalizedRaw = original
+    .toLowerCase()
+    .replace(/\+/g, ' plus ')
+    .replace(/\bpm\b/g, ' pro max ')
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  const samsungSuffixGuard = (targetNormalized) => {
+    const samsungBaseMatch = targetNormalized.match(/\bs(\d{1,3})\b/);
+    if (!samsungBaseMatch) return true;
+    const modelToken = `s${samsungBaseMatch[1]}`;
+    if (!normalizedRaw.includes(modelToken)) return false;
+
+    const targetHasUltra = /\bultra\b|\bu\b/.test(targetNormalized);
+    const targetHasPlus = /\bplus\b/.test(targetNormalized);
+    const rawHasUltra = /\bultra\b|\bu\b/.test(normalizedRaw);
+    const rawHasPlus = /\bplus\b/.test(normalizedRaw);
+
+    if (!targetHasUltra && rawHasUltra) return false;
+    if (!targetHasPlus && rawHasPlus) return false;
+    return true;
+  };
+
+  const normalizedTargets = officialTargets
+    .map((target) => ({
+      raw: target,
+      normalized: String(target || '').toLowerCase().replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim(),
+    }))
+    .filter((target) => target.normalized);
+
+  const exact = normalizedTargets.find((target) => normalizedRaw === target.normalized);
+  if (exact) return exact.raw;
+
+  const candidate = normalizedTargets
+    .filter((target) => normalizedRaw.includes(target.normalized) && samsungSuffixGuard(target.normalized))
+    .sort((a, b) => b.normalized.length - a.normalized.length)[0];
+
+  return candidate?.raw || original;
 };
 
 const getConditionRank = (condition) => {
@@ -228,7 +301,7 @@ const standardizeCondition = (condition) => {
   const normalized = String(condition || '').toLowerCase().trim();
   if (BRAND_NEW_CONDITIONS.has(normalized)) return { condition: 'Brand New', cleanStatus: 'clean' };
   if (USED_CONDITIONS.has(normalized)) return { condition: 'Grade A UK Used', cleanStatus: 'clean' };
-  return { condition: String(condition || 'Unknown').trim() || 'Unknown', cleanStatus: 'unclean' };
+  return { condition: 'Unclean', cleanStatus: 'unclean' };
 };
 
 const normalizeSimType = (simType, deviceType) => {
@@ -278,9 +351,17 @@ const AdminDashboard = () => {
   const [selectedVendorFilter, setSelectedVendorFilter] = useState('All');
   const [productSortMode, setProductSortMode] = useState('hierarchy');
   const [dataViewMode, setDataViewMode] = useState('all');
-  const [excludedPhrases, setExcludedPhrases] = useState('active');
+  const [excludedPhrases, setExcludedPhrases] = useState('');
   const [masterDictionary, setMasterDictionary] = useState({});
+  const [officialTargets, setOfficialTargets] = useState([]);
+  const [globalProductsCacheRows, setGlobalProductsCacheRows] = useState([]);
   const [syncingDictionary, setSyncingDictionary] = useState(false);
+  const [companyCsvUrl, setCompanyCsvUrl] = useState(FALLBACK_COMPANY_PRICING_CSV);
+  const [loadingCompanyCsv, setLoadingCompanyCsv] = useState(false);
+  const [companyCsvRows, setCompanyCsvRows] = useState([]);
+  const [pricingVendor, setPricingVendor] = useState('All');
+  const [marginType, setMarginType] = useState('amount');
+  const [marginValue, setMarginValue] = useState('0');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [expandedProductGroups, setExpandedProductGroups] = useState([]);
@@ -556,15 +637,32 @@ const AdminDashboard = () => {
       if (!cached) return;
       const parsed = JSON.parse(cached);
       if (parsed && typeof parsed === 'object') {
-        setMasterDictionary(parsed);
+        setMasterDictionary(parsed.dictionary || parsed);
+        setOfficialTargets(Array.isArray(parsed.officialTargets) ? parsed.officialTargets : []);
       }
     } catch (error) {
       console.error('Failed to load cached master dictionary:', error);
     }
   }, []);
 
+  useEffect(() => {
+    const loadGlobalCache = async () => {
+      try {
+        const cacheRef = doc(db, 'horleyTech_Settings', 'globalProductsCache');
+        const snapshot = await getDoc(cacheRef);
+        if (!snapshot.exists()) return;
+        const rows = snapshot.data()?.products;
+        if (Array.isArray(rows)) setGlobalProductsCacheRows(rows);
+      } catch (error) {
+        console.error('Failed to load global products cache:', error);
+      }
+    };
+
+    loadGlobalCache();
+  }, []);
+
   const syncMasterDictionary = async () => {
-    const csvUrl = import.meta.env.VITE_MASTER_DICTIONARY_CSV || FALLBACK_MASTER_DICTIONARY_CSV;
+    const csvUrl = normalizeGoogleSheetCsvUrl(import.meta.env.VITE_MASTER_DICTIONARY_CSV || FALLBACK_MASTER_DICTIONARY_CSV);
     setSyncingDictionary(true);
 
     try {
@@ -572,10 +670,51 @@ const AdminDashboard = () => {
       if (!response.ok) throw new Error(`Unable to fetch CSV (${response.status})`);
 
       const csvText = await response.text();
-      const parsedDictionary = parseMasterDictionaryCsv(csvText);
-      setMasterDictionary(parsedDictionary);
-      localStorage.setItem(MASTER_DICTIONARY_STORAGE_KEY, JSON.stringify(parsedDictionary));
-      alert(`✅ Synced ${Object.keys(parsedDictionary).length} dictionary mappings.`);
+      const parsed = parseMasterDictionaryCsv(csvText);
+      setMasterDictionary(parsed.dictionary);
+      setOfficialTargets(parsed.officialTargets);
+      localStorage.setItem(MASTER_DICTIONARY_STORAGE_KEY, JSON.stringify(parsed));
+
+      const mappedRows = [];
+      offlineVendors.forEach((vendor) => {
+        (vendor.products || []).forEach((product, index) => {
+          const rawDeviceType = (product['Device Type'] || 'Unknown Device').trim() || 'Unknown Device';
+          const dictionaryMapped = parsed.dictionary[normalizeDictionaryKey(rawDeviceType)] || rawDeviceType;
+          const smartMappedDeviceType = smartMapDevice(dictionaryMapped, parsed.officialTargets);
+          const rawCondition = standardizeCondition(product.Condition || 'Unknown');
+          const productDate = product.DatePosted || vendor.lastUpdated;
+          const category = (product.Category || 'Others').trim() || 'Others';
+          const normalizedSim = normalizeSimType(product['SIM Type/Model/Processor'], smartMappedDeviceType);
+          const storage = (product['Storage Capacity/Configuration'] || 'N/A').trim() || 'N/A';
+
+          mappedRows.push({
+            id: `${vendor.docId}-${index}-${smartMappedDeviceType}`,
+            vendorName: vendor.vendorName,
+            vendorLink: vendor.shareableLink,
+            date: productDate || 'N/A',
+            category,
+            brandSubCategory: inferBrandSubCategory(smartMappedDeviceType),
+            series: inferSeries(smartMappedDeviceType),
+            deviceType: smartMappedDeviceType,
+            condition: rawCondition.condition,
+            cleanStatus: rawCondition.cleanStatus,
+            simType: normalizedSim,
+            storage,
+            price: product['Regular price'] || 'N/A',
+            priceValue: parseNairaValue(product['Regular price']),
+          });
+        });
+      });
+
+      const cacheRef = doc(db, 'horleyTech_Settings', 'globalProductsCache');
+      await setDoc(cacheRef, {
+        products: mappedRows,
+        syncedAt: new Date().toISOString(),
+        totalItems: mappedRows.length,
+      }, { merge: true });
+      setGlobalProductsCacheRows(mappedRows);
+
+      alert(`✅ Synced ${Object.keys(parsed.dictionary).length} dictionary mappings and cached ${mappedRows.length} products.`);
     } catch (error) {
       console.error('Master dictionary sync failed:', error);
       alert(`❌ Failed to sync dictionary: ${error.message}`);
@@ -583,6 +722,7 @@ const AdminDashboard = () => {
       setSyncingDictionary(false);
     }
   };
+
 
   const filteredOffline = useMemo(
     () => offlineVendors.filter((v) => !searchQuery || v.vendorName?.toLowerCase().includes(searchQuery.toLowerCase())),
@@ -596,57 +736,75 @@ const AdminDashboard = () => {
       .filter(Boolean);
 
     const rows = [];
+    const sourceRows = globalProductsCacheRows.length
+      ? globalProductsCacheRows
+      : offlineVendors.flatMap((vendor) => (vendor.products || []).map((product, index) => ({ vendor, product, index })));
 
-    offlineVendors.forEach((vendor) => {
-      if (selectedVendorFilter !== 'All' && vendor.vendorName !== selectedVendorFilter) return;
-      (vendor.products || []).forEach((product, index) => {
-        const productDate = product.DatePosted || vendor.lastUpdated;
-        if (!isWithinDateRange(productDate, startDate, endDate)) return;
+    if (globalProductsCacheRows.length) {
+      globalProductsCacheRows.forEach((row, index) => {
+        if (selectedVendorFilter !== 'All' && row.vendorName !== selectedVendorFilter) return;
+        if (!isWithinDateRange(row.date, startDate, endDate)) return;
 
-        const rawDeviceType = (product['Device Type'] || 'Unknown Device').trim() || 'Unknown Device';
-        const mappedDeviceType = masterDictionary[normalizeDictionaryKey(rawDeviceType)] || rawDeviceType;
-        const rawCondition = standardizeCondition(product.Condition || 'Unknown');
-        const normalizedSim = normalizeSimType(product['SIM Type/Model/Processor'], mappedDeviceType);
-        const storage = (product['Storage Capacity/Configuration'] || 'N/A').trim() || 'N/A';
-        const category = (product.Category || 'Others').trim() || 'Others';
-        const brandSubCategory = inferBrandSubCategory(mappedDeviceType);
-        const series = inferSeries(mappedDeviceType);
-
-        const haystack = [
-          product.Category,
-          rawDeviceType,
-          mappedDeviceType,
-          product.Condition,
-          product['SIM Type/Model/Processor'],
-          product['Storage Capacity/Configuration'],
-        ].join(' ').toLowerCase();
-
+        const haystack = [row.category, row.deviceType, row.condition, row.simType, row.storage].join(' ').toLowerCase();
         const isExcluded = excludedTokens.some((phrase) => haystack.includes(phrase));
-        const cleanStatus = isExcluded ? 'excluded' : rawCondition.cleanStatus;
-
+        const cleanStatus = isExcluded ? 'excluded' : row.cleanStatus;
         if (dataViewMode !== 'all' && cleanStatus !== dataViewMode) return;
 
-        rows.push({
-          id: `${vendor.docId}-${index}-${mappedDeviceType}`,
-          vendorName: vendor.vendorName,
-          vendorLink: vendor.shareableLink,
-          date: productDate || 'N/A',
-          category,
-          brandSubCategory,
-          series,
-          deviceType: mappedDeviceType,
-          condition: rawCondition.condition,
-          cleanStatus,
-          simType: normalizedSim,
-          storage,
-          price: product['Regular price'] || 'N/A',
-          priceValue: parseNairaValue(product['Regular price']),
-        });
+        rows.push({ ...row, id: row.id || `cache-${index}`, cleanStatus });
+      });
+      return rows;
+    }
+
+    sourceRows.forEach(({ vendor, product, index }) => {
+      if (selectedVendorFilter !== 'All' && vendor.vendorName !== selectedVendorFilter) return;
+      const productDate = product.DatePosted || vendor.lastUpdated;
+      if (!isWithinDateRange(productDate, startDate, endDate)) return;
+
+      const rawDeviceType = (product['Device Type'] || 'Unknown Device').trim() || 'Unknown Device';
+      const dictionaryMapped = masterDictionary[normalizeDictionaryKey(rawDeviceType)] || rawDeviceType;
+      const mappedDeviceType = smartMapDevice(dictionaryMapped, officialTargets);
+      const rawCondition = standardizeCondition(product.Condition || 'Unknown');
+      const normalizedSim = normalizeSimType(product['SIM Type/Model/Processor'], mappedDeviceType);
+      const storage = (product['Storage Capacity/Configuration'] || 'N/A').trim() || 'N/A';
+      const category = (product.Category || 'Others').trim() || 'Others';
+      const brandSubCategory = inferBrandSubCategory(mappedDeviceType);
+      const series = inferSeries(mappedDeviceType);
+
+      const haystack = [
+        product.Category,
+        rawDeviceType,
+        mappedDeviceType,
+        product.Condition,
+        product['SIM Type/Model/Processor'],
+        product['Storage Capacity/Configuration'],
+      ].join(' ').toLowerCase();
+
+      const isExcluded = excludedTokens.some((phrase) => haystack.includes(phrase));
+      const cleanStatus = isExcluded ? 'excluded' : rawCondition.cleanStatus;
+
+      if (dataViewMode !== 'all' && cleanStatus !== dataViewMode) return;
+
+      rows.push({
+        id: `${vendor.docId}-${index}-${mappedDeviceType}`,
+        vendorName: vendor.vendorName,
+        vendorLink: vendor.shareableLink,
+        date: productDate || 'N/A',
+        category,
+        brandSubCategory,
+        series,
+        deviceType: mappedDeviceType,
+        condition: rawCondition.condition,
+        cleanStatus,
+        simType: normalizedSim,
+        storage,
+        price: product['Regular price'] || 'N/A',
+        priceValue: parseNairaValue(product['Regular price']),
       });
     });
 
     return rows;
-  }, [offlineVendors, startDate, endDate, masterDictionary, selectedVendorFilter, dataViewMode, excludedPhrases]);
+  }, [offlineVendors, globalProductsCacheRows, startDate, endDate, masterDictionary, officialTargets, selectedVendorFilter, dataViewMode, excludedPhrases]);
+
 
   const filteredProductRows = useMemo(() => {
     const queryText = productSearchQuery.trim().toLowerCase();
@@ -800,6 +958,8 @@ const AdminDashboard = () => {
     () => ['All', ...new Set(offlineVendors.map((vendor) => vendor.vendorName).filter(Boolean))],
     [offlineVendors]
   );
+
+  const uniqueVendorNames = useMemo(() => uniqueVendorFilters.filter((name) => name !== 'All'), [uniqueVendorFilters]);
 
   const platformActivityTimeline = useMemo(() => {
     const allEntries = [];
@@ -1043,6 +1203,85 @@ const AdminDashboard = () => {
     downloadCsv('platform-directory.csv', rows);
   };
 
+  const loadCompanyCsv = async () => {
+    setLoadingCompanyCsv(true);
+    try {
+      const normalizedUrl = normalizeGoogleSheetCsvUrl(companyCsvUrl);
+      const res = await fetch(normalizedUrl, { headers: { Accept: 'text/csv,text/plain,*/*' } });
+      if (!res.ok) throw new Error(`Unable to fetch company CSV (${res.status})`);
+      const csvText = await res.text();
+      const lines = csvText.split(/\r?\n/).filter(Boolean);
+      if (!lines.length) {
+        setCompanyCsvRows([]);
+        return;
+      }
+      const headers = parseCsvLine(lines[0]);
+      const parsedRows = lines.slice(1).map((line) => {
+        const values = parseCsvLine(line);
+        return headers.reduce((acc, header, index) => {
+          acc[header] = values[index] || '';
+          return acc;
+        }, {});
+      });
+      setCompanyCsvRows(parsedRows);
+    } catch (error) {
+      alert(`❌ ${error.message}`);
+    } finally {
+      setLoadingCompanyCsv(false);
+    }
+  };
+
+  const pricingResults = useMemo(() => {
+    const margin = Number(marginValue) || 0;
+    const vendorRows = normalizedProductRows.filter((row) => row.vendorName === pricingVendor);
+
+    return companyCsvRows.reduce((acc, row) => {
+      const companyDevice = row['Device Type'] || row['device type'] || row['Product'] || '';
+      const mappedDevice = smartMapDevice(companyDevice, officialTargets);
+      const condition = standardizeCondition(row.Condition || row.condition || 'Unknown').condition;
+      const storage = row['Storage Capacity/Configuration'] || row.storage || '';
+      const simType = row['SIM Type/Model/Processor'] || row.simType || '';
+      const companyPriceRaw = row['Regular price'] || row['Company Price'] || row.price || '';
+      const companyPrice = parseNairaValue(companyPriceRaw);
+
+      const vendorMatch = vendorRows
+        .filter((item) => item.deviceType === mappedDevice)
+        .find((item) => (!storage || item.storage === storage) && (!simType || item.simType === simType) && (!condition || item.condition === condition));
+
+      if (!vendorMatch) return acc;
+
+      const vendorPrice = vendorMatch.priceValue;
+      const target = marginType === 'percentage' ? Math.round(vendorPrice * (1 + (margin / 100))) : vendorPrice + margin;
+      const adjustment = target - companyPrice;
+      const adjustmentPercent = companyPrice > 0 ? Math.round((adjustment / companyPrice) * 100) : 0;
+
+      acc.push({
+        ...row,
+        mappedDevice,
+        companyPrice,
+        vendorPrice,
+        target,
+        adjustment,
+        adjustmentPercent,
+      });
+      return acc;
+    }, []);
+  }, [companyCsvRows, pricingVendor, marginType, marginValue, normalizedProductRows, officialTargets]);
+
+  const exportPricingTxt = () => {
+    const lines = pricingResults.map((item) => {
+      if (marginType === 'percentage') return `${item.companyPrice}: ${item.adjustmentPercent}`;
+      return `${item.companyPrice}: ${item.adjustment}`;
+    });
+    const blob = new Blob([lines.join('\n')], { type: 'text/plain;charset=utf-8;' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.setAttribute('download', `pricing-adjustments-${Date.now()}.txt`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   const openChatForVendor = async (vendor) => {
     setChatVendor(vendor);
     setChatOpen(true);
@@ -1281,12 +1520,18 @@ const AdminDashboard = () => {
               <button onClick={() => setActiveTab('analytics')} className={`flex-shrink-0 px-4 py-2.5 rounded-xl text-sm font-bold transition-all ${activeTab === 'analytics' ? 'bg-[#1A1C23] text-white shadow-sm' : 'text-gray-600 hover:text-[#1A1C23] hover:bg-gray-100'}`}>Visual Analytics</button>
               <button onClick={() => setActiveTab('activity')} className={`flex-shrink-0 px-4 py-2.5 rounded-xl text-sm font-bold transition-all ${activeTab === 'activity' ? 'bg-[#1A1C23] text-white shadow-sm' : 'text-gray-600 hover:text-[#1A1C23] hover:bg-gray-100'}`}>Activity Log</button>
               <button onClick={() => setActiveTab('products')} className={`flex-shrink-0 px-4 py-2.5 rounded-xl text-sm font-bold transition-all ${activeTab === 'products' ? 'bg-[#1A1C23] text-white shadow-sm' : 'text-gray-600 hover:text-[#1A1C23] hover:bg-gray-100'}`}>Global Products</button>
+              <button onClick={() => setActiveTab('pricing')} className={`flex-shrink-0 px-4 py-2.5 rounded-xl text-sm font-bold transition-all ${activeTab === 'pricing' ? 'bg-[#1A1C23] text-white shadow-sm' : 'text-gray-600 hover:text-[#1A1C23] hover:bg-gray-100'}`}>Pricing Engine</button>
               <button onClick={() => setActiveTab('backups')} className={`flex-shrink-0 px-4 py-2.5 rounded-xl text-sm font-bold transition-all ${activeTab === 'backups' ? 'bg-[#1A1C23] text-white shadow-sm' : 'text-gray-600 hover:text-[#1A1C23] hover:bg-gray-100'}`}>Backups</button>
               <button onClick={() => setActiveTab('history')} className={`flex-shrink-0 px-4 py-2.5 rounded-xl text-sm font-bold transition-all ${activeTab === 'history' ? 'bg-[#1A1C23] text-white shadow-sm' : 'text-gray-600 hover:text-[#1A1C23] hover:bg-gray-100'}`}>History</button>
               <button onClick={() => setActiveTab('promote')} className={`flex-shrink-0 px-4 py-2.5 rounded-xl text-sm font-bold transition-all ${activeTab === 'promote' ? 'bg-[#1A1C23] text-white shadow-sm' : 'text-gray-600 hover:text-[#1A1C23] hover:bg-gray-100'}`}>Promote</button>
               <button onClick={() => setActiveTab('maintenance')} className={`flex-shrink-0 px-4 py-2.5 rounded-xl text-sm font-bold transition-all ${activeTab === 'maintenance' ? 'bg-[#1A1C23] text-white shadow-sm' : 'text-gray-600 hover:text-[#1A1C23] hover:bg-gray-100'}`}>System Maintenance</button>
             </div>
           </div>
+
+          <datalist id="vendor-search-list">
+            <option value="All">All</option>
+            {uniqueVendorNames.map((vendor) => <option key={`vendor-search-${vendor}`} value={vendor} />)}
+          </datalist>
 
           {/* Conditional Rendering of Tabs */}
           {activeTab === 'analytics' ? (
@@ -1321,15 +1566,14 @@ const AdminDashboard = () => {
                     <option value="unclean">Unclean</option>
                     <option value="excluded">Excluded</option>
                   </select>
-                  <select
+                  <input
+                    type="text"
+                    list="vendor-search-list"
                     value={selectedVendorFilter}
-                    onChange={(e) => setSelectedVendorFilter(e.target.value)}
+                    onChange={(e) => setSelectedVendorFilter(e.target.value || 'All')}
+                    placeholder="Search vendor"
                     className="px-4 py-2.5 rounded-2xl text-xs font-black border border-gray-100 bg-white/70 backdrop-blur-xl shadow-sm text-gray-700"
-                  >
-                    {uniqueVendorFilters.map((vendor) => (
-                      <option key={vendor} value={vendor}>{vendor}</option>
-                    ))}
-                  </select>
+                  />
                 </div>
               </div>
               <div className="grid grid-cols-1 xl:grid-cols-2 gap-8 mb-8">
@@ -1453,9 +1697,7 @@ const AdminDashboard = () => {
                   <select value={productConditionFilter} onChange={(e) => setProductConditionFilter(e.target.value)} className="px-4 py-3 rounded-2xl border border-gray-100 bg-white/80 text-sm outline-none focus:ring-2 focus:ring-gray-300">
                     {uniqueGlobalConditions.map((condition) => <option key={condition} value={condition}>{condition}</option>)}
                   </select>
-                  <select value={selectedVendorFilter} onChange={(e) => setSelectedVendorFilter(e.target.value)} className="px-4 py-3 rounded-2xl border border-gray-100 bg-white/80 text-sm outline-none focus:ring-2 focus:ring-gray-300">
-                    {uniqueVendorFilters.map((vendor) => <option key={vendor} value={vendor}>{vendor}</option>)}
-                  </select>
+                  <input type="text" list="vendor-search-list" value={selectedVendorFilter} onChange={(e) => setSelectedVendorFilter(e.target.value || 'All')} placeholder="Search vendor" className="px-4 py-3 rounded-2xl border border-gray-100 bg-white/80 text-sm outline-none focus:ring-2 focus:ring-gray-300" />
                   <select value={dataViewMode} onChange={(e) => setDataViewMode(e.target.value)} className="px-4 py-3 rounded-2xl border border-gray-100 bg-white/80 text-sm outline-none focus:ring-2 focus:ring-gray-300">
                     <option value="all">All</option>
                     <option value="clean">Clean</option>
@@ -1496,7 +1738,7 @@ const AdminDashboard = () => {
                   const categoryExpanded = expandedProductGroups.includes(categoryKey);
                   return (
                     <div key={categoryKey} className="bg-white rounded-2xl border border-gray-100">
-                      <button type="button" onClick={() => toggleProductGroup(categoryKey)} className="w-full px-4 py-3 text-left font-bold text-gray-900 flex items-center justify-between">{category}<span>{categoryExpanded ? '⌄' : '›'}</span></button>
+                      <button type="button" onClick={() => toggleProductGroup(categoryKey)} className="w-full px-4 py-3 text-left font-bold text-gray-900 flex items-center justify-between">{category} ({Object.values(brands).flatMap((seriesMap) => Object.values(seriesMap).flatMap((devices) => Object.values(devices).flatMap((variations) => Object.values(variations).map((variation) => variation.stockCount)))).reduce((sum, count) => sum + count, 0)})<span>{categoryExpanded ? '⌄' : '›'}</span></button>
                       {categoryExpanded && (
                         <div className="pl-4 pr-2 pb-3 space-y-2">
                           {Object.entries(brands).map(([brand, seriesMap]) => {
@@ -1505,7 +1747,7 @@ const AdminDashboard = () => {
                             const brandExpanded = expandedProductGroups.includes(brandKey);
                             return (
                               <div key={brandKey} className="bg-gray-50 rounded-2xl border border-gray-100">
-                                <button type="button" onClick={() => toggleProductGroup(brandKey)} className="w-full px-4 py-3 text-left text-sm font-bold text-gray-800 flex items-center justify-between">{brand}<span>{brandExpanded ? '⌄' : '›'}</span></button>
+                                <button type="button" onClick={() => toggleProductGroup(brandKey)} className="w-full px-4 py-3 text-left text-sm font-bold text-gray-800 flex items-center justify-between">{brand} ({Object.values(seriesMap).flatMap((devices) => Object.values(devices).flatMap((variations) => Object.values(variations).map((variation) => variation.stockCount))).reduce((sum, count) => sum + count, 0)})<span>{brandExpanded ? '⌄' : '›'}</span></button>
                                 {brandExpanded && (
                                   <div className="pl-4 pr-2 pb-3 space-y-2">
                                     {Object.entries(seriesMap).map(([series, devices]) => {
@@ -1514,7 +1756,7 @@ const AdminDashboard = () => {
                                       const seriesExpanded = expandedProductGroups.includes(seriesKey);
                                       return (
                                         <div key={seriesKey} className="bg-white rounded-xl border border-gray-100">
-                                          <button type="button" onClick={() => toggleProductGroup(seriesKey)} className="w-full px-4 py-3 text-left text-sm font-bold text-gray-800 flex items-center justify-between">{series}<span>{seriesExpanded ? '⌄' : '›'}</span></button>
+                                          <button type="button" onClick={() => toggleProductGroup(seriesKey)} className="w-full px-4 py-3 text-left text-sm font-bold text-gray-800 flex items-center justify-between">{series} ({Object.values(devices).flatMap((variations) => Object.values(variations).map((variation) => variation.stockCount)).reduce((sum, count) => sum + count, 0)})<span>{seriesExpanded ? '⌄' : '›'}</span></button>
                                           {seriesExpanded && (
                                             <div className="pl-4 pr-2 pb-3 space-y-2">
                                               {Object.entries(devices).map(([deviceType, variations]) => {
@@ -1523,7 +1765,7 @@ const AdminDashboard = () => {
                                                 const deviceExpanded = expandedProductGroups.includes(deviceKey);
                                                 return (
                                                   <div key={deviceKey} className="rounded-xl border border-gray-100 bg-gray-50">
-                                                    <button type="button" onClick={() => toggleProductGroup(deviceKey)} className="w-full px-4 py-3 text-left text-sm font-bold text-gray-900 flex items-center justify-between">{deviceType}<span>{deviceExpanded ? '⌄' : '›'}</span></button>
+                                                    <button type="button" onClick={() => toggleProductGroup(deviceKey)} className="w-full px-4 py-3 text-left text-sm font-bold text-gray-900 flex items-center justify-between">{deviceType} ({Object.values(variations).reduce((sum, variation) => sum + variation.stockCount, 0)})<span>{deviceExpanded ? '⌄' : '›'}</span></button>
                                                     {deviceExpanded && (
                                                       <div className="px-2 pb-3 space-y-2">
                                                         {Object.entries(variations).map(([variationRawKey, variation]) => {
@@ -1595,7 +1837,52 @@ const AdminDashboard = () => {
                 </div>
               )}
             </div>
-          ) : activeTab === 'backups' ? (
+                    ) : activeTab === 'pricing' ? (
+            <div className="bg-white/70 backdrop-blur-xl border border-gray-100 rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] p-6 space-y-5">
+              <div>
+                <h2 className="text-2xl font-black tracking-tight text-gray-900">Pricing Engine</h2>
+                <p className="text-sm text-gray-500">Load company CSV, compare to a selected vendor, and export adjustments.</p>
+              </div>
+              <div className="grid grid-cols-1 lg:grid-cols-4 gap-3">
+                <input value={companyCsvUrl} onChange={(e) => setCompanyCsvUrl(e.target.value)} placeholder="Company CSV URL" className="lg:col-span-2 px-4 py-3 rounded-2xl border border-gray-100 bg-white/80 text-sm outline-none focus:ring-2 focus:ring-gray-300" />
+                <input type="text" list="vendor-search-list" value={pricingVendor} onChange={(e) => setPricingVendor(e.target.value)} placeholder="Vendor" className="px-4 py-3 rounded-2xl border border-gray-100 bg-white/80 text-sm outline-none focus:ring-2 focus:ring-gray-300" />
+                <button onClick={loadCompanyCsv} disabled={loadingCompanyCsv} className="px-4 py-3 rounded-2xl text-xs font-black uppercase tracking-wider border border-gray-100 bg-white/80 hover:bg-white disabled:opacity-50">{loadingCompanyCsv ? 'Loading...' : 'Load Company CSV'}</button>
+                <select value={marginType} onChange={(e) => setMarginType(e.target.value)} className="px-4 py-3 rounded-2xl border border-gray-100 bg-white/80 text-sm outline-none focus:ring-2 focus:ring-gray-300">
+                  <option value="amount">Amount</option>
+                  <option value="percentage">Percentage</option>
+                </select>
+                <input value={marginValue} onChange={(e) => setMarginValue(e.target.value)} placeholder="Margin value" className="px-4 py-3 rounded-2xl border border-gray-100 bg-white/80 text-sm outline-none focus:ring-2 focus:ring-gray-300" />
+                <button onClick={exportPricingTxt} className="px-4 py-3 rounded-2xl text-xs font-black uppercase tracking-wider border border-gray-100 bg-white/80 hover:bg-white">Export to TXT</button>
+              </div>
+              <div className="overflow-x-auto border border-gray-100 rounded-2xl">
+                <table className="w-full text-left min-w-[1100px]">
+                  <thead className="bg-gray-50 text-xs uppercase text-gray-500">
+                    <tr>
+                      <th className="px-3 py-2">Device</th>
+                      <th className="px-3 py-2">Company Price</th>
+                      <th className="px-3 py-2">Vendor Price</th>
+                      <th className="px-3 py-2">Target</th>
+                      <th className="px-3 py-2">Adjustment</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {pricingResults.map((row, index) => (
+                      <tr key={`pricing-${index}`} className="border-t border-gray-100 text-sm">
+                        <td className="px-3 py-2 font-semibold">{row.mappedDevice}</td>
+                        <td className="px-3 py-2">{formatNaira(row.companyPrice)}</td>
+                        <td className="px-3 py-2">{formatNaira(row.vendorPrice)}</td>
+                        <td className="px-3 py-2">{formatNaira(row.target)}</td>
+                        <td className="px-3 py-2">{marginType === 'percentage' ? `${row.adjustmentPercent}%` : formatNaira(row.adjustment)}</td>
+                      </tr>
+                    ))}
+                    {!pricingResults.length && (
+                      <tr><td className="px-3 py-4 text-sm text-gray-500" colSpan={5}>No matched rows. Load CSV and choose a valid vendor.</td></tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+) : activeTab === 'backups' ? (
             <div className="bg-white/70 backdrop-blur-xl border border-white/20 rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] overflow-hidden">
               <div className="p-5 bg-gray-50 border-b flex justify-between items-center gap-4">
                 <h2 className="text-lg font-bold text-[#1A1C23]">Backup Version History ({backups.length})</h2>
