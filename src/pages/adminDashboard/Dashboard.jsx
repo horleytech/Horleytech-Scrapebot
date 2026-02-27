@@ -189,12 +189,22 @@ const parseMasterDictionaryCsv = (csvText = '') => {
   const normalizedHeaders = headers.map((header) => normalizeDictionaryKey(header));
   const findHeaderIndex = (aliases = []) => normalizedHeaders.findIndex((header) => aliases.includes(header));
 
-  const rawNameIndex = findHeaderIndex(['rawname', 'rawdevicename', 'rawmodel', 'rawproduct']);
+  const rawNameIndex = findHeaderIndex([
+    'rawname',
+    'rawdevicename',
+    'rawmodel',
+    'rawproduct',
+    'devicetype',
+    'device',
+    'product',
+    'model',
+    'simtypemodelprocessor',
+  ]);
   const standardNameIndex = findHeaderIndex(['standardname', 'normalizedname', 'canonicalname', 'mappedname']);
   const deviceTypeIndex = findHeaderIndex(['devicetype', 'device', 'model', 'productname']);
 
   if (rawNameIndex === -1 || (standardNameIndex === -1 && deviceTypeIndex === -1)) {
-    throw new Error(`CSV must include a "Raw Name" column plus either "Standard Name" or "Device Type". Found headers: ${headers.join(', ') || '(none)'}`);
+    throw new Error(`CSV must include a recognizable raw-name column (e.g. "Raw Name" or "Device Type") plus either "Standard Name" or "Device Type". Found headers: ${headers.join(', ') || '(none)'}`);
   }
 
   const dictionary = {};
