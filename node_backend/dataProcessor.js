@@ -29,7 +29,7 @@ export const saveVendorsToFirebase = async (vendorsData) => {
 
             await setDoc(docRef, {
                 vendorId: masterDocId,
-                vendorName: vendor.vendorId, // Keep original name for display
+                vendorName: vendor.vendorName || vendor.vendorId, // Keep readable name for display
                 lastUpdated: new Date().toISOString(),
                 shareableLink: `/vendor/${masterDocId}`,
                 products: uniqueProducts

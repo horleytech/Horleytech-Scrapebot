@@ -1,11 +1,37 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { collection, getDocs } from 'firebase/firestore';
 import { BASE_URL } from '../../services/constants/apiConstants.js';
+import { db } from '../../services/firebase/index.js';
 
 const UploadData = () => {
   const [file, setFile] = useState(null);
   const [loading, setLoading] = useState(false);
-  // Initialized the status state which was missing in the conflict snippet
   const [status, setStatus] = useState({ type: '', message: '' });
+  const [vendors, setVendors] = useState([]);
+  const [vendorQuery, setVendorQuery] = useState('');
+  const [createNewVendor, setCreateNewVendor] = useState(false);
+
+  useEffect(() => {
+    const fetchVendors = async () => {
+      try {
+        const snap = await getDocs(collection(db, 'horleyTech_OfflineInventories'));
+        const rows = snap.docs.map((docSnap) => {
+          const data = docSnap.data();
+          return {
+            id: docSnap.id,
+            name: data.vendorName || data.vendorId || docSnap.id,
+          };
+        });
+        setVendors(rows.sort((a, b) => a.name.localeCompare(b.name)));
+      } catch (error) {
+        console.error('Unable to fetch vendors for TXT upload:', error);
+      }
+    };
+
+    fetchVendors();
+  }, []);
+
+  const selectedVendor = useMemo(() => vendors.find((vendor) => vendor.name.toLowerCase() === vendorQuery.trim().toLowerCase()), [vendors, vendorQuery]);
 
   const handleUpload = async (event) => {
     event.preventDefault();
@@ -15,14 +41,25 @@ const UploadData = () => {
       return;
     }
 
+    if (!vendorQuery.trim()) {
+      setStatus({ type: 'error', message: 'Please choose an existing vendor or type a new vendor name.' });
+      return;
+    }
+
+    if (!createNewVendor && !selectedVendor) {
+      setStatus({ type: 'error', message: 'Vendor not found. Select from the list or enable "Create as new vendor".' });
+      return;
+    }
+
     setLoading(true);
     setStatus({ type: '', message: '' });
 
     const formData = new FormData();
     formData.append('file', file);
+    formData.append('selectedVendorName', vendorQuery.trim());
+    formData.append('selectedVendorId', selectedVendor?.id || vendorQuery.trim().replace(/[^a-zA-Z0-9]/g, '').toLowerCase());
 
     try {
-      // THE FIX: Uses the Vercel Proxy source path to bypass security blocks
       const response = await fetch(`${BASE_URL}/process`, {
         method: 'POST',
         body: formData,
@@ -41,14 +78,12 @@ const UploadData = () => {
 
       setStatus({
         type: 'success',
-        message: '✅ File uploaded and AI processing started successfully! Check the directory shortly.',
+        message: `✅ File uploaded and queued for ${vendorQuery.trim()}.`,
       });
       setFile(null);
-      
-      // Resets the file input field visually
+
       const input = document.getElementById('txt-upload-input');
       if (input) input.value = '';
-      
     } catch (error) {
       console.error(error);
       const networkError = error?.message === 'Failed to fetch'
@@ -65,11 +100,35 @@ const UploadData = () => {
     <div className="max-w-3xl mx-auto mt-8">
       <div className="mb-6">
         <h1 className="text-[24px] font-bold text-[#1A1C23]">TXT Analyzer</h1>
-        <p className="text-gray-500 mt-1">Upload WhatsApp chat exports (.txt) directly for AI parsing.</p>
+        <p className="text-gray-500 mt-1">Upload WhatsApp chat exports (.txt), choose an existing vendor, or create a new one.</p>
       </div>
 
       <div className="bg-white p-8 rounded-[10px] shadow-sm border border-gray-100">
         <form onSubmit={handleUpload} className="space-y-5">
+          <div className="border border-gray-200 rounded-[10px] p-5 bg-gray-50">
+            <label htmlFor="vendor-picker" className="block text-sm font-semibold text-gray-700 mb-2">
+              Vendor
+            </label>
+            <input
+              id="vendor-picker"
+              list="vendor-options"
+              type="text"
+              value={vendorQuery}
+              onChange={(e) => setVendorQuery(e.target.value)}
+              placeholder="Search existing vendors or type a new name"
+              className="w-full p-2 border border-gray-300 rounded-md bg-white"
+            />
+            <datalist id="vendor-options">
+              {vendors.map((vendor) => (
+                <option key={vendor.id} value={vendor.name} />
+              ))}
+            </datalist>
+            <label className="mt-3 flex items-center gap-2 text-xs font-semibold text-gray-600 uppercase tracking-wider">
+              <input type="checkbox" checked={createNewVendor} onChange={(e) => setCreateNewVendor(e.target.checked)} className="w-4 h-4" />
+              Create as new vendor
+            </label>
+          </div>
+
           <div className="border border-gray-200 rounded-[10px] p-5 bg-gray-50">
             <label htmlFor="txt-upload-input" className="block text-sm font-semibold text-gray-700 mb-2">
               Select WhatsApp .txt file

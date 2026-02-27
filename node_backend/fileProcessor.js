@@ -110,18 +110,21 @@ const extractFromBatch = async (batchText, batchNumber, totalBatches) => {
   }
 };
 
-const groupProductsByVendor = (allExtractedProducts) => {
+const groupProductsByVendor = (allExtractedProducts, options = {}) => {
   const vendorMap = {};
   const exactServerDate = new Date().toLocaleString('en-US', { timeZone: 'Africa/Lagos' });
+  const forcedVendorName = String(options.forcedVendorName || '').trim();
+  const forcedVendorId = String(options.forcedVendorId || '').trim();
 
   allExtractedProducts.forEach((product) => {
-    const vendor = product.vendorId;
+    const vendor = forcedVendorName || product.vendorId;
 
     if (!vendor || vendor === 'Unknown') return;
 
     if (!vendorMap[vendor]) {
       vendorMap[vendor] = {
-        vendorId: vendor,
+        vendorId: forcedVendorId || vendor,
+        vendorName: vendor,
         lastUpdated: new Date().toISOString(),
         shareableLink: `/vendor/${encodeURIComponent(vendor.replace(/\s+/g, '-'))}`,
         products: []
@@ -141,7 +144,7 @@ const groupProductsByVendor = (allExtractedProducts) => {
   return Object.values(vendorMap);
 };
 
-export const processChatFile = async (filePath) => {
+export const processChatFile = async (filePath, options = {}) => {
   const rawText = fs.readFileSync(filePath, 'utf-8');
   const batches = createBatches(rawText, 60);
 
@@ -156,7 +159,7 @@ export const processChatFile = async (filePath) => {
 
   console.log(`✅ Total products extracted globally: ${allProducts.length}`);
 
-  const finalVendorData = groupProductsByVendor(allProducts);
+  const finalVendorData = groupProductsByVendor(allProducts, options);
 
   console.log(`🗂️ Successfully grouped into ${finalVendorData.length} unique Vendors.`);
   return finalVendorData;
