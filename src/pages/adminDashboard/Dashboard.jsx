@@ -43,9 +43,36 @@ const downloadCsv = (filename, rows) => {
 
 const parseNairaValue = (value) => {
   if (value === null || value === undefined) return 0;
-  if (typeof value === 'number') return value;
-  const cleaned = String(value).replace(/[^0-9.]/g, '');
-  const numeric = Number(cleaned);
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+
+  const original = String(value || '');
+  const groupedNumber = original.match(/(\d{1,3}(?:,\d{3})+)/);
+  if (groupedNumber) {
+    const parsedGrouped = Number(groupedNumber[1].replace(/,/g, ''));
+    if (Number.isFinite(parsedGrouped)) return parsedGrouped;
+  }
+
+  const raw = original.toLowerCase().replace(/[₦n\s,]/g, '').trim();
+  if (!raw) return 0;
+
+  const millionAndThousand = raw.match(/(\d+(?:\.\d+)?)m(\d+(?:\.\d+)?)k/);
+  if (millionAndThousand) {
+    const millions = Number(millionAndThousand[1]) || 0;
+    const thousands = Number(millionAndThousand[2]) || 0;
+    return Math.round((millions * 1000000) + (thousands * 1000));
+  }
+
+  const shorthandMatch = raw.match(/(\d+(?:\.\d+)?)([mk])/);
+  if (shorthandMatch) {
+    const amount = Number(shorthandMatch[1]) || 0;
+    const multiplier = shorthandMatch[2] === 'm' ? 1000000 : 1000;
+    return Math.round(amount * multiplier);
+  }
+
+  const safeNumberPart = raw.match(/\d+(?:\.\d+)?/);
+  if (!safeNumberPart) return 0;
+
+  const numeric = Number(safeNumberPart[0]);
   return Number.isFinite(numeric) ? numeric : 0;
 };
 
@@ -157,17 +184,10 @@ const parseMasterDictionaryCsv = (csvText = '') => {
   }, {});
 };
 
-const standardizeCondition = (condition) => {
-  const normalized = String(condition || '').toLowerCase().trim();
-  if (BRAND_NEW_CONDITIONS.has(normalized)) return 'Brand New';
-  if (USED_CONDITIONS.has(normalized)) return 'Used';
-  return 'Unclean';
-};
-
 const getConditionRank = (condition) => {
-  const standardized = standardizeCondition(condition);
+  const standardized = standardizeCondition(condition).condition;
   if (standardized === 'Brand New') return 0;
-  if (standardized === 'Used') return 1;
+  if (standardized === 'Grade A UK Used') return 1;
   return 2;
 };
 
@@ -204,6 +224,46 @@ const getStorageRank = (storage) => {
   return unit === 'tb' ? value * 1024 : value;
 };
 
+const standardizeCondition = (condition) => {
+  const normalized = String(condition || '').toLowerCase().trim();
+  if (BRAND_NEW_CONDITIONS.has(normalized)) return { condition: 'Brand New', cleanStatus: 'clean' };
+  if (USED_CONDITIONS.has(normalized)) return { condition: 'Grade A UK Used', cleanStatus: 'clean' };
+  return { condition: String(condition || 'Unknown').trim() || 'Unknown', cleanStatus: 'unclean' };
+};
+
+const normalizeSimType = (simType, deviceType) => {
+  const rawSim = String(simType || '').trim();
+  if (rawSim) return rawSim;
+  const normalizedDevice = String(deviceType || '').toLowerCase();
+  if (normalizedDevice.includes('iphone') || normalizedDevice.includes('ipad') || normalizedDevice.includes('apple')) {
+    return 'Physical SIM + ESIM (Dual)';
+  }
+  return 'N/A';
+};
+
+const inferBrandSubCategory = (deviceType) => {
+  const normalized = String(deviceType || '').toLowerCase();
+  if (normalized.includes('iphone')) return '#iphones';
+  if (normalized.includes('samsung') || normalized.match(/^s\d{1,2}/)) return '#samsungphones';
+  if (normalized.includes('pixel')) return '#googlepixel';
+  if (normalized.includes('ipad')) return '#ipads';
+  if (normalized.includes('macbook')) return '#macbooks';
+  return '#others';
+};
+
+const inferSeries = (deviceType) => {
+  const normalized = String(deviceType || '').toLowerCase();
+  if (normalized.includes('iphone')) {
+    const match = normalized.match(/iphone\s*(\d+)/);
+    if (match) return `iPhone ${match[1]} Series`;
+  }
+  if (normalized.includes('samsung') || normalized.match(/^s\d{1,2}/)) {
+    const match = normalized.match(/s(\d{1,2})/);
+    if (match) return `Samsung S${match[1]} Series`;
+  }
+  return 'Others';
+};
+
 const AdminDashboard = () => {
   const location = useLocation();
   const isAdmin = true;
@@ -215,8 +275,10 @@ const AdminDashboard = () => {
   const [currentProductPage, setCurrentProductPage] = useState(1);
   const [productCategoryFilter, setProductCategoryFilter] = useState('All');
   const [productConditionFilter, setProductConditionFilter] = useState('All');
+  const [selectedVendorFilter, setSelectedVendorFilter] = useState('All');
   const [productSortMode, setProductSortMode] = useState('hierarchy');
-  const [dataPurity, setDataPurity] = useState('clean');
+  const [dataViewMode, setDataViewMode] = useState('all');
+  const [excludedPhrases, setExcludedPhrases] = useState('active');
   const [masterDictionary, setMasterDictionary] = useState({});
   const [syncingDictionary, setSyncingDictionary] = useState(false);
   const [startDate, setStartDate] = useState('');
@@ -527,110 +589,157 @@ const AdminDashboard = () => {
     [offlineVendors, searchQuery]
   );
 
-  const groupedGlobalProducts = useMemo(() => {
-    const grouped = new Map();
+  const normalizedProductRows = useMemo(() => {
+    const excludedTokens = excludedPhrases
+      .split(',')
+      .map((token) => token.trim().toLowerCase())
+      .filter(Boolean);
+
+    const rows = [];
 
     offlineVendors.forEach((vendor) => {
+      if (selectedVendorFilter !== 'All' && vendor.vendorName !== selectedVendorFilter) return;
       (vendor.products || []).forEach((product, index) => {
         const productDate = product.DatePosted || vendor.lastUpdated;
         if (!isWithinDateRange(productDate, startDate, endDate)) return;
 
-        const category = (product.Category || 'Uncategorized').trim() || 'Uncategorized';
         const rawDeviceType = (product['Device Type'] || 'Unknown Device').trim() || 'Unknown Device';
         const mappedDeviceType = masterDictionary[normalizeDictionaryKey(rawDeviceType)] || rawDeviceType;
-        const condition = standardizeCondition(product.Condition || 'Unknown');
-        if (dataPurity === 'clean' && condition === 'Unclean') return;
-
-        const specification = (product['SIM Type/Model/Processor'] || 'N/A').trim() || 'N/A';
+        const rawCondition = standardizeCondition(product.Condition || 'Unknown');
+        const normalizedSim = normalizeSimType(product['SIM Type/Model/Processor'], mappedDeviceType);
         const storage = (product['Storage Capacity/Configuration'] || 'N/A').trim() || 'N/A';
-        const priceValue = parseNairaValue(product['Regular price']);
-        const groupKey = `${category}__${mappedDeviceType}__${condition}__${specification}__${storage}`;
+        const category = (product.Category || 'Others').trim() || 'Others';
+        const brandSubCategory = inferBrandSubCategory(mappedDeviceType);
+        const series = inferSeries(mappedDeviceType);
 
-        if (!grouped.has(groupKey)) {
-          grouped.set(groupKey, {
-            groupKey,
-            category,
-            deviceType: mappedDeviceType,
-            condition,
-            specification,
-            storage,
-            totalAccumulatedPrice: 0,
-            stockCount: 0,
-            items: [],
-          });
-        }
+        const haystack = [
+          product.Category,
+          rawDeviceType,
+          mappedDeviceType,
+          product.Condition,
+          product['SIM Type/Model/Processor'],
+          product['Storage Capacity/Configuration'],
+        ].join(' ').toLowerCase();
 
-        const entry = grouped.get(groupKey);
-        entry.totalAccumulatedPrice += priceValue;
-        entry.stockCount += 1;
-        entry.items.push({
+        const isExcluded = excludedTokens.some((phrase) => haystack.includes(phrase));
+        const cleanStatus = isExcluded ? 'excluded' : rawCondition.cleanStatus;
+
+        if (dataViewMode !== 'all' && cleanStatus !== dataViewMode) return;
+
+        rows.push({
           id: `${vendor.docId}-${index}-${mappedDeviceType}`,
           vendorName: vendor.vendorName,
           vendorLink: vendor.shareableLink,
+          date: productDate || 'N/A',
+          category,
+          brandSubCategory,
+          series,
+          deviceType: mappedDeviceType,
+          condition: rawCondition.condition,
+          cleanStatus,
+          simType: normalizedSim,
+          storage,
           price: product['Regular price'] || 'N/A',
-          priceValue,
-          date: product.DatePosted || vendor.lastUpdated || 'N/A',
-          whatsappClicks: vendor.whatsappClicks || 0,
+          priceValue: parseNairaValue(product['Regular price']),
         });
       });
     });
 
-    return Array.from(grouped.values()).sort((a, b) => {
-      const conditionDiff = getConditionRank(a.condition) - getConditionRank(b.condition);
-      if (conditionDiff !== 0) return conditionDiff;
+    return rows;
+  }, [offlineVendors, startDate, endDate, masterDictionary, selectedVendorFilter, dataViewMode, excludedPhrases]);
 
-      const versionDiff = extractDeviceVersion(b.deviceType) - extractDeviceVersion(a.deviceType);
-      if (versionDiff !== 0) return versionDiff;
-
-      const tierDiff = getDeviceTierWeight(b.deviceType) - getDeviceTierWeight(a.deviceType);
-      if (tierDiff !== 0) return tierDiff;
-
-      const deviceDiff = a.deviceType.localeCompare(b.deviceType);
-      if (deviceDiff !== 0) return deviceDiff;
-
-      const simDiff = getSimRank(a.specification) - getSimRank(b.specification);
-      if (simDiff !== 0) return simDiff;
-
-      const storageDiff = getStorageRank(b.storage) - getStorageRank(a.storage);
-      if (storageDiff !== 0) return storageDiff;
-
-      const specDiff = a.specification.localeCompare(b.specification);
-      if (specDiff !== 0) return specDiff;
-
-      const categoryDiff = a.category.localeCompare(b.category);
-      if (categoryDiff !== 0) return categoryDiff;
-
-      return a.storage.localeCompare(b.storage);
-    });
-  }, [offlineVendors, startDate, endDate, masterDictionary, dataPurity]);
-
-  const filteredGlobalProducts = useMemo(() => {
+  const filteredProductRows = useMemo(() => {
     const queryText = productSearchQuery.trim().toLowerCase();
 
-    let filtered = groupedGlobalProducts.filter((group) => {
+    return normalizedProductRows.filter((row) => {
       const matchesQuery = !queryText || [
-        group.category,
-        group.deviceType,
-        group.condition,
-        group.specification,
-        group.storage,
+        row.category,
+        row.brandSubCategory,
+        row.series,
+        row.deviceType,
+        row.condition,
+        row.simType,
+        row.storage,
+        row.vendorName,
       ].some((field) => String(field || '').toLowerCase().includes(queryText));
 
-      const matchesCategory = productCategoryFilter === 'All' || group.category === productCategoryFilter;
-      const matchesCondition = productConditionFilter === 'All' || group.condition === productConditionFilter;
-      const matchesDateRange = group.items.some((item) => isWithinDateRange(item.date, startDate, endDate));
+      const matchesCategory = productCategoryFilter === 'All' || row.category === productCategoryFilter;
+      const matchesCondition = productConditionFilter === 'All' || row.condition === productConditionFilter;
+      return matchesQuery && matchesCategory && matchesCondition;
+    });
+  }, [normalizedProductRows, productSearchQuery, productCategoryFilter, productConditionFilter]);
 
-      return matchesQuery && matchesCategory && matchesCondition && matchesDateRange;
+  const groupedGlobalProducts = useMemo(() => {
+    const tree = {};
+
+    filteredProductRows.forEach((row) => {
+      tree[row.category] ??= {};
+      tree[row.category][row.brandSubCategory] ??= {};
+      tree[row.category][row.brandSubCategory][row.series] ??= {};
+      tree[row.category][row.brandSubCategory][row.series][row.deviceType] ??= {};
+
+      const variationKey = `${row.condition}__${row.simType}__${row.storage}`;
+      tree[row.category][row.brandSubCategory][row.series][row.deviceType][variationKey] ??= {
+        condition: row.condition,
+        simType: row.simType,
+        storage: row.storage,
+        totalAccumulatedPrice: 0,
+        stockCount: 0,
+        vendors: [],
+      };
+
+      const variation = tree[row.category][row.brandSubCategory][row.series][row.deviceType][variationKey];
+      variation.totalAccumulatedPrice += row.priceValue;
+      variation.stockCount += 1;
+      variation.vendors.push({
+        id: row.id,
+        vendorName: row.vendorName,
+        vendorLink: row.vendorLink,
+        price: row.price,
+        priceValue: row.priceValue,
+        date: row.date,
+      });
+    });
+
+    return tree;
+  }, [filteredProductRows]);
+
+  const flattenedVariations = useMemo(() => {
+    const rows = [];
+    Object.entries(groupedGlobalProducts).forEach(([category, brands]) => {
+      Object.entries(brands).forEach(([brand, seriesMap]) => {
+        Object.entries(seriesMap).forEach(([series, devices]) => {
+          Object.entries(devices).forEach(([deviceType, variations]) => {
+            Object.values(variations).forEach((variation) => {
+              rows.push({ category, brand, series, deviceType, ...variation });
+            });
+          });
+        });
+      });
     });
 
     if (productSortMode === 'highest_price') {
-      filtered = [...filtered].sort((a, b) => b.totalAccumulatedPrice - a.totalAccumulatedPrice);
+      rows.sort((a, b) => b.totalAccumulatedPrice - a.totalAccumulatedPrice);
     } else if (productSortMode === 'highest_demand') {
-      filtered = [...filtered].sort((a, b) => b.stockCount - a.stockCount);
+      rows.sort((a, b) => b.stockCount - a.stockCount);
+    } else {
+      rows.sort((a, b) => {
+        const categoryDiff = a.category.localeCompare(b.category);
+        if (categoryDiff !== 0) return categoryDiff;
+        const deviceDiff = extractDeviceVersion(b.deviceType) - extractDeviceVersion(a.deviceType);
+        if (deviceDiff !== 0) return deviceDiff;
+        const tierDiff = getDeviceTierWeight(b.deviceType) - getDeviceTierWeight(a.deviceType);
+        if (tierDiff !== 0) return tierDiff;
+        const conditionDiff = getConditionRank(a.condition) - getConditionRank(b.condition);
+        if (conditionDiff !== 0) return conditionDiff;
+        const simDiff = getSimRank(a.simType) - getSimRank(b.simType);
+        if (simDiff !== 0) return simDiff;
+        return getStorageRank(b.storage) - getStorageRank(a.storage);
+      });
     }
 
-    return filtered;
-  }, [groupedGlobalProducts, productSearchQuery, productCategoryFilter, productConditionFilter, productSortMode, startDate, endDate]);
+    return rows;
+  }, [groupedGlobalProducts, productSortMode]);
 
   const totalPages = Math.max(1, Math.ceil(filteredOffline.length / itemsPerPage));
 
@@ -647,30 +756,49 @@ const AdminDashboard = () => {
     return filteredOffline.slice(startIndex, startIndex + itemsPerPage);
   }, [filteredOffline, currentPage, itemsPerPage]);
 
-  const totalProductPages = Math.max(1, Math.ceil(filteredGlobalProducts.length / itemsPerPage));
+  const totalProductPages = Math.max(1, Math.ceil(flattenedVariations.length / itemsPerPage));
 
   useEffect(() => {
     setCurrentProductPage(1);
     setExpandedProductGroups([]);
-  }, [productSearchQuery, productCategoryFilter, productConditionFilter, productSortMode]);
+  }, [productSearchQuery, productCategoryFilter, productConditionFilter, productSortMode, selectedVendorFilter, dataViewMode, excludedPhrases]);
+
+  const paginatedGroupedProducts = useMemo(() => {
+    const startIndex = (currentProductPage - 1) * itemsPerPage;
+    return flattenedVariations.slice(startIndex, startIndex + itemsPerPage);
+  }, [flattenedVariations, currentProductPage, itemsPerPage]);
+
+  const paginatedGroupKeySet = useMemo(() => {
+    const keys = new Set();
+    paginatedGroupedProducts.forEach((row) => {
+      keys.add(`category:${row.category}`);
+      keys.add(`brand:${row.category}__${row.brand}`);
+      keys.add(`series:${row.category}__${row.brand}__${row.series}`);
+      keys.add(`device:${row.category}__${row.brand}__${row.series}__${row.deviceType}`);
+      keys.add(`variation:${row.category}__${row.brand}__${row.series}__${row.deviceType}__${row.condition}__${row.simType}__${row.storage}`);
+    });
+    return keys;
+  }, [paginatedGroupedProducts]);
+
+  const filteredGlobalProducts = flattenedVariations;
 
   useEffect(() => {
     if (currentProductPage > totalProductPages) setCurrentProductPage(totalProductPages);
   }, [currentProductPage, totalProductPages]);
 
-  const paginatedGroupedProducts = useMemo(() => {
-    const startIndex = (currentProductPage - 1) * itemsPerPage;
-    return filteredGlobalProducts.slice(startIndex, startIndex + itemsPerPage);
-  }, [filteredGlobalProducts, currentProductPage, itemsPerPage]);
-
   const uniqueGlobalCategories = useMemo(
-    () => ['All', ...new Set(groupedGlobalProducts.map((group) => group.category))],
-    [groupedGlobalProducts]
+    () => ['All', ...new Set(normalizedProductRows.map((row) => row.category))],
+    [normalizedProductRows]
   );
 
   const uniqueGlobalConditions = useMemo(
-    () => ['All', ...new Set(groupedGlobalProducts.map((group) => group.condition))],
-    [groupedGlobalProducts]
+    () => ['All', ...new Set(normalizedProductRows.map((row) => row.condition))],
+    [normalizedProductRows]
+  );
+
+  const uniqueVendorFilters = useMemo(
+    () => ['All', ...new Set(offlineVendors.map((vendor) => vendor.vendorName).filter(Boolean))],
+    [offlineVendors]
   );
 
   const platformActivityTimeline = useMemo(() => {
@@ -690,30 +818,17 @@ const AdminDashboard = () => {
   }, [offlineVendors]);
 
   const analytics = useMemo(() => {
-    const scopedProducts = [];
-    offlineVendors.forEach((vendor) => {
-      (vendor.products || []).forEach((product) => {
-        const productDate = product.DatePosted || vendor.lastUpdated;
-        if (!isWithinDateRange(productDate, startDate, endDate)) return;
-        const normalizedCondition = standardizeCondition(product.Condition || 'Unknown');
-        if (dataPurity === 'clean' && normalizedCondition === 'Unclean') return;
-        scopedProducts.push({ vendor, product, normalizedCondition });
-      });
-    });
-
-    const vendorSet = new Set(scopedProducts.map(({ vendor }) => vendor.docId));
+    const vendorSet = new Set(normalizedProductRows.map((row) => row.vendorName));
     const totalVendors = offlineVendors.length;
     const filteredVendorCount = vendorSet.size;
-    const vendorSource = offlineVendors.filter((vendor) => vendorSet.has(vendor.docId));
-    const totalInventoryValue = scopedProducts.reduce((sum, { product }) => sum + parseNairaValue(product['Regular price']), 0);
+    const vendorSource = offlineVendors.filter((vendor) => vendorSet.has(vendor.vendorName));
+    const totalInventoryValue = normalizedProductRows.reduce((sum, row) => sum + row.priceValue, 0);
     const totalStoreViews = vendorSource.reduce((sum, vendor) => sum + (vendor.viewCount || 0), 0);
     const totalWhatsAppOrders = vendorSource.reduce((sum, vendor) => sum + (vendor.whatsappClicks || 0), 0);
 
     const deviceFrequency = {};
-    scopedProducts.forEach(({ product }) => {
-      const rawDeviceType = product['Device Type'] || 'Unknown';
-      const key = masterDictionary[normalizeDictionaryKey(rawDeviceType)] || rawDeviceType;
-      deviceFrequency[key] = (deviceFrequency[key] || 0) + 1;
+    normalizedProductRows.forEach((row) => {
+      deviceFrequency[row.deviceType] = (deviceFrequency[row.deviceType] || 0) + 1;
     });
 
     const mostTrackedDevice = Object.entries(deviceFrequency).sort((a, b) => b[1] - a[1])[0]?.[0] || 'N/A';
@@ -728,7 +843,7 @@ const AdminDashboard = () => {
       mostTrackedDevice,
       topVendor,
     };
-  }, [offlineVendors, dataPurity, startDate, endDate, masterDictionary]);
+  }, [offlineVendors, normalizedProductRows]);
 
   const insightCharts = useMemo(() => {
     const categoryCount = {};
@@ -740,29 +855,21 @@ const AdminDashboard = () => {
     const conditionMap = {};
     const leadMap = {};
 
+    normalizedProductRows.forEach((row) => {
+      categoryCount[row.category] = (categoryCount[row.category] || 0) + 1;
+      if (row.priceValue > 0 && row.priceValue < 100000) priceDensityMap['< ₦100k'] += 1;
+      else if (row.priceValue >= 100000 && row.priceValue <= 500000) priceDensityMap['₦100k - ₦500k'] += 1;
+      else if (row.priceValue > 500000) priceDensityMap['₦500k+'] += 1;
+      conditionMap[row.condition] = (conditionMap[row.condition] || 0) + 1;
+    });
+
     offlineVendors.forEach((vendor) => {
-      (vendor.products || []).forEach((product) => {
-        const productDate = product.DatePosted || vendor.lastUpdated;
-        if (!isWithinDateRange(productDate, startDate, endDate)) return;
-        const condition = standardizeCondition(product.Condition || 'Unknown');
-        if (dataPurity === 'clean' && condition === 'Unclean') return;
-
-        const category = product.Category || 'Others';
-        categoryCount[category] = (categoryCount[category] || 0) + 1;
-
-        const price = parseNairaValue(product['Regular price']);
-        if (price > 0 && price < 100000) priceDensityMap['< ₦100k'] += 1;
-        else if (price >= 100000 && price <= 500000) priceDensityMap['₦100k - ₦500k'] += 1;
-        else if (price > 500000) priceDensityMap['₦500k+'] += 1;
-
-        conditionMap[condition] = (conditionMap[condition] || 0) + 1;
-      });
-
+      if (selectedVendorFilter !== 'All' && vendor.vendorName !== selectedVendorFilter) return;
       const customerLogs = normalizeLogs(vendor.logs).customer || [];
       customerLogs.forEach((log) => {
         if (!log.action?.toLowerCase().includes('clicked whatsapp')) return;
         const date = new Date(log.date);
-        if (Number.isNaN(date.getTime())) return;
+        if (Number.isNaN(date.getTime()) || !isWithinDateRange(date.toISOString(), startDate, endDate)) return;
         const key = date.toISOString().slice(0, 10);
         leadMap[key] = (leadMap[key] || 0) + 1;
       });
@@ -785,7 +892,7 @@ const AdminDashboard = () => {
       conditionMix: Object.entries(conditionMap).map(([condition, count]) => ({ condition, count })),
       leadVelocity,
     };
-  }, [offlineVendors, dataPurity, startDate, endDate]);
+  }, [normalizedProductRows, offlineVendors, selectedVendorFilter, startDate, endDate]);
 
   const unreadMessages = useMemo(
     () => allMessages.filter((message) => message.sender === 'vendor' && !message.readByAdmin),
@@ -1062,21 +1169,15 @@ const AdminDashboard = () => {
     const heat = { 'Admin edits': 0, 'Vendor WhatsApp updates': 0 };
     const accuracy = { 'Automated Fixes': 0, 'Manual Edits': 0 };
 
+    normalizedProductRows.forEach((row) => {
+      const key = `${row.deviceType} (${row.condition})`;
+      if (!buckets[key]) buckets[key] = { total: 0, count: 0 };
+      buckets[key].total += row.priceValue;
+      buckets[key].count += 1;
+    });
+
     offlineVendors.forEach((vendor) => {
-      (vendor.products || []).forEach((product) => {
-        const productDate = product.DatePosted || vendor.lastUpdated;
-        if (!isWithinDateRange(productDate, startDate, endDate)) return;
-        const normalizedCondition = standardizeCondition(product.Condition || 'Unknown');
-        if (dataPurity === 'clean' && normalizedCondition === 'Unclean') return;
-
-        const rawDeviceType = product['Device Type'] || 'Unknown';
-        const mappedDeviceType = masterDictionary[normalizeDictionaryKey(rawDeviceType)] || rawDeviceType;
-        const key = `${mappedDeviceType} (${normalizedCondition})`;
-        if (!buckets[key]) buckets[key] = { total: 0, count: 0 };
-        buckets[key].total += parseNairaValue(product['Regular price']);
-        buckets[key].count += 1;
-      });
-
+      if (selectedVendorFilter !== 'All' && vendor.vendorName !== selectedVendorFilter) return;
       const logs = normalizeLogs(vendor.logs);
       logs.admin.forEach((entry) => {
         const action = String(entry?.action || '').toLowerCase();
@@ -1102,7 +1203,7 @@ const AdminDashboard = () => {
       actionHeatmap: Object.entries(heat).map(([type, frequency]) => ({ type, frequency })),
       scraperAccuracy: Object.entries(accuracy).map(([name, value]) => ({ name, value })),
     };
-  }, [offlineVendors, dataPurity, startDate, endDate, masterDictionary]);
+  }, [normalizedProductRows, offlineVendors, selectedVendorFilter]);
 
   return (
     <AdminDashboardLayout notificationCount={unreadMessages.length} onNotificationClick={() => setNotificationOpen(true)}>
@@ -1210,13 +1311,25 @@ const AdminDashboard = () => {
                       className="px-4 py-2.5 rounded-xl border border-gray-100 bg-white/80 text-sm outline-none focus:ring-2 focus:ring-gray-300"
                     />
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => setDataPurity((prev) => (prev === 'clean' ? 'all' : 'clean'))}
-                    className="px-4 py-2.5 rounded-2xl text-xs font-black uppercase tracking-wider border border-gray-100 bg-white/70 backdrop-blur-xl shadow-sm hover:bg-white text-gray-700"
+                  <select
+                    value={dataViewMode}
+                    onChange={(e) => setDataViewMode(e.target.value)}
+                    className="px-4 py-2.5 rounded-2xl text-xs font-black uppercase tracking-wider border border-gray-100 bg-white/70 backdrop-blur-xl shadow-sm text-gray-700"
                   >
-                    {dataPurity === 'clean' ? 'Clean Data: ON' : 'Clean Data: OFF'}
-                  </button>
+                    <option value="all">All Data</option>
+                    <option value="clean">Clean</option>
+                    <option value="unclean">Unclean</option>
+                    <option value="excluded">Excluded</option>
+                  </select>
+                  <select
+                    value={selectedVendorFilter}
+                    onChange={(e) => setSelectedVendorFilter(e.target.value)}
+                    className="px-4 py-2.5 rounded-2xl text-xs font-black border border-gray-100 bg-white/70 backdrop-blur-xl shadow-sm text-gray-700"
+                  >
+                    {uniqueVendorFilters.map((vendor) => (
+                      <option key={vendor} value={vendor}>{vendor}</option>
+                    ))}
+                  </select>
                 </div>
               </div>
               <div className="grid grid-cols-1 xl:grid-cols-2 gap-8 mb-8">
@@ -1324,143 +1437,153 @@ const AdminDashboard = () => {
               <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4 mb-6">
                 <div>
                   <h2 className="text-2xl font-black tracking-tight text-gray-900">Global Products</h2>
-                  <p className="text-sm text-gray-500">Grouped inventory view at scale (Category → Device → Specs/Storage).</p>
+                  <p className="text-sm text-gray-500">6-level hierarchy: Category → Brand → Series → Device → Variation → Vendors.</p>
                 </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 w-full lg:w-auto">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 w-full lg:w-auto">
                   <input
                     type="text"
                     value={productSearchQuery}
                     onChange={(e) => setProductSearchQuery(e.target.value)}
-                    placeholder="Search category, device, spec..."
+                    placeholder="Search category, device, series, vendor..."
                     className="px-4 py-3 rounded-2xl border border-gray-100 bg-white/80 text-sm outline-none focus:ring-2 focus:ring-gray-300"
                   />
-                  <select
-                    value={productCategoryFilter}
-                    onChange={(e) => setProductCategoryFilter(e.target.value)}
-                    className="px-4 py-3 rounded-2xl border border-gray-100 bg-white/80 text-sm outline-none focus:ring-2 focus:ring-gray-300"
-                  >
-                    {uniqueGlobalCategories.map((category) => (
-                      <option key={category} value={category}>{category}</option>
-                    ))}
+                  <select value={productCategoryFilter} onChange={(e) => setProductCategoryFilter(e.target.value)} className="px-4 py-3 rounded-2xl border border-gray-100 bg-white/80 text-sm outline-none focus:ring-2 focus:ring-gray-300">
+                    {uniqueGlobalCategories.map((category) => <option key={category} value={category}>{category}</option>)}
                   </select>
-                  <select
-                    value={productConditionFilter}
-                    onChange={(e) => setProductConditionFilter(e.target.value)}
-                    className="px-4 py-3 rounded-2xl border border-gray-100 bg-white/80 text-sm outline-none focus:ring-2 focus:ring-gray-300"
-                  >
-                    {uniqueGlobalConditions.map((condition) => (
-                      <option key={condition} value={condition}>{condition}</option>
-                    ))}
+                  <select value={productConditionFilter} onChange={(e) => setProductConditionFilter(e.target.value)} className="px-4 py-3 rounded-2xl border border-gray-100 bg-white/80 text-sm outline-none focus:ring-2 focus:ring-gray-300">
+                    {uniqueGlobalConditions.map((condition) => <option key={condition} value={condition}>{condition}</option>)}
                   </select>
-                  <select
-                    value={productSortMode}
-                    onChange={(e) => setProductSortMode(e.target.value)}
-                    className="px-4 py-3 rounded-2xl border border-gray-100 bg-white/80 text-sm outline-none focus:ring-2 focus:ring-gray-300"
-                  >
+                  <select value={selectedVendorFilter} onChange={(e) => setSelectedVendorFilter(e.target.value)} className="px-4 py-3 rounded-2xl border border-gray-100 bg-white/80 text-sm outline-none focus:ring-2 focus:ring-gray-300">
+                    {uniqueVendorFilters.map((vendor) => <option key={vendor} value={vendor}>{vendor}</option>)}
+                  </select>
+                  <select value={dataViewMode} onChange={(e) => setDataViewMode(e.target.value)} className="px-4 py-3 rounded-2xl border border-gray-100 bg-white/80 text-sm outline-none focus:ring-2 focus:ring-gray-300">
+                    <option value="all">All</option>
+                    <option value="clean">Clean</option>
+                    <option value="unclean">Unclean</option>
+                    <option value="excluded">Excluded</option>
+                  </select>
+                  <select value={productSortMode} onChange={(e) => setProductSortMode(e.target.value)} className="px-4 py-3 rounded-2xl border border-gray-100 bg-white/80 text-sm outline-none focus:ring-2 focus:ring-gray-300">
                     <option value="hierarchy">Apple Hierarchy</option>
                     <option value="highest_price">Highest Total Price</option>
                     <option value="highest_demand">Highest Demand</option>
                   </select>
                 </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full lg:w-auto">
-                  <input
-                    type="date"
-                    value={startDate}
-                    onChange={(e) => setStartDate(e.target.value)}
-                    className="px-4 py-3 rounded-2xl border border-gray-100 bg-white/80 text-sm outline-none focus:ring-2 focus:ring-gray-300"
-                  />
-                  <input
-                    type="date"
-                    value={endDate}
-                    onChange={(e) => setEndDate(e.target.value)}
-                    className="px-4 py-3 rounded-2xl border border-gray-100 bg-white/80 text-sm outline-none focus:ring-2 focus:ring-gray-300"
-                  />
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 mb-5">
+                <input
+                  type="text"
+                  value={excludedPhrases}
+                  onChange={(e) => setExcludedPhrases(e.target.value)}
+                  placeholder="Phrases to Exclude (comma separated)"
+                  className="lg:col-span-2 px-4 py-3 rounded-2xl border border-gray-100 bg-white/80 text-sm outline-none focus:ring-2 focus:ring-gray-300"
+                />
+                <div className="grid grid-cols-2 gap-3">
+                  <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="px-4 py-3 rounded-2xl border border-gray-100 bg-white/80 text-sm outline-none focus:ring-2 focus:ring-gray-300" />
+                  <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="px-4 py-3 rounded-2xl border border-gray-100 bg-white/80 text-sm outline-none focus:ring-2 focus:ring-gray-300" />
                 </div>
               </div>
 
               <div className="mb-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 bg-white/70 backdrop-blur-xl rounded-2xl border border-gray-100 shadow-sm p-4">
                 <p className="text-xs font-bold uppercase tracking-wider text-gray-500">Dictionary Mappings: {Object.keys(masterDictionary).length}</p>
-                <button
-                  type="button"
-                  onClick={syncMasterDictionary}
-                  disabled={syncingDictionary}
-                  className="px-4 py-2.5 rounded-2xl text-xs font-black uppercase tracking-wider border border-gray-100 bg-white/80 hover:bg-white disabled:opacity-50"
-                >
-                  {syncingDictionary ? 'Syncing...' : 'Sync Master Dictionary'}
-                </button>
+                <button type="button" onClick={syncMasterDictionary} disabled={syncingDictionary} className="px-4 py-2.5 rounded-2xl text-xs font-black uppercase tracking-wider border border-gray-100 bg-white/80 hover:bg-white disabled:opacity-50">{syncingDictionary ? 'Syncing...' : 'Sync Master Dictionary'}</button>
               </div>
 
-              <div className="overflow-x-auto rounded-3xl border border-gray-100">
-                <table className="w-full text-left">
-                  <thead className="bg-white/80 border-b border-gray-100">
-                    <tr className="text-[11px] font-black uppercase tracking-widest text-gray-500">
-                      <th className="p-4">Category</th>
-                      <th className="p-4">Device Type</th>
-                      <th className="p-4">Condition</th>
-                      <th className="p-4">SIM Type/Model/Processor</th>
-                      <th className="p-4">Storage Capacity/Configuration</th>
-                      <th className="p-4">Total Accumulated Price</th>
-                      <th className="p-4">Stock Count</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {paginatedGroupedProducts.map((group) => {
-                      const expanded = expandedProductGroups.includes(group.groupKey);
-
-                      return (
-                        <React.Fragment key={group.groupKey}>
-                          <tr
-                            onClick={() => toggleProductGroup(group.groupKey)}
-                            className="cursor-pointer border-b border-gray-100 hover:bg-white transition-all duration-300"
-                          >
-                            <td className="p-4"><span className="inline-flex px-3 py-1 rounded-full text-xs font-bold bg-gray-100 text-gray-700">{group.category}</span></td>
-                            <td className="p-4 text-sm font-black text-gray-900">{group.deviceType}</td>
-                            <td className="p-4"><span className="inline-flex px-3 py-1 rounded-full text-xs font-bold bg-slate-100 text-slate-700">{group.condition}</span></td>
-                            <td className="p-4 text-sm text-gray-600">{group.specification}</td>
-                            <td className="p-4 text-sm text-gray-600">{group.storage}</td>
-                            <td className="p-4 text-sm font-black text-gray-900">{formatNaira(group.totalAccumulatedPrice)}</td>
-                            <td className="p-4 text-sm font-bold text-gray-700">{group.stockCount}</td>
-                          </tr>
-                          {expanded && (
-                            <tr className="bg-white/60 transition-all duration-300">
-                              <td colSpan={7} className="p-4">
-                                <div className="rounded-2xl border border-gray-100 overflow-hidden">
-                                  <table className="w-full">
-                                    <thead className="bg-gray-50">
-                                      <tr className="text-[10px] font-black uppercase tracking-widest text-gray-500">
-                                        <th className="p-3 text-left">Vendor Name</th>
-                                        <th className="p-3 text-left">Specific Price</th>
-                                        <th className="p-3 text-left">Posted</th>
-                                        <th className="p-3 text-left">Store Link</th>
-                                      </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-gray-100">
-                                      {group.items.map((item) => (
-                                        <tr key={item.id}>
-                                          <td className="p-3 text-sm font-semibold text-gray-800">{item.vendorName}</td>
-                                          <td className="p-3 text-sm font-bold text-gray-900">{item.price}</td>
-                                          <td className="p-3 text-xs text-gray-500">{formatTimelineDate(item.date)}</td>
-                                          <td className="p-3">
-                                            <Link to={item.vendorLink} target="_blank" rel="noopener noreferrer" className="text-xs font-black text-blue-600 hover:text-blue-800">Open Store ↗</Link>
-                                          </td>
-                                        </tr>
-                                      ))}
-                                    </tbody>
-                                  </table>
-                                </div>
-                              </td>
-                            </tr>
-                          )}
-                        </React.Fragment>
-                      );
-                    })}
-                  </tbody>
-                </table>
+              <div className="space-y-3">
+                {Object.entries(groupedGlobalProducts).map(([category, brands]) => {
+                  const categoryKey = `category:${category}`;
+                  if (!paginatedGroupKeySet.has(categoryKey)) return null;
+                  const categoryExpanded = expandedProductGroups.includes(categoryKey);
+                  return (
+                    <div key={categoryKey} className="bg-white rounded-2xl border border-gray-100">
+                      <button type="button" onClick={() => toggleProductGroup(categoryKey)} className="w-full px-4 py-3 text-left font-bold text-gray-900 flex items-center justify-between">{category}<span>{categoryExpanded ? '⌄' : '›'}</span></button>
+                      {categoryExpanded && (
+                        <div className="pl-4 pr-2 pb-3 space-y-2">
+                          {Object.entries(brands).map(([brand, seriesMap]) => {
+                            const brandKey = `brand:${category}__${brand}`;
+                            if (!paginatedGroupKeySet.has(brandKey)) return null;
+                            const brandExpanded = expandedProductGroups.includes(brandKey);
+                            return (
+                              <div key={brandKey} className="bg-gray-50 rounded-2xl border border-gray-100">
+                                <button type="button" onClick={() => toggleProductGroup(brandKey)} className="w-full px-4 py-3 text-left text-sm font-bold text-gray-800 flex items-center justify-between">{brand}<span>{brandExpanded ? '⌄' : '›'}</span></button>
+                                {brandExpanded && (
+                                  <div className="pl-4 pr-2 pb-3 space-y-2">
+                                    {Object.entries(seriesMap).map(([series, devices]) => {
+                                      const seriesKey = `series:${category}__${brand}__${series}`;
+                                      if (!paginatedGroupKeySet.has(seriesKey)) return null;
+                                      const seriesExpanded = expandedProductGroups.includes(seriesKey);
+                                      return (
+                                        <div key={seriesKey} className="bg-white rounded-xl border border-gray-100">
+                                          <button type="button" onClick={() => toggleProductGroup(seriesKey)} className="w-full px-4 py-3 text-left text-sm font-bold text-gray-800 flex items-center justify-between">{series}<span>{seriesExpanded ? '⌄' : '›'}</span></button>
+                                          {seriesExpanded && (
+                                            <div className="pl-4 pr-2 pb-3 space-y-2">
+                                              {Object.entries(devices).map(([deviceType, variations]) => {
+                                                const deviceKey = `device:${category}__${brand}__${series}__${deviceType}`;
+                                                if (!paginatedGroupKeySet.has(deviceKey)) return null;
+                                                const deviceExpanded = expandedProductGroups.includes(deviceKey);
+                                                return (
+                                                  <div key={deviceKey} className="rounded-xl border border-gray-100 bg-gray-50">
+                                                    <button type="button" onClick={() => toggleProductGroup(deviceKey)} className="w-full px-4 py-3 text-left text-sm font-bold text-gray-900 flex items-center justify-between">{deviceType}<span>{deviceExpanded ? '⌄' : '›'}</span></button>
+                                                    {deviceExpanded && (
+                                                      <div className="px-2 pb-3 space-y-2">
+                                                        {Object.entries(variations).map(([variationRawKey, variation]) => {
+                                                          const variationKey = `variation:${category}__${brand}__${series}__${deviceType}__${variationRawKey}`;
+                                                          if (!paginatedGroupKeySet.has(variationKey)) return null;
+                                                          const variationExpanded = expandedProductGroups.includes(variationKey);
+                                                          return (
+                                                            <div key={variationKey} className="rounded-xl border border-gray-100 bg-white">
+                                                              <button type="button" onClick={() => toggleProductGroup(variationKey)} className="w-full px-3 py-2 text-left text-xs font-semibold text-gray-700 grid grid-cols-5 gap-2">
+                                                                <span>{variation.condition}</span>
+                                                                <span>{variation.simType}</span>
+                                                                <span>{variation.storage}</span>
+                                                                <span>{formatNaira(variation.totalAccumulatedPrice)}</span>
+                                                                <span className="text-right">{variation.stockCount} in stock {variationExpanded ? '⌄' : '›'}</span>
+                                                              </button>
+                                                              {variationExpanded && (
+                                                                <div className="px-3 pb-3">
+                                                                  <table className="w-full text-left">
+                                                                    <thead>
+                                                                      <tr className="text-[10px] uppercase text-gray-500"><th className="py-1">Vendor</th><th className="py-1">Price</th><th className="py-1">Date</th><th className="py-1">Link</th></tr>
+                                                                    </thead>
+                                                                    <tbody>
+                                                                      {variation.vendors.map((item) => (
+                                                                        <tr key={item.id} className="border-t border-gray-100">
+                                                                          <td className="py-2 text-xs font-semibold">{item.vendorName}</td>
+                                                                          <td className="py-2 text-xs">{item.price}</td>
+                                                                          <td className="py-2 text-xs">{formatTimelineDate(item.date)}</td>
+                                                                          <td className="py-2 text-xs"><Link to={item.vendorLink} target="_blank" rel="noopener noreferrer" className="text-blue-600 font-bold">Open ↗</Link></td>
+                                                                        </tr>
+                                                                      ))}
+                                                                    </tbody>
+                                                                  </table>
+                                                                </div>
+                                                              )}
+                                                            </div>
+                                                          );
+                                                        })}
+                                                      </div>
+                                                    )}
+                                                  </div>
+                                                );
+                                              })}
+                                            </div>
+                                          )}
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
 
-              {filteredGlobalProducts.length === 0 && (
-                <p className="text-center text-sm text-gray-400 py-8">No grouped products match your filters.</p>
-              )}
+              {filteredGlobalProducts.length === 0 && <p className="text-center text-sm text-gray-400 py-8">No grouped products match your filters.</p>}
 
               {filteredGlobalProducts.length > 0 && (
                 <div className="flex items-center justify-between px-2 pt-5">
