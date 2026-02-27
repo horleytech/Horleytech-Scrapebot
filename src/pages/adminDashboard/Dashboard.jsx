@@ -1,136 +1,31 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { Outlet, useLocation, Link } from 'react-router-dom';
-import { collection, getDocs, doc, writeBatch, query, orderBy, updateDoc } from 'firebase/firestore';
-import { IoMdChatboxes } from 'react-icons/io';
+import { useEffect, useMemo, useState } from 'react';
+import { collection, doc, getDoc, getDocs, setDoc } from 'firebase/firestore';
 import {
-  PieChart, Pie, Cell, Tooltip, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, LineChart, Line, Legend,
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Cell,
+  Pie,
+  PieChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
 } from 'recharts';
 import AdminDashboardLayout from '../../components/layouts/DashboardLayout';
 import { db } from '../../services/firebase/index.js';
-import { BASE_URL } from '../../services/constants/apiConstants.js';
 
 const COLLECTIONS = {
   offline: 'horleyTech_OfflineInventories',
-  backups: 'horleyTech_Backups',
+  settings: 'horleyTech_Settings',
 };
 
-const CHART_COLORS = ['#16a34a', '#2563eb', '#f59e0b', '#7c3aed', '#ef4444', '#14b8a6', '#f97316'];
-const MASTER_DICTIONARY_STORAGE_KEY = 'admin-master-dictionary-v1';
+const CACHE_DOC = 'globalProductsCache';
 const FALLBACK_MASTER_DICTIONARY_CSV = 'https://example.com/master-dictionary.csv';
+const CHART_COLORS = ['#2563eb', '#7c3aed', '#14b8a6', '#f59e0b', '#ef4444', '#16a34a'];
 
-const BRAND_NEW_CONDITIONS = new Set(['brand new', 'pristine boxed', 'new']);
+const BRAND_NEW_CONDITIONS = new Set(['pristine boxed', 'brand new', 'new']);
 const USED_CONDITIONS = new Set(['grade a uk used', 'grade a used', 'used']);
-
-const toCsv = (rows) => {
-  if (!rows.length) return '';
-  const headers = Object.keys(rows[0]);
-  const csvRows = rows.map((row) =>
-    headers.map((header) => `"${String(row[header] ?? '').replaceAll('"', '""')}"`).join(',')
-  );
-  return `${headers.join(',')}\n${csvRows.join('\n')}`;
-};
-
-const downloadCsv = (filename, rows) => {
-  const csv = toCsv(rows);
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-  const link = document.createElement('a');
-  link.href = URL.createObjectURL(blob);
-  link.setAttribute('download', filename);
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-};
-
-const parseNairaValue = (value) => {
-  if (value === null || value === undefined) return 0;
-  if (typeof value === 'number' && Number.isFinite(value)) return value;
-
-  const original = String(value || '');
-  const groupedNumber = original.match(/(\d{1,3}(?:,\d{3})+)/);
-  if (groupedNumber) {
-    const parsedGrouped = Number(groupedNumber[1].replace(/,/g, ''));
-    if (Number.isFinite(parsedGrouped)) return parsedGrouped;
-  }
-
-  const raw = original.toLowerCase().replace(/[₦n\s,]/g, '').trim();
-  if (!raw) return 0;
-
-  const millionAndThousand = raw.match(/(\d+(?:\.\d+)?)m(\d+(?:\.\d+)?)k/);
-  if (millionAndThousand) {
-    const millions = Number(millionAndThousand[1]) || 0;
-    const thousands = Number(millionAndThousand[2]) || 0;
-    return Math.round((millions * 1000000) + (thousands * 1000));
-  }
-
-  const shorthandMatch = raw.match(/(\d+(?:\.\d+)?)([mk])/);
-  if (shorthandMatch) {
-    const amount = Number(shorthandMatch[1]) || 0;
-    const multiplier = shorthandMatch[2] === 'm' ? 1000000 : 1000;
-    return Math.round(amount * multiplier);
-  }
-
-  const safeNumberPart = raw.match(/\d+(?:\.\d+)?/);
-  if (!safeNumberPart) return 0;
-
-  const numeric = Number(safeNumberPart[0]);
-  return Number.isFinite(numeric) ? numeric : 0;
-};
-
-const formatNaira = (amount) =>
-  new Intl.NumberFormat('en-NG', { style: 'currency', currency: 'NGN', maximumFractionDigits: 0 }).format(amount);
-
-const formatCompactNaira = (amount) =>
-  new Intl.NumberFormat('en-NG', { style: 'currency', currency: 'NGN', notation: 'compact', maximumFractionDigits: 1 }).format(amount);
-
-const normalizeLogs = (logs) => ({
-  admin: Array.isArray(logs?.admin) ? logs.admin : [],
-  vendor: Array.isArray(logs?.vendor) ? logs.vendor : [],
-  customer: Array.isArray(logs?.customer) ? logs.customer : [],
-});
-
-const formatTimelineDate = (isoDate) => {
-  const date = new Date(isoDate);
-  if (Number.isNaN(date.getTime())) return isoDate;
-
-  const now = new Date();
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const target = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-  const diffDays = Math.round((today - target) / (1000 * 60 * 60 * 24));
-
-  const timeText = date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-
-  if (diffDays === 0) return `Today at ${timeText}`;
-  if (diffDays === 1) return `Yesterday at ${timeText}`;
-
-  return date.toLocaleString();
-};
-
-const parseDateValue = (value) => {
-  if (!value) return null;
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? null : date;
-};
-
-const isWithinDateRange = (value, startDate, endDate) => {
-  const parsedDate = parseDateValue(value);
-  if (!parsedDate) return !startDate && !endDate;
-
-  if (startDate) {
-    const start = new Date(startDate);
-    start.setHours(0, 0, 0, 0);
-    if (parsedDate < start) return false;
-  }
-
-  if (endDate) {
-    const end = new Date(endDate);
-    end.setHours(23, 59, 59, 999);
-    if (parsedDate > end) return false;
-  }
-
-  return true;
-};
-
-const normalizeDictionaryKey = (value) => String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
 
 const parseCsvLine = (line = '') => {
   const parsed = [];
@@ -148,11 +43,13 @@ const parseCsvLine = (line = '') => {
       }
       continue;
     }
+
     if (char === ',' && !inQuotes) {
       parsed.push(current.trim());
       current = '';
       continue;
     }
+
     current += char;
   }
 
@@ -160,1832 +57,597 @@ const parseCsvLine = (line = '') => {
   return parsed;
 };
 
-const parseMasterDictionaryCsv = (csvText = '') => {
-  const lines = csvText.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
-  if (!lines.length) return {};
+const parseRowsFromCsv = (csvText = '') => {
+  const lines = csvText.split(/\r?\n/).filter((line) => line.trim());
+  if (!lines.length) return [];
+  const headers = parseCsvLine(lines[0]);
+  return lines.slice(1).map((line) => {
+    const values = parseCsvLine(line);
+    return headers.reduce((acc, header, idx) => {
+      acc[header] = values[idx] ?? '';
+      return acc;
+    }, {});
+  });
+};
 
-  const headers = parseCsvLine(lines[0]).map((header) => header.toLowerCase());
-  const rawNameIndex = headers.findIndex((header) => header.includes('raw name'));
-  const standardNameIndex = headers.findIndex((header) => header.includes('standard name'));
+const parseNairaValue = (val) => {
+  if (val === null || val === undefined) return 0;
+  if (typeof val === 'number' && Number.isFinite(val)) return val;
 
-  if (rawNameIndex === -1 || standardNameIndex === -1) {
-    throw new Error('CSV must include "Raw Name" and "Standard Name" columns.');
+  const original = String(val).toLowerCase().trim();
+  if (!original || original.includes('available')) return 0;
+
+  const normalized = original.replace(/[₦n,\s]/g, '');
+  if (!/\d/.test(normalized)) return 0;
+
+  const shorthand = normalized.match(/(\d+(?:\.\d+)?)([mk])/);
+  if (shorthand) {
+    const amount = Number(shorthand[1]);
+    if (!Number.isFinite(amount)) return 0;
+    return Math.round(amount * (shorthand[2] === 'm' ? 1000000 : 1000));
   }
 
-  return lines.slice(1).reduce((acc, line) => {
-    const values = parseCsvLine(line);
-    const rawName = values[rawNameIndex];
-    const standardName = values[standardNameIndex];
-    const rawKey = normalizeDictionaryKey(rawName);
+  const numberOnly = normalized.match(/\d+(?:\.\d+)?/);
+  if (!numberOnly) return 0;
 
-    if (!rawKey || !standardName) return acc;
-    acc[rawKey] = standardName.trim();
-    return acc;
-  }, {});
+  const parsed = Number(numberOnly[0]);
+  return Number.isFinite(parsed) ? parsed : 0;
 };
 
-const getConditionRank = (condition) => {
-  const standardized = standardizeCondition(condition).condition;
-  if (standardized === 'Brand New') return 0;
-  if (standardized === 'Grade A UK Used') return 1;
-  return 2;
-};
+const formatNaira = (amount) =>
+  new Intl.NumberFormat('en-NG', { style: 'currency', currency: 'NGN', maximumFractionDigits: 0 }).format(amount || 0);
 
-
-const extractDeviceVersion = (deviceType) => {
-  const matches = String(deviceType || '').match(/\d+(?:\.\d+)?/g);
-  if (!matches?.length) return -1;
-  return Math.max(...matches.map((entry) => Number(entry) || 0));
-};
-
-const getDeviceTierWeight = (deviceType) => {
-  const normalized = String(deviceType || '').toLowerCase();
-  if (normalized.includes('pro max')) return 3;
-  if (normalized.includes('pro')) return 2;
-  if (normalized.includes('plus')) return 1;
-  return 0;
-};
-
-const getSimRank = (specification) => {
-  const normalized = String(specification || '').toLowerCase();
-  if (normalized.includes('dual sim') || normalized.includes('physical sim+esim') || (normalized.includes('physical sim') && normalized.includes('esim'))) return 0;
-  if (normalized.includes('physical sim')) return 1;
-  if (normalized.includes('esim')) return 2;
-  if (normalized.includes('locked') || normalized.includes('wi-fi only') || normalized.includes('wifi only')) return 3;
-  return 4;
-};
-
-const getStorageRank = (storage) => {
-  const normalized = String(storage || '').toLowerCase();
-  const match = normalized.match(/(\d+(?:\.\d+)?)\s*(tb|gb)/);
-  if (!match) return -1;
-  const value = Number(match[1]) || 0;
-  const unit = match[2];
-  return unit === 'tb' ? value * 1024 : value;
+const parseMasterDictionaryCsv = (csvText = '') => {
+  const rows = parseRowsFromCsv(csvText);
+  if (!rows.length) return [];
+  const sample = rows[0];
+  const header = Object.keys(sample).find((key) => key.toLowerCase().includes('device type'));
+  if (!header) {
+    throw new Error('Master CSV must include a Device Type column.');
+  }
+  return Array.from(
+    new Set(
+      rows
+        .map((row) => String(row[header] || '').trim())
+        .filter(Boolean)
+    )
+  );
 };
 
 const standardizeCondition = (condition) => {
   const normalized = String(condition || '').toLowerCase().trim();
-  if (BRAND_NEW_CONDITIONS.has(normalized)) return { condition: 'Brand New', cleanStatus: 'clean' };
-  if (USED_CONDITIONS.has(normalized)) return { condition: 'Grade A UK Used', cleanStatus: 'clean' };
-  return { condition: String(condition || 'Unknown').trim() || 'Unknown', cleanStatus: 'unclean' };
+  if (BRAND_NEW_CONDITIONS.has(normalized)) return 'Brand New';
+  if (USED_CONDITIONS.has(normalized)) return 'Grade A UK Used';
+  return 'Unclean';
 };
 
-const normalizeSimType = (simType, deviceType) => {
-  const rawSim = String(simType || '').trim();
-  if (rawSim) return rawSim;
-  const normalizedDevice = String(deviceType || '').toLowerCase();
-  if (normalizedDevice.includes('iphone') || normalizedDevice.includes('ipad') || normalizedDevice.includes('apple')) {
-    return 'Physical SIM + ESIM (Dual)';
-  }
-  return 'N/A';
+const normalizeDeviceRaw = (rawString) =>
+  String(rawString || '')
+    .replace(/\+/g, ' Plus ')
+    .replace(/\bpm\b/gi, ' ProMax ')
+    .replace(/[^a-z0-9\s]/gi, ' ')
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim();
+
+const hasSamsungStrictSuffixConflict = (raw, target) => {
+  const targetNormalized = target.toLowerCase();
+  const samsungSMatch = targetNormalized.match(/\bs\d{1,2}\b/);
+  if (!samsungSMatch) return false;
+
+  const includesUltraInTarget = targetNormalized.includes('ultra');
+  const includesPlusInTarget = targetNormalized.includes('plus');
+  const includesUInTarget = /\bs\d{1,2}\s*u\b/.test(targetNormalized);
+
+  if (includesUltraInTarget || includesPlusInTarget || includesUInTarget) return false;
+
+  const hasUltraOrUOrPlus = /\bultra\b|\bplus\b|\+|\bs\d{1,2}\s*u\b/.test(raw);
+  return hasUltraOrUOrPlus;
 };
 
-const inferBrandSubCategory = (deviceType) => {
+const smartMapDevice = (rawString, officialTargets) => {
+  const normalizedRaw = normalizeDeviceRaw(rawString);
+  if (!normalizedRaw) return String(rawString || 'Unknown Device').trim() || 'Unknown Device';
+
+  const scored = officialTargets
+    .map((target) => {
+      const normalizedTarget = normalizeDeviceRaw(target);
+      if (!normalizedTarget) return null;
+      if (hasSamsungStrictSuffixConflict(normalizedRaw, target)) return null;
+
+      const targetTokens = normalizedTarget.split(' ').filter(Boolean);
+      const matchedTokens = targetTokens.filter((token) => normalizedRaw.includes(token)).length;
+      if (!matchedTokens) return null;
+
+      const exact = normalizedRaw.includes(normalizedTarget) ? 3 : 0;
+      const tokenCoverage = matchedTokens / Math.max(1, targetTokens.length);
+      const score = (tokenCoverage * 10) + exact;
+      return { target, score };
+    })
+    .filter(Boolean)
+    .sort((a, b) => b.score - a.score);
+
+  return scored[0]?.target || String(rawString || 'Unknown Device').trim() || 'Unknown Device';
+};
+
+const buildProductTree = (rows) => {
+  const tree = {};
+
+  rows.forEach((row) => {
+    const category = row.category || 'Others';
+    const brand = row.brand || 'Others';
+    const series = row.series || 'Others';
+    const device = row.deviceType || 'Unknown Device';
+    const variation = `${row.condition} | ${row.simType} | ${row.storage}`;
+
+    tree[category] ??= { count: 0, children: {} };
+    tree[category].count += 1;
+
+    tree[category].children[brand] ??= { count: 0, children: {} };
+    tree[category].children[brand].count += 1;
+
+    tree[category].children[brand].children[series] ??= { count: 0, children: {} };
+    tree[category].children[brand].children[series].count += 1;
+
+    tree[category].children[brand].children[series].children[device] ??= { count: 0, children: {} };
+    tree[category].children[brand].children[series].children[device].count += 1;
+
+    tree[category].children[brand].children[series].children[device].children[variation] ??= {
+      count: 0,
+      vendors: [],
+    };
+
+    tree[category].children[brand].children[series].children[device].children[variation].count += 1;
+    tree[category].children[brand].children[series].children[device].children[variation].vendors.push(row);
+  });
+
+  return tree;
+};
+
+const inferBrand = (deviceType) => {
   const normalized = String(deviceType || '').toLowerCase();
-  if (normalized.includes('iphone')) return '#iphones';
-  if (normalized.includes('samsung') || normalized.match(/^s\d{1,2}/)) return '#samsungphones';
-  if (normalized.includes('pixel')) return '#googlepixel';
-  if (normalized.includes('ipad')) return '#ipads';
-  if (normalized.includes('macbook')) return '#macbooks';
-  return '#others';
+  if (normalized.includes('iphone') || normalized.includes('ipad') || normalized.includes('macbook')) return 'Apple';
+  if (normalized.includes('samsung') || /\bs\d{1,2}/.test(normalized)) return 'Samsung';
+  if (normalized.includes('pixel')) return 'Google';
+  return 'Others';
 };
 
 const inferSeries = (deviceType) => {
   const normalized = String(deviceType || '').toLowerCase();
-  if (normalized.includes('iphone')) {
-    const match = normalized.match(/iphone\s*(\d+)/);
-    if (match) return `iPhone ${match[1]} Series`;
-  }
-  if (normalized.includes('samsung') || normalized.match(/^s\d{1,2}/)) {
-    const match = normalized.match(/s(\d{1,2})/);
-    if (match) return `Samsung S${match[1]} Series`;
-  }
+  const iphone = normalized.match(/iphone\s*(\d+)/);
+  if (iphone) return `iPhone ${iphone[1]} Series`;
+  const samsung = normalized.match(/s\s?(\d{1,2})/);
+  if (samsung) return `Samsung S${samsung[1]} Series`;
   return 'Others';
 };
 
 const AdminDashboard = () => {
-  const location = useLocation();
-  const isAdmin = true;
+  const [activeTab, setActiveTab] = useState('products');
+  const [offlineVendors, setOfflineVendors] = useState([]);
+  const [globalProductsCache, setGlobalProductsCache] = useState([]);
+  const [officialTargets, setOfficialTargets] = useState([]);
+  const [syncing, setSyncing] = useState(false);
 
-  const [activeTab, setActiveTab] = useState('offline');
-  const [searchQuery, setSearchQuery] = useState('');
-  const [productSearchQuery, setProductSearchQuery] = useState('');
-  const [currentPage, setCurrentPage] = useState(1);
-  const [currentProductPage, setCurrentProductPage] = useState(1);
+  const [search, setSearch] = useState('');
+  const [selectedVendorFilter, setSelectedVendorFilter] = useState('All');
+  const [excludedPhrases, setExcludedPhrases] = useState('');
   const [productCategoryFilter, setProductCategoryFilter] = useState('All');
   const [productConditionFilter, setProductConditionFilter] = useState('All');
-  const [selectedVendorFilter, setSelectedVendorFilter] = useState('All');
-  const [productSortMode, setProductSortMode] = useState('hierarchy');
-  const [dataViewMode, setDataViewMode] = useState('all');
-  const [excludedPhrases, setExcludedPhrases] = useState('active');
-  const [masterDictionary, setMasterDictionary] = useState({});
-  const [syncingDictionary, setSyncingDictionary] = useState(false);
-  const [startDate, setStartDate] = useState('');
-  const [endDate, setEndDate] = useState('');
-  const [expandedProductGroups, setExpandedProductGroups] = useState([]);
-  const itemsPerPage = 50;
-  
-  const [offlineVendors, setOfflineVendors] = useState([]);
-  const [backups, setBackups] = useState([]);
-  const [, setLoadingSearch] = useState(false);
-  const [, setLoadingBackups] = useState(false);
-  const [selectedVendorIds, setSelectedVendorIds] = useState([]);
-  const [bulkUpdating, setBulkUpdating] = useState(false);
-  const [manualBackupLoading, setManualBackupLoading] = useState(false);
-  const [restoringBackupId, setRestoringBackupId] = useState(null);
-  
-  // Advanced Tools Toggle State
-  const [togglingAdvancedVendorId, setTogglingAdvancedVendorId] = useState(null);
 
-  // Messaging State
-  const [allMessages, setAllMessages] = useState([]);
-  const [notificationOpen, setNotificationOpen] = useState(false);
-  const [chatOpen, setChatOpen] = useState(false);
-  const [chatVendor, setChatVendor] = useState(null);
-  const [chatMessages, setChatMessages] = useState([]);
-  const [chatInput, setChatInput] = useState('');
-  const [sendingChat, setSendingChat] = useState(false);
+  const [pricingCsvUrl, setPricingCsvUrl] = useState('');
+  const [pricingRows, setPricingRows] = useState([]);
+  const [pricingVendor, setPricingVendor] = useState('');
+  const [pricingMarginType, setPricingMarginType] = useState('amount');
+  const [pricingMarginValue, setPricingMarginValue] = useState('0');
 
-  // Audit, Bulk Edit, Onboarding
-  const [auditLogs, setAuditLogs] = useState([]);
-  const [loadingAuditLogs, setLoadingAuditLogs] = useState(false);
-  const [restoringAuditId, setRestoringAuditId] = useState(null);
-  const [bulkEditOpen, setBulkEditOpen] = useState(false);
-  const [bulkEditLoading, setBulkEditLoading] = useState(false);
-  const [bulkCondition, setBulkCondition] = useState('');
-  const [bulkCategory, setBulkCategory] = useState('');
-  const [bulkPrice, setBulkPrice] = useState('');
-  const [tutorialVideoUrl, setTutorialVideoUrl] = useState('');
-  const [savingTutorialVideo, setSavingTutorialVideo] = useState(false);
-  const [onboardVendorName, setOnboardVendorName] = useState('');
-  const [botNumber, setBotNumber] = useState('');
-  const [driveBackups, setDriveBackups] = useState([]);
-  const [loadingDriveBackups, setLoadingDriveBackups] = useState(false);
-  const [restoringDriveId, setRestoringDriveId] = useState(null);
-  const [uploadRestoreLoading, setUploadRestoreLoading] = useState(false);
+  const [expanded, setExpanded] = useState({});
+
+  const uniqueVendorNames = useMemo(
+    () => Array.from(new Set(offlineVendors.map((vendor) => vendor.vendorName).filter(Boolean))).sort(),
+    [offlineVendors]
+  );
 
   const fetchInventory = async () => {
-    setLoadingSearch(true);
-    try {
-      const querySnapshot = await getDocs(collection(db, COLLECTIONS.offline));
-      const vendors = [];
-      querySnapshot.forEach((docSnap) => {
-        const data = docSnap.data();
-        vendors.push({
-          docId: docSnap.id,
-          vendorId: data.vendorId || docSnap.id,
-          vendorName: data.vendorName || data.vendorId || docSnap.id,
-          totalProducts: data.products ? data.products.length : 0,
-          inventoryValue: Array.isArray(data.products)
-            ? data.products.reduce((sum, p) => sum + parseNairaValue(p['Regular price']), 0)
-            : 0,
-          lastUpdated: data.lastUpdated,
-          shareableLink: data.shareableLink || `/vendor/${docSnap.id}`,
-          status: data.status || 'active',
-          viewCount: data.viewCount || 0,
-          whatsappClicks: data.whatsappClicks || 0,
-          vendorPassword: data.vendorPassword || '',
-          storeWhatsappNumber: data.storeWhatsappNumber || '',
-          advancedEnabled: Boolean(data.advancedEnabled),
-          products: data.products || [],
-          logs: normalizeLogs(data.logs),
-        });
+    const snap = await getDocs(collection(db, COLLECTIONS.offline));
+    const rows = [];
+    snap.forEach((docSnap) => {
+      const data = docSnap.data();
+      rows.push({
+        docId: docSnap.id,
+        vendorName: data.vendorName || data.vendorId || docSnap.id,
+        products: Array.isArray(data.products) ? data.products : [],
       });
-
-      setOfflineVendors(vendors);
-      setSelectedVendorIds([]);
-    } catch (error) {
-      console.error('Error fetching inventory:', error);
-    } finally {
-      setLoadingSearch(false);
-    }
+    });
+    setOfflineVendors(rows);
   };
 
-  const fetchBackups = async () => {
-    setLoadingBackups(true);
-    try {
-      const backupQuery = query(collection(db, COLLECTIONS.backups), orderBy('createdAt', 'desc'));
-      const snapshot = await getDocs(backupQuery);
-      setBackups(snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() })));
-    } catch (error) {
-      console.error('Error fetching backups:', error);
-    } finally {
-      setLoadingBackups(false);
-    }
-  };
-
-  const fetchAllMessages = async () => {
-    try {
-      const response = await fetch(`${BASE_URL}/api/messages`, {
-        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-      });
-      const data = await response.json();
-      if (!response.ok || !data.success) throw new Error(data.error || 'Failed to load messages');
-      setAllMessages(Array.isArray(data.messages) ? data.messages : []);
-    } catch (error) {
-      console.error('Unable to fetch global messages:', error);
-    }
-  };
-
-  const fetchAuditLogs = async () => {
-    setLoadingAuditLogs(true);
-    try {
-      const response = await fetch(`${BASE_URL}/api/admin/audit-logs`, {
-        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-      });
-      const data = await response.json();
-      if (!response.ok || !data.success) throw new Error(data.error || 'Failed to load audit logs');
-      setAuditLogs(Array.isArray(data.logs) ? data.logs : []);
-    } catch (error) {
-      console.error('Unable to fetch audit logs:', error);
-    } finally {
-      setLoadingAuditLogs(false);
-    }
-  };
-
-  const fetchTutorialVideo = async () => {
-    try {
-      const response = await fetch(`${BASE_URL}/api/settings/tutorial-video`, {
-        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-      });
-      const data = await response.json();
-      if (!response.ok || !data.success) throw new Error(data.error || 'Failed to load tutorial video setting');
-      setTutorialVideoUrl(data.youtubeUrl || '');
-    } catch (error) {
-      console.error('Unable to fetch tutorial video setting:', error);
-    }
-  };
-
-  const saveTutorialVideo = async () => {
-    const trimmedUrl = tutorialVideoUrl.trim();
-
-    if (!trimmedUrl) {
-      alert('Please enter a valid YouTube link.');
-      return;
-    }
-
-    if (!window.confirm('Are you sure you want to proceed? This will change the live user experience/data.')) return;
-
-    setSavingTutorialVideo(true);
-    try {
-      const response = await fetch(`${BASE_URL}/api/settings/tutorial-video`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'x-user-role': 'admin' },
-        body: JSON.stringify({ youtubeUrl: trimmedUrl }),
-      });
-      const data = await response.json();
-      if (!response.ok || !data.success) throw new Error(data.error || 'Could not save tutorial video');
-      setTutorialVideoUrl(data.youtubeUrl || trimmedUrl);
-      alert('✅ Tutorial video updated successfully.');
-    } catch (error) {
-      alert(`❌ ${error.message}`);
-    } finally {
-      setSavingTutorialVideo(false);
-    }
-  };
-
-  const generateOnboardingLink = async () => {
-    if (!onboardVendorName.trim() || !botNumber.trim()) {
-      alert('Please enter vendor name and bot number.');
-      return;
-    }
-
-    try {
-      const response = await fetch(`${BASE_URL}/api/admin/onboard-vendor`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-        body: JSON.stringify({
-          vendorName: onboardVendorName.trim(),
-          adminNumber: botNumber.trim(), 
-        }),
-      });
-      const data = await response.json();
-      if (!response.ok || !data.success) throw new Error(data.error);
-      const tinyUrlRes = await fetch(`https://tinyurl.com/api-create.php?url=${encodeURIComponent(data.url)}`);
-      const shortUrl = await tinyUrlRes.text();
-      await navigator.clipboard.writeText(shortUrl);
-      alert(`✅ Shortened link copied to clipboard:\n\n${shortUrl}`);
-    } catch (error) {
-      alert(`❌ ${error.message}`);
-    }
-  };
-
-  const fetchDriveBackups = async () => {
-    setLoadingDriveBackups(true);
-    try {
-      const response = await fetch(`${BASE_URL}/api/backup/drive-list`, {
-        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-      });
-      const data = await response.json();
-      if (!response.ok || !data.success) throw new Error(data.error || 'Failed to load drive backups');
-      setDriveBackups(Array.isArray(data.files) ? data.files : []);
-    } catch (error) {
-      alert(`❌ ${error.message}`);
-    } finally {
-      setLoadingDriveBackups(false);
-    }
-  };
-
-  const restoreDriveBackup = async (fileId) => {
-    setRestoringDriveId(fileId);
-    try {
-      const response = await fetch(`${BASE_URL}/api/backup/drive-restore`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-        body: JSON.stringify({ fileId }),
-      });
-      const data = await response.json();
-      if (!response.ok || !data.success) throw new Error(data.error || 'Drive restore failed');
-      alert(`✅ Restored ${data.restoredDocuments || 0} documents from Drive backup.`);
-    } catch (error) {
-      alert(`❌ ${error.message}`);
-    } finally {
-      setRestoringDriveId(null);
-    }
-  };
-
-  const uploadAndRestoreLocalBackup = async (event) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-
-    const formData = new FormData();
-    formData.append('file', file);
-
-    setUploadRestoreLoading(true);
-    try {
-      const response = await fetch(`${BASE_URL}/api/backup/upload-restore`, {
-        method: 'POST',
-        body: formData,
-      });
-      const data = await response.json();
-      if (!response.ok || !data.success) throw new Error(data.error || 'Upload restore failed');
-      alert(`✅ Restored ${data.restoredDocuments || 0} documents from local backup.`);
-    } catch (error) {
-      alert(`❌ ${error.message}`);
-    } finally {
-      event.target.value = '';
-      setUploadRestoreLoading(false);
+  const fetchCache = async () => {
+    const ref = doc(db, COLLECTIONS.settings, CACHE_DOC);
+    const snap = await getDoc(ref);
+    if (snap.exists()) {
+      const data = snap.data();
+      setGlobalProductsCache(Array.isArray(data.products) ? data.products : []);
+      setOfficialTargets(Array.isArray(data.officialTargets) ? data.officialTargets : []);
     }
   };
 
   useEffect(() => {
-    if (location.pathname === '/dashboard' || location.pathname === '/dashboard/') {
-      fetchInventory();
-      fetchBackups();
-    }
-  }, [location.pathname]);
-
-  useEffect(() => {
-    fetchAllMessages();
-    fetchAuditLogs();
-    fetchTutorialVideo();
-    const timer = setInterval(fetchAllMessages, 12000);
-    return () => clearInterval(timer);
-  }, []);
-
-  useEffect(() => {
-    if (activeTab === 'maintenance') {
-      fetchDriveBackups();
-    }
-  }, [activeTab]);
-
-  useEffect(() => {
-    try {
-      const cached = localStorage.getItem(MASTER_DICTIONARY_STORAGE_KEY);
-      if (!cached) return;
-      const parsed = JSON.parse(cached);
-      if (parsed && typeof parsed === 'object') {
-        setMasterDictionary(parsed);
-      }
-    } catch (error) {
-      console.error('Failed to load cached master dictionary:', error);
-    }
+    fetchInventory();
+    fetchCache();
   }, []);
 
   const syncMasterDictionary = async () => {
     const csvUrl = import.meta.env.VITE_MASTER_DICTIONARY_CSV || FALLBACK_MASTER_DICTIONARY_CSV;
-    setSyncingDictionary(true);
+    setSyncing(true);
 
     try {
-      const response = await fetch(csvUrl, { headers: { Accept: 'text/csv,text/plain,*/*' } });
-      if (!response.ok) throw new Error(`Unable to fetch CSV (${response.status})`);
-
+      const response = await fetch(csvUrl);
+      if (!response.ok) throw new Error(`Failed to fetch master CSV (${response.status})`);
       const csvText = await response.text();
-      const parsedDictionary = parseMasterDictionaryCsv(csvText);
-      setMasterDictionary(parsedDictionary);
-      localStorage.setItem(MASTER_DICTIONARY_STORAGE_KEY, JSON.stringify(parsedDictionary));
-      alert(`✅ Synced ${Object.keys(parsedDictionary).length} dictionary mappings.`);
-    } catch (error) {
-      console.error('Master dictionary sync failed:', error);
-      alert(`❌ Failed to sync dictionary: ${error.message}`);
-    } finally {
-      setSyncingDictionary(false);
-    }
-  };
+      const targets = parseMasterDictionaryCsv(csvText);
 
-  const filteredOffline = useMemo(
-    () => offlineVendors.filter((v) => !searchQuery || v.vendorName?.toLowerCase().includes(searchQuery.toLowerCase())),
-    [offlineVendors, searchQuery]
-  );
-
-  const normalizedProductRows = useMemo(() => {
-    const excludedTokens = excludedPhrases
-      .split(',')
-      .map((token) => token.trim().toLowerCase())
-      .filter(Boolean);
-
-    const rows = [];
-
-    offlineVendors.forEach((vendor) => {
-      if (selectedVendorFilter !== 'All' && vendor.vendorName !== selectedVendorFilter) return;
-      (vendor.products || []).forEach((product, index) => {
-        const productDate = product.DatePosted || vendor.lastUpdated;
-        if (!isWithinDateRange(productDate, startDate, endDate)) return;
-
-        const rawDeviceType = (product['Device Type'] || 'Unknown Device').trim() || 'Unknown Device';
-        const mappedDeviceType = masterDictionary[normalizeDictionaryKey(rawDeviceType)] || rawDeviceType;
-        const rawCondition = standardizeCondition(product.Condition || 'Unknown');
-        const normalizedSim = normalizeSimType(product['SIM Type/Model/Processor'], mappedDeviceType);
-        const storage = (product['Storage Capacity/Configuration'] || 'N/A').trim() || 'N/A';
-        const category = (product.Category || 'Others').trim() || 'Others';
-        const brandSubCategory = inferBrandSubCategory(mappedDeviceType);
-        const series = inferSeries(mappedDeviceType);
-
-        const haystack = [
-          product.Category,
-          rawDeviceType,
-          mappedDeviceType,
-          product.Condition,
-          product['SIM Type/Model/Processor'],
-          product['Storage Capacity/Configuration'],
-        ].join(' ').toLowerCase();
-
-        const isExcluded = excludedTokens.some((phrase) => haystack.includes(phrase));
-        const cleanStatus = isExcluded ? 'excluded' : rawCondition.cleanStatus;
-
-        if (dataViewMode !== 'all' && cleanStatus !== dataViewMode) return;
-
-        rows.push({
-          id: `${vendor.docId}-${index}-${mappedDeviceType}`,
-          vendorName: vendor.vendorName,
-          vendorLink: vendor.shareableLink,
-          date: productDate || 'N/A',
-          category,
-          brandSubCategory,
-          series,
-          deviceType: mappedDeviceType,
-          condition: rawCondition.condition,
-          cleanStatus,
-          simType: normalizedSim,
-          storage,
-          price: product['Regular price'] || 'N/A',
-          priceValue: parseNairaValue(product['Regular price']),
-        });
-      });
-    });
-
-    return rows;
-  }, [offlineVendors, startDate, endDate, masterDictionary, selectedVendorFilter, dataViewMode, excludedPhrases]);
-
-  const filteredProductRows = useMemo(() => {
-    const queryText = productSearchQuery.trim().toLowerCase();
-
-    return normalizedProductRows.filter((row) => {
-      const matchesQuery = !queryText || [
-        row.category,
-        row.brandSubCategory,
-        row.series,
-        row.deviceType,
-        row.condition,
-        row.simType,
-        row.storage,
-        row.vendorName,
-      ].some((field) => String(field || '').toLowerCase().includes(queryText));
-
-      const matchesCategory = productCategoryFilter === 'All' || row.category === productCategoryFilter;
-      const matchesCondition = productConditionFilter === 'All' || row.condition === productConditionFilter;
-      return matchesQuery && matchesCategory && matchesCondition;
-    });
-  }, [normalizedProductRows, productSearchQuery, productCategoryFilter, productConditionFilter]);
-
-  const groupedGlobalProducts = useMemo(() => {
-    const tree = {};
-
-    filteredProductRows.forEach((row) => {
-      tree[row.category] ??= {};
-      tree[row.category][row.brandSubCategory] ??= {};
-      tree[row.category][row.brandSubCategory][row.series] ??= {};
-      tree[row.category][row.brandSubCategory][row.series][row.deviceType] ??= {};
-
-      const variationKey = `${row.condition}__${row.simType}__${row.storage}`;
-      tree[row.category][row.brandSubCategory][row.series][row.deviceType][variationKey] ??= {
-        condition: row.condition,
-        simType: row.simType,
-        storage: row.storage,
-        totalAccumulatedPrice: 0,
-        stockCount: 0,
-        vendors: [],
-      };
-
-      const variation = tree[row.category][row.brandSubCategory][row.series][row.deviceType][variationKey];
-      variation.totalAccumulatedPrice += row.priceValue;
-      variation.stockCount += 1;
-      variation.vendors.push({
-        id: row.id,
-        vendorName: row.vendorName,
-        vendorLink: row.vendorLink,
-        price: row.price,
-        priceValue: row.priceValue,
-        date: row.date,
-      });
-    });
-
-    return tree;
-  }, [filteredProductRows]);
-
-  const flattenedVariations = useMemo(() => {
-    const rows = [];
-    Object.entries(groupedGlobalProducts).forEach(([category, brands]) => {
-      Object.entries(brands).forEach(([brand, seriesMap]) => {
-        Object.entries(seriesMap).forEach(([series, devices]) => {
-          Object.entries(devices).forEach(([deviceType, variations]) => {
-            Object.values(variations).forEach((variation) => {
-              rows.push({ category, brand, series, deviceType, ...variation });
-            });
+      const mapped = [];
+      offlineVendors.forEach((vendor) => {
+        vendor.products.forEach((product, index) => {
+          const rawDevice = String(product['Device Type'] || 'Unknown Device').trim();
+          const mappedDevice = smartMapDevice(rawDevice, targets);
+          mapped.push({
+            id: `${vendor.docId}-${index}`,
+            vendorName: vendor.vendorName,
+            category: String(product.Category || 'Others').trim() || 'Others',
+            brand: inferBrand(mappedDevice),
+            series: inferSeries(mappedDevice),
+            deviceType: mappedDevice,
+            condition: standardizeCondition(product.Condition),
+            simType: String(product['SIM Type/Model/Processor'] || 'N/A').trim() || 'N/A',
+            storage: String(product['Storage Capacity/Configuration'] || 'N/A').trim() || 'N/A',
+            price: String(product['Regular price'] || '0').trim(),
+            priceValue: parseNairaValue(product['Regular price']),
           });
         });
       });
-    });
 
-    if (productSortMode === 'highest_price') {
-      rows.sort((a, b) => b.totalAccumulatedPrice - a.totalAccumulatedPrice);
-    } else if (productSortMode === 'highest_demand') {
-      rows.sort((a, b) => b.stockCount - a.stockCount);
-    } else {
-      rows.sort((a, b) => {
-        const categoryDiff = a.category.localeCompare(b.category);
-        if (categoryDiff !== 0) return categoryDiff;
-        const deviceDiff = extractDeviceVersion(b.deviceType) - extractDeviceVersion(a.deviceType);
-        if (deviceDiff !== 0) return deviceDiff;
-        const tierDiff = getDeviceTierWeight(b.deviceType) - getDeviceTierWeight(a.deviceType);
-        if (tierDiff !== 0) return tierDiff;
-        const conditionDiff = getConditionRank(a.condition) - getConditionRank(b.condition);
-        if (conditionDiff !== 0) return conditionDiff;
-        const simDiff = getSimRank(a.simType) - getSimRank(b.simType);
-        if (simDiff !== 0) return simDiff;
-        return getStorageRank(b.storage) - getStorageRank(a.storage);
-      });
+      await setDoc(doc(db, COLLECTIONS.settings, CACHE_DOC), {
+        products: mapped,
+        officialTargets: targets,
+        updatedAt: new Date().toISOString(),
+      }, { merge: true });
+
+      setOfficialTargets(targets);
+      setGlobalProductsCache(mapped);
+      alert(`✅ Synced ${mapped.length.toLocaleString()} mapped rows to global cache.`);
+    } catch (error) {
+      alert(`❌ ${error.message}`);
+    } finally {
+      setSyncing(false);
     }
+  };
 
-    return rows;
-  }, [groupedGlobalProducts, productSortMode]);
+  const filteredProducts = useMemo(() => {
+    const excluded = excludedPhrases
+      .split(',')
+      .map((entry) => entry.trim().toLowerCase())
+      .filter(Boolean);
 
-  const totalPages = Math.max(1, Math.ceil(filteredOffline.length / itemsPerPage));
-
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [searchQuery]);
-
-  useEffect(() => {
-    if (currentPage > totalPages) setCurrentPage(totalPages);
-  }, [currentPage, totalPages]);
-
-  const paginatedOffline = useMemo(() => {
-    const startIndex = (currentPage - 1) * itemsPerPage;
-    return filteredOffline.slice(startIndex, startIndex + itemsPerPage);
-  }, [filteredOffline, currentPage, itemsPerPage]);
-
-  const totalProductPages = Math.max(1, Math.ceil(flattenedVariations.length / itemsPerPage));
-
-  useEffect(() => {
-    setCurrentProductPage(1);
-    setExpandedProductGroups([]);
-  }, [productSearchQuery, productCategoryFilter, productConditionFilter, productSortMode, selectedVendorFilter, dataViewMode, excludedPhrases]);
-
-  const paginatedGroupedProducts = useMemo(() => {
-    const startIndex = (currentProductPage - 1) * itemsPerPage;
-    return flattenedVariations.slice(startIndex, startIndex + itemsPerPage);
-  }, [flattenedVariations, currentProductPage, itemsPerPage]);
-
-  const paginatedGroupKeySet = useMemo(() => {
-    const keys = new Set();
-    paginatedGroupedProducts.forEach((row) => {
-      keys.add(`category:${row.category}`);
-      keys.add(`brand:${row.category}__${row.brand}`);
-      keys.add(`series:${row.category}__${row.brand}__${row.series}`);
-      keys.add(`device:${row.category}__${row.brand}__${row.series}__${row.deviceType}`);
-      keys.add(`variation:${row.category}__${row.brand}__${row.series}__${row.deviceType}__${row.condition}__${row.simType}__${row.storage}`);
+    return globalProductsCache.filter((row) => {
+      const haystack = `${row.category} ${row.brand} ${row.series} ${row.deviceType} ${row.condition} ${row.storage} ${row.vendorName}`.toLowerCase();
+      const phraseBlocked = excluded.some((phrase) => haystack.includes(phrase));
+      if (phraseBlocked) return false;
+      if (selectedVendorFilter !== 'All' && row.vendorName !== selectedVendorFilter) return false;
+      if (productCategoryFilter !== 'All' && row.category !== productCategoryFilter) return false;
+      if (productConditionFilter !== 'All' && row.condition !== productConditionFilter) return false;
+      if (search && !haystack.includes(search.toLowerCase())) return false;
+      return true;
     });
-    return keys;
-  }, [paginatedGroupedProducts]);
+  }, [globalProductsCache, excludedPhrases, selectedVendorFilter, productCategoryFilter, productConditionFilter, search]);
 
-  const filteredGlobalProducts = flattenedVariations;
+  const productTree = useMemo(() => buildProductTree(filteredProducts), [filteredProducts]);
 
-  useEffect(() => {
-    if (currentProductPage > totalProductPages) setCurrentProductPage(totalProductPages);
-  }, [currentProductPage, totalProductPages]);
+  const chartData = useMemo(() => {
+    const categories = {};
+    const conditions = {};
 
-  const uniqueGlobalCategories = useMemo(
-    () => ['All', ...new Set(normalizedProductRows.map((row) => row.category))],
-    [normalizedProductRows]
-  );
-
-  const uniqueGlobalConditions = useMemo(
-    () => ['All', ...new Set(normalizedProductRows.map((row) => row.condition))],
-    [normalizedProductRows]
-  );
-
-  const uniqueVendorFilters = useMemo(
-    () => ['All', ...new Set(offlineVendors.map((vendor) => vendor.vendorName).filter(Boolean))],
-    [offlineVendors]
-  );
-
-  const platformActivityTimeline = useMemo(() => {
-    const allEntries = [];
-    offlineVendors.forEach((vendor) => {
-      const logs = normalizeLogs(vendor.logs);
-      [...logs.admin, ...logs.vendor].forEach((entry) => {
-        allEntries.push({
-          ...entry,
-          vendorId: vendor.vendorId,
-          vendorName: vendor.vendorName,
-          channel: logs.admin.includes(entry) ? 'admin' : 'vendor',
-        });
-      });
+    filteredProducts.forEach((row) => {
+      categories[row.category] = (categories[row.category] || 0) + 1;
+      conditions[row.condition] = (conditions[row.condition] || 0) + 1;
     });
-    return allEntries.sort((a, b) => new Date(b.date) - new Date(a.date)).slice(0, 50);
-  }, [offlineVendors]);
-
-  const analytics = useMemo(() => {
-    const vendorSet = new Set(normalizedProductRows.map((row) => row.vendorName));
-    const totalVendors = offlineVendors.length;
-    const filteredVendorCount = vendorSet.size;
-    const vendorSource = offlineVendors.filter((vendor) => vendorSet.has(vendor.vendorName));
-    const totalInventoryValue = normalizedProductRows.reduce((sum, row) => sum + row.priceValue, 0);
-    const totalStoreViews = vendorSource.reduce((sum, vendor) => sum + (vendor.viewCount || 0), 0);
-    const totalWhatsAppOrders = vendorSource.reduce((sum, vendor) => sum + (vendor.whatsappClicks || 0), 0);
-
-    const deviceFrequency = {};
-    normalizedProductRows.forEach((row) => {
-      deviceFrequency[row.deviceType] = (deviceFrequency[row.deviceType] || 0) + 1;
-    });
-
-    const mostTrackedDevice = Object.entries(deviceFrequency).sort((a, b) => b[1] - a[1])[0]?.[0] || 'N/A';
-    const topVendor = [...vendorSource].sort((a, b) => (b.whatsappClicks || 0) - (a.whatsappClicks || 0))[0]?.vendorName || 'N/A';
 
     return {
-      totalVendors,
-      filteredVendorCount,
-      totalInventoryValue,
-      totalStoreViews,
-      totalWhatsAppOrders,
-      mostTrackedDevice,
-      topVendor,
+      categoryMix: Object.entries(categories).map(([name, value]) => ({ name, value })),
+      conditionMix: Object.entries(conditions).map(([condition, count]) => ({ condition, count })),
     };
-  }, [offlineVendors, normalizedProductRows]);
+  }, [filteredProducts]);
 
-  const insightCharts = useMemo(() => {
-    const categoryCount = {};
-    const priceDensityMap = {
-      '< ₦100k': 0,
-      '₦100k - ₦500k': 0,
-      '₦500k+': 0,
-    };
-    const conditionMap = {};
-    const leadMap = {};
+  const companyRows = useMemo(
+    () => pricingRows.map((row) => ({ ...row, __device: String(row['Device Type'] || row.deviceType || '').trim() })),
+    [pricingRows]
+  );
 
-    normalizedProductRows.forEach((row) => {
-      categoryCount[row.category] = (categoryCount[row.category] || 0) + 1;
-      if (row.priceValue > 0 && row.priceValue < 100000) priceDensityMap['< ₦100k'] += 1;
-      else if (row.priceValue >= 100000 && row.priceValue <= 500000) priceDensityMap['₦100k - ₦500k'] += 1;
-      else if (row.priceValue > 500000) priceDensityMap['₦500k+'] += 1;
-      conditionMap[row.condition] = (conditionMap[row.condition] || 0) + 1;
-    });
-
-    offlineVendors.forEach((vendor) => {
-      if (selectedVendorFilter !== 'All' && vendor.vendorName !== selectedVendorFilter) return;
-      const customerLogs = normalizeLogs(vendor.logs).customer || [];
-      customerLogs.forEach((log) => {
-        if (!log.action?.toLowerCase().includes('clicked whatsapp')) return;
-        const date = new Date(log.date);
-        if (Number.isNaN(date.getTime()) || !isWithinDateRange(date.toISOString(), startDate, endDate)) return;
-        const key = date.toISOString().slice(0, 10);
-        leadMap[key] = (leadMap[key] || 0) + 1;
+  const pricingCalculations = useMemo(() => {
+    const vendorInventory = new Map();
+    filteredProducts
+      .filter((row) => !pricingVendor || row.vendorName === pricingVendor)
+      .forEach((row) => {
+        const key = `${row.deviceType}__${row.condition}__${row.storage}`;
+        const prev = vendorInventory.get(key);
+        if (!prev || row.priceValue < prev.priceValue) {
+          vendorInventory.set(key, row);
+        }
       });
-    });
 
-    const now = new Date();
-    const leadVelocity = Array.from({ length: 7 }).map((_, index) => {
-      const date = new Date(now);
-      date.setDate(now.getDate() - (6 - index));
-      const key = date.toISOString().slice(0, 10);
+    const marginValue = Number(pricingMarginValue) || 0;
+
+    return companyRows.map((companyRow) => {
+      const companyDevice = smartMapDevice(companyRow.__device, officialTargets);
+      const condition = standardizeCondition(companyRow.Condition || companyRow.condition);
+      const storage = String(companyRow['Storage Capacity/Configuration'] || companyRow.storage || 'N/A').trim() || 'N/A';
+      const companyPrice = parseNairaValue(companyRow['Regular price'] || companyRow.Price || companyRow.price);
+      const key = `${companyDevice}__${condition}__${storage}`;
+      const vendorItem = vendorInventory.get(key);
+
+      if (!vendorItem) {
+        return {
+          ...companyRow,
+          mappedDevice: companyDevice,
+          companyPrice,
+          vendorPrice: null,
+          targetPrice: null,
+          adjustment: null,
+        };
+      }
+
+      const vendorPrice = vendorItem.priceValue;
+      const targetPrice = pricingMarginType === 'percentage'
+        ? Math.round(vendorPrice * (1 + (marginValue / 100)))
+        : Math.round(vendorPrice + marginValue);
+      const adjustment = targetPrice - companyPrice;
+
       return {
-        day: date.toLocaleDateString([], { weekday: 'short' }),
-        clicks: leadMap[key] || 0,
+        ...companyRow,
+        mappedDevice: companyDevice,
+        companyPrice,
+        vendorPrice,
+        targetPrice,
+        adjustment,
       };
     });
+  }, [companyRows, filteredProducts, pricingVendor, pricingMarginType, pricingMarginValue, officialTargets]);
 
-    return {
-      categoryMix: Object.entries(categoryCount).map(([name, value]) => ({ name, value })),
-      priceDensity: Object.entries(priceDensityMap).map(([range, count]) => ({ range, count })),
-      conditionMix: Object.entries(conditionMap).map(([condition, count]) => ({ condition, count })),
-      leadVelocity,
-    };
-  }, [normalizedProductRows, offlineVendors, selectedVendorFilter, startDate, endDate]);
-
-  const unreadMessages = useMemo(
-    () => allMessages.filter((message) => message.sender === 'vendor' && !message.readByAdmin),
-    [allMessages]
-  );
-
-  const allFilteredSelected =
-    filteredOffline.length > 0 && filteredOffline.every((vendor) => selectedVendorIds.includes(vendor.docId));
-
-  const toggleSelectAll = () => {
-    if (allFilteredSelected) {
-      const filteredSet = new Set(filteredOffline.map((vendor) => vendor.docId));
-      setSelectedVendorIds((prev) => prev.filter((id) => !filteredSet.has(id)));
-    } else {
-      const merged = new Set([...selectedVendorIds, ...filteredOffline.map((vendor) => vendor.docId)]);
-      setSelectedVendorIds(Array.from(merged));
-    }
-  };
-
-  const toggleVendor = (docId) => {
-    setSelectedVendorIds((prev) =>
-      prev.includes(docId) ? prev.filter((id) => id !== docId) : [...prev, docId]
-    );
-  };
-
-  const toggleProductGroup = (groupKey) => {
-    setExpandedProductGroups((prev) =>
-      prev.includes(groupKey) ? prev.filter((key) => key !== groupKey) : [...prev, groupKey]
-    );
-  };
-
-  const handleCategoryChartClick = (entry) => {
-    const category = entry?.name || entry?.payload?.name || entry?.payload?.payload?.name;
-    if (!category) return;
-    setActiveTab('products');
-    setProductCategoryFilter(category);
-    setProductSortMode('hierarchy');
-  };
-
-  const handleConditionChartClick = (entry) => {
-    const condition = entry?.condition || entry?.payload?.condition || entry?.payload?.payload?.condition;
-    if (!condition) return;
-    setActiveTab('products');
-    setProductConditionFilter(condition);
-    setProductSortMode('hierarchy');
-  };
-
-  const toggleAdvancedTools = async (vendor) => {
-    const nextValue = !vendor.advancedEnabled;
-    setTogglingAdvancedVendorId(vendor.docId);
-    try {
-      await updateDoc(doc(db, COLLECTIONS.offline, vendor.docId), {
-        advancedEnabled: nextValue,
-        lastUpdated: new Date().toISOString(),
-      });
-
-      setOfflineVendors((prev) =>
-        prev.map((item) =>
-          item.docId === vendor.docId
-            ? { ...item, advancedEnabled: nextValue, lastUpdated: new Date().toISOString() }
-            : item
-        )
-      );
-    } catch (error) {
-      console.error('Advanced toggle update failed:', error);
-      alert('❌ Failed to update advanced tools toggle.');
-    } finally {
-      setTogglingAdvancedVendorId(null);
-    }
-  };
-
-  const bulkUpdateStatus = async (status) => {
-    if (!selectedVendorIds.length) {
-      alert('Please select at least one vendor first.');
-      return;
-    }
-
-    setBulkUpdating(true);
-    try {
-      const batch = writeBatch(db);
-      selectedVendorIds.forEach((vendorDocId) => {
-        const vendorRef = doc(db, COLLECTIONS.offline, vendorDocId);
-        batch.update(vendorRef, {
-          status,
-          lastUpdated: new Date().toISOString(),
-        });
-      });
-
-      await batch.commit();
-      fetchInventory();
-      setSelectedVendorIds([]);
-      alert(`✅ ${status === 'suspended' ? 'Suspended' : 'Activated'} selected vendors successfully.`);
-    } catch (error) {
-      console.error('Bulk vendor status update failed:', error);
-      alert('❌ Could not update selected vendors.');
-    } finally {
-      setBulkUpdating(false);
-    }
-  };
-
-  const triggerManualBackup = async () => {
-    setManualBackupLoading(true);
-    try {
-      const res = await fetch(`${BASE_URL}/api/backup/manual`, {
-        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-      });
-      const data = await res.json();
-      if (!res.ok || !data.success) throw new Error(data.error || 'Manual backup failed');
-      alert(`✅ Manual backup completed. Backup ID: ${data.backupId}`);
-      fetchBackups();
-    } catch (error) {
-      alert(`❌ ${error.message}`);
-    } finally {
-      setManualBackupLoading(false);
-    }
-  };
-
-  const restoreBackup = async (backupId) => {
-    if (!window.confirm(`Restore backup ${backupId}? This will overwrite the live offline inventory.`)) return;
-    setRestoringBackupId(backupId);
-    try {
-      const res = await fetch(`${BASE_URL}/api/backup/restore`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-        body: JSON.stringify({ backupId }),
-      });
-      const data = await res.json();
-      if (!res.ok || !data.success) throw new Error(data.error || 'Restore failed');
-      alert(`✅ Restore complete. Restored ${data.restoredDocuments} records.`);
-      fetchInventory();
-    } catch (error) {
-      alert(`❌ ${error.message}`);
-    } finally {
-      setRestoringBackupId(null);
-    }
-  };
-
-  const handleExport = () => {
-    const rows = filteredOffline.map(v => ({
-      Vendor: v.vendorName,
-      Status: v.status,
-      Views: v.viewCount,
-      Orders: v.whatsappClicks,
-      Products: v.totalProducts,
-      Value: v.inventoryValue,
-      Password: v.vendorPassword
-    }));
-    downloadCsv('platform-directory.csv', rows);
-  };
-
-  const openChatForVendor = async (vendor) => {
-    setChatVendor(vendor);
-    setChatOpen(true);
-    try {
-      const response = await fetch(`${BASE_URL}/api/messages/${vendor.vendorId}`, {
-        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-      });
-      const data = await response.json();
-      if (!response.ok || !data.success) throw new Error(data.error || 'Failed to load conversation');
-      setChatMessages(Array.isArray(data.messages) ? data.messages : []);
-      fetchAllMessages(); 
-    } catch (error) {
-      alert(`❌ ${error.message}`);
-    }
-  };
-
-  const sendAdminChat = async () => {
-    if (!chatVendor || !chatInput.trim()) return;
-
-    setSendingChat(true);
-    try {
-      const response = await fetch(`${BASE_URL}/api/messages/send`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-        body: JSON.stringify({
-          vendorId: chatVendor.vendorId,
-          sender: 'admin',
-          recipient: 'vendor',
-          text: chatInput.trim(),
-        }),
-      });
-      const data = await response.json();
-      if (!response.ok || !data.success) throw new Error(data.error || 'Message failed');
-      
-      setChatInput('');
-      setChatMessages((prev) => [...prev, data.message]);
-      fetchAllMessages();
-    } catch (error) {
-      alert(`❌ ${error.message}`);
-    } finally {
-      setSendingChat(false);
-    }
-  };
-
-  const openBulkEdit = () => {
-    if (!selectedVendorIds.length) {
-      alert('Select at least one vendor first.');
-      return;
-    }
-    setBulkCondition('');
-    setBulkCategory('');
-    setBulkPrice('');
-    setBulkEditOpen(true);
-  };
-
-  const runBulkEdit = async () => {
-    const fields = {};
-    if (bulkCondition.trim()) fields.Condition = bulkCondition.trim();
-    if (bulkCategory.trim()) fields.Category = bulkCategory.trim();
-    if (bulkPrice.trim()) fields['Regular price'] = bulkPrice.trim();
-
-    if (!Object.keys(fields).length) {
-      alert('Please add at least one field update.');
-      return;
-    }
-
-    const selectedVendors = offlineVendors.filter((vendor) => selectedVendorIds.includes(vendor.docId));
-    const productIds = [];
-
-    selectedVendors.forEach((vendor) => {
-      (vendor.products || []).forEach((_product, index) => {
-        productIds.push(`${vendor.docId}::${index}`);
-      });
-    });
-
-    if (!productIds.length) {
-      alert('No products found for selected vendors.');
-      return;
-    }
-
-    setBulkEditLoading(true);
-    try {
-      const response = await fetch(`${BASE_URL}/api/inventory/bulk-edit`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-        body: JSON.stringify({ productIds, fields }),
-      });
-      const data = await response.json();
-      if (!response.ok || !data.success) throw new Error(data.error || 'Bulk edit failed');
-      alert(`✅ Updated ${data.updatedProducts || 0} products.`);
-      setBulkEditOpen(false);
-      fetchInventory();
-      fetchAuditLogs();
-    } catch (error) {
-      alert(`❌ ${error.message}`);
-    } finally {
-      setBulkEditLoading(false);
-    }
-  };
-
-  const undoAuditAction = async (auditId) => {
-    if (!window.confirm('Are you sure you want to proceed? This will change the live user experience/data.')) return;
-    setRestoringAuditId(auditId);
-    try {
-      const response = await fetch(`${BASE_URL}/api/admin/restore-action`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-        body: JSON.stringify({ auditId }),
-      });
-      const data = await response.json();
-      if (!response.ok || !data.success) throw new Error(data.error || 'Undo failed');
-      alert('✅ Action restored successfully.');
-      fetchInventory();
-      fetchAuditLogs();
-    } catch (error) {
-      alert(`❌ ${error.message}`);
-    } finally {
-      setRestoringAuditId(null);
-    }
-  };
-
-  const advancedAnalytics = useMemo(() => {
-    const buckets = {};
-    const heat = { 'Admin edits': 0, 'Vendor WhatsApp updates': 0 };
-    const accuracy = { 'Automated Fixes': 0, 'Manual Edits': 0 };
-
-    normalizedProductRows.forEach((row) => {
-      const key = `${row.deviceType} (${row.condition})`;
-      if (!buckets[key]) buckets[key] = { total: 0, count: 0 };
-      buckets[key].total += row.priceValue;
-      buckets[key].count += 1;
-    });
-
-    offlineVendors.forEach((vendor) => {
-      if (selectedVendorFilter !== 'All' && vendor.vendorName !== selectedVendorFilter) return;
-      const logs = normalizeLogs(vendor.logs);
-      logs.admin.forEach((entry) => {
-        const action = String(entry?.action || '').toLowerCase();
-        if (action.includes('edited')) {
-          heat['Admin edits'] += 1;
-          accuracy['Manual Edits'] += 1;
+  const exportPricingTxt = () => {
+    const lines = pricingCalculations
+      .filter((row) => row.vendorPrice !== null)
+      .map((row) => {
+        if (pricingMarginType === 'percentage') {
+          const percent = row.companyPrice ? Math.round((row.adjustment / row.companyPrice) * 100) : 0;
+          return `${row.companyPrice}: ${percent}`;
         }
-        if (action.includes('ai')) accuracy['Automated Fixes'] += 1;
+        return `${row.companyPrice}: ${row.adjustment}`;
       });
-      logs.vendor.forEach((entry) => {
-        const action = String(entry?.action || '').toLowerCase();
-        if (action.includes('whatsapp') || action.includes('updated')) {
-          heat['Vendor WhatsApp updates'] += 1;
-        }
-      });
-    });
 
-    return {
-      priceVariance: Object.entries(buckets).slice(0, 10).map(([name, v]) => ({
-        name,
-        averagePrice: Math.round(v.total / Math.max(v.count, 1)),
-      })),
-      actionHeatmap: Object.entries(heat).map(([type, frequency]) => ({ type, frequency })),
-      scraperAccuracy: Object.entries(accuracy).map(([name, value]) => ({ name, value })),
-    };
-  }, [normalizedProductRows, offlineVendors, selectedVendorFilter]);
+    const blob = new Blob([lines.join('\n')], { type: 'text/plain;charset=utf-8;' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'pricing-adjustments.txt';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  };
 
-  return (
-    <AdminDashboardLayout notificationCount={unreadMessages.length} onNotificationClick={() => setNotificationOpen(true)}>
-      {location.pathname === '/dashboard' || location.pathname === '/dashboard/' ? (
-        <div className="p-6">
-          {/* Analytics Hub Top Row */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6 gap-4 mb-6">
-            <button type="button" onClick={() => setActiveTab('offline')} className="group text-left bg-gradient-to-br from-white to-slate-50 border border-slate-200/80 rounded-2xl p-5 shadow-sm hover:shadow-md transition-all">
-              <p className="text-[11px] font-extrabold text-slate-500 uppercase tracking-[0.15em]">Total Vendors</p>
-              <p className="text-3xl font-black text-[#12141B] mt-3 leading-none">{analytics.totalVendors}</p>
-              <p className="text-xs text-slate-400 mt-2">Registered storefronts</p>
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setActiveTab('products');
-                setProductSortMode('highest_price');
-              }}
-              className="group text-left bg-gradient-to-br from-emerald-50 via-white to-green-50 border border-emerald-200/70 rounded-2xl p-5 shadow-sm hover:shadow-md transition-all"
-            >
-              <p className="text-[11px] font-extrabold text-emerald-700 uppercase tracking-[0.15em]">Inventory Value</p>
-              <p className="text-[clamp(1.2rem,2.1vw,2rem)] font-black text-emerald-700 mt-3 leading-tight break-words">{formatNaira(analytics.totalInventoryValue)}</p>
-              <p className="text-xs text-emerald-600/80 mt-2">~ {formatCompactNaira(analytics.totalInventoryValue)}</p>
-            </button>
-            <button type="button" onClick={() => setActiveTab('offline')} className="group text-left bg-gradient-to-br from-blue-50 via-white to-indigo-50 border border-blue-200/70 rounded-2xl p-5 shadow-sm hover:shadow-md transition-all">
-              <p className="text-[11px] font-extrabold text-blue-700 uppercase tracking-[0.15em]">Store Views</p>
-              <p className="text-3xl font-black text-blue-700 mt-3 leading-none">{analytics.totalStoreViews}</p>
-              <p className="text-xs text-blue-600/80 mt-2">Traffic this period</p>
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setActiveTab('products');
-                setProductSortMode('highest_demand');
-              }}
-              className="group text-left bg-gradient-to-br from-teal-50 via-white to-emerald-50 border border-teal-200/70 rounded-2xl p-5 shadow-sm hover:shadow-md transition-all"
-            >
-              <p className="text-[11px] font-extrabold text-teal-700 uppercase tracking-[0.15em]">WA Orders</p>
-              <p className="text-3xl font-black text-teal-700 mt-3 leading-none">{analytics.totalWhatsAppOrders}</p>
-              <p className="text-xs text-teal-600/80 mt-2">Buyer intent clicks</p>
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                if (analytics.mostTrackedDevice && analytics.mostTrackedDevice !== 'N/A') {
-                  setActiveTab('products');
-                  setProductSearchQuery(analytics.mostTrackedDevice);
-                  setProductSortMode('hierarchy');
-                }
-              }}
-              className="group text-left bg-gradient-to-br from-orange-50 via-white to-amber-50 border border-orange-200/70 rounded-2xl p-5 shadow-sm hover:shadow-md transition-all"
-            >
-              <p className="text-[11px] font-extrabold text-orange-700 uppercase tracking-[0.15em]">Top Device</p>
-              <p className="text-lg font-black text-[#12141B] mt-3 leading-tight break-words">{analytics.mostTrackedDevice}</p>
-              <p className="text-xs text-orange-600/80 mt-2">Most listed category</p>
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setActiveTab('offline');
-                setSearchQuery(analytics.topVendor === 'N/A' ? '' : analytics.topVendor);
-              }}
-              className="group text-left bg-gradient-to-br from-violet-50 via-white to-purple-50 border border-violet-200/70 rounded-2xl p-5 shadow-sm hover:shadow-md transition-all"
-            >
-              <p className="text-[11px] font-extrabold text-violet-700 uppercase tracking-[0.15em]">Star Vendor</p>
-              <p className="text-lg font-black text-[#12141B] mt-3 leading-tight break-all">{analytics.topVendor}</p>
-              <p className="text-xs text-violet-600/80 mt-2">Highest WA conversions</p>
-            </button>
-          </div>
+  const loadCompanyCsv = async () => {
+    if (!pricingCsvUrl.trim()) return;
+    const response = await fetch(pricingCsvUrl.trim());
+    if (!response.ok) {
+      alert(`❌ Failed to load company CSV (${response.status})`);
+      return;
+    }
+    const text = await response.text();
+    setPricingRows(parseRowsFromCsv(text));
+  };
 
-          {/* Tab Navigation */}
-          <div className="mb-6 flex overflow-x-auto hide-scrollbar whitespace-nowrap w-full gap-2 pb-2 items-center">
-            <div className="flex gap-2 bg-white border border-gray-200 p-1.5 rounded-2xl shadow-sm">
-              <button onClick={() => setActiveTab('offline')} className={`flex-shrink-0 px-4 py-2.5 rounded-xl text-sm font-bold transition-all ${activeTab === 'offline' ? 'bg-[#1A1C23] text-white shadow-sm' : 'text-gray-600 hover:text-[#1A1C23] hover:bg-gray-100'}`}>Directory</button>
-              <button onClick={() => setActiveTab('analytics')} className={`flex-shrink-0 px-4 py-2.5 rounded-xl text-sm font-bold transition-all ${activeTab === 'analytics' ? 'bg-[#1A1C23] text-white shadow-sm' : 'text-gray-600 hover:text-[#1A1C23] hover:bg-gray-100'}`}>Visual Analytics</button>
-              <button onClick={() => setActiveTab('activity')} className={`flex-shrink-0 px-4 py-2.5 rounded-xl text-sm font-bold transition-all ${activeTab === 'activity' ? 'bg-[#1A1C23] text-white shadow-sm' : 'text-gray-600 hover:text-[#1A1C23] hover:bg-gray-100'}`}>Activity Log</button>
-              <button onClick={() => setActiveTab('products')} className={`flex-shrink-0 px-4 py-2.5 rounded-xl text-sm font-bold transition-all ${activeTab === 'products' ? 'bg-[#1A1C23] text-white shadow-sm' : 'text-gray-600 hover:text-[#1A1C23] hover:bg-gray-100'}`}>Global Products</button>
-              <button onClick={() => setActiveTab('backups')} className={`flex-shrink-0 px-4 py-2.5 rounded-xl text-sm font-bold transition-all ${activeTab === 'backups' ? 'bg-[#1A1C23] text-white shadow-sm' : 'text-gray-600 hover:text-[#1A1C23] hover:bg-gray-100'}`}>Backups</button>
-              <button onClick={() => setActiveTab('history')} className={`flex-shrink-0 px-4 py-2.5 rounded-xl text-sm font-bold transition-all ${activeTab === 'history' ? 'bg-[#1A1C23] text-white shadow-sm' : 'text-gray-600 hover:text-[#1A1C23] hover:bg-gray-100'}`}>History</button>
-              <button onClick={() => setActiveTab('promote')} className={`flex-shrink-0 px-4 py-2.5 rounded-xl text-sm font-bold transition-all ${activeTab === 'promote' ? 'bg-[#1A1C23] text-white shadow-sm' : 'text-gray-600 hover:text-[#1A1C23] hover:bg-gray-100'}`}>Promote</button>
-              <button onClick={() => setActiveTab('maintenance')} className={`flex-shrink-0 px-4 py-2.5 rounded-xl text-sm font-bold transition-all ${activeTab === 'maintenance' ? 'bg-[#1A1C23] text-white shadow-sm' : 'text-gray-600 hover:text-[#1A1C23] hover:bg-gray-100'}`}>System Maintenance</button>
-            </div>
-          </div>
+  const toggleNode = (key) => setExpanded((prev) => ({ ...prev, [key]: !prev[key] }));
 
-          {/* Conditional Rendering of Tabs */}
-          {activeTab === 'analytics' ? (
-            <div className="bg-white/70 backdrop-blur-xl rounded-3xl overflow-hidden mb-10 p-6 border border-gray-100 shadow-sm">
-              <div className="flex flex-col xl:flex-row xl:items-end xl:justify-between gap-4 mb-8">
-                <div>
-                  <h2 className="text-2xl font-black text-[#1A1C23]">📊 Platform Data Insights</h2>
-                  <p className="text-xs text-gray-500 mt-2">Showing {analytics.filteredVendorCount} vendors in selected range/mode.</p>
-                </div>
-                <div className="flex flex-col sm:flex-row gap-3">
-                  <div className="grid grid-cols-2 gap-3 bg-white/70 backdrop-blur-xl rounded-2xl border border-gray-100 shadow-sm p-2">
-                    <input
-                      type="date"
-                      value={startDate}
-                      onChange={(e) => setStartDate(e.target.value)}
-                      className="px-4 py-2.5 rounded-xl border border-gray-100 bg-white/80 text-sm outline-none focus:ring-2 focus:ring-gray-300"
-                    />
-                    <input
-                      type="date"
-                      value={endDate}
-                      onChange={(e) => setEndDate(e.target.value)}
-                      className="px-4 py-2.5 rounded-xl border border-gray-100 bg-white/80 text-sm outline-none focus:ring-2 focus:ring-gray-300"
-                    />
-                  </div>
-                  <select
-                    value={dataViewMode}
-                    onChange={(e) => setDataViewMode(e.target.value)}
-                    className="px-4 py-2.5 rounded-2xl text-xs font-black uppercase tracking-wider border border-gray-100 bg-white/70 backdrop-blur-xl shadow-sm text-gray-700"
-                  >
-                    <option value="all">All Data</option>
-                    <option value="clean">Clean</option>
-                    <option value="unclean">Unclean</option>
-                    <option value="excluded">Excluded</option>
-                  </select>
-                  <select
-                    value={selectedVendorFilter}
-                    onChange={(e) => setSelectedVendorFilter(e.target.value)}
-                    className="px-4 py-2.5 rounded-2xl text-xs font-black border border-gray-100 bg-white/70 backdrop-blur-xl shadow-sm text-gray-700"
-                  >
-                    {uniqueVendorFilters.map((vendor) => (
-                      <option key={vendor} value={vendor}>{vendor}</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-              <div className="grid grid-cols-1 xl:grid-cols-2 gap-8 mb-8">
-                {/* Pie Chart: Category Mix */}
-                <div className="h-[380px] border border-gray-100 rounded-2xl p-5 shadow-sm bg-gray-50">
-                  <h3 className="font-bold text-gray-700 mb-4 uppercase tracking-widest text-xs">Category Distribution</h3>
-                  <ResponsiveContainer width="100%" height="90%">
-                    <PieChart>
-                      <Pie
-                        data={insightCharts.categoryMix}
-                        dataKey="value"
-                        nameKey="name"
-                        cx="50%"
-                        cy="50%"
-                        outerRadius={110}
-                        label
-                        onClick={handleCategoryChartClick}
-                      >
-                        {insightCharts.categoryMix.map((entry, index) => (
-                          <Cell key={`cell-${index}`} fill={CHART_COLORS[index % CHART_COLORS.length]} />
-                        ))}
-                      </Pie>
-                      <Tooltip formatter={(value) => [`${value} Items`, 'Stock']} />
-                      <Legend verticalAlign="bottom" height={36} />
-                    </PieChart>
-                  </ResponsiveContainer>
-                </div>
-
-                {/* Bar Chart: Condition Distribution */}
-                <div className="h-[380px] border border-gray-100 rounded-2xl p-5 shadow-sm bg-gray-50">
-                  <h3 className="font-bold text-gray-700 mb-4 uppercase tracking-widest text-xs">Condition Distribution</h3>
-                  <ResponsiveContainer width="100%" height="90%">
-                    <BarChart data={insightCharts.conditionMix} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
-                      <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                      <XAxis dataKey="condition" tick={{ fontSize: 12 }} />
-                      <YAxis tick={{ fontSize: 12 }} />
-                      <Tooltip cursor={{ fill: 'transparent' }} />
-                      <Bar
-                        dataKey="count"
-                        fill="#3b82f6"
-                        radius={[6, 6, 0, 0]}
-                        name="Products by Condition"
-                        onClick={handleConditionChartClick}
-                      />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-              </div>
-
-              {/* Line Chart: Lead Velocity */}
-              <div className="h-[400px] border border-gray-100 rounded-2xl p-5 shadow-sm bg-gray-50">
-                <h3 className="font-bold text-gray-700 mb-4 uppercase tracking-widest text-xs">Lead Velocity (WhatsApp Clicks - Last 7 Days)</h3>
-                <ResponsiveContainer width="100%" height="90%">
-                  <LineChart data={insightCharts.leadVelocity} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                    <XAxis dataKey="day" tick={{ fontSize: 12 }} />
-                    <YAxis allowDecimals={false} tick={{ fontSize: 12 }} />
-                    <Tooltip />
-                    <Line type="monotone" dataKey="clicks" stroke="#10b981" strokeWidth={4} dot={{ r: 6, fill: '#10b981' }} activeDot={{ r: 8 }} name="WhatsApp Clicks" />
-                  </LineChart>
-                </ResponsiveContainer>
-              </div>
-              <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 mt-8">
-                <div className="h-[320px] border border-gray-100 rounded-2xl p-5 shadow-sm bg-gray-50">
-                  <h3 className="font-bold text-gray-700 mb-4 uppercase tracking-widest text-xs">Price Variance Chart</h3>
-                  <ResponsiveContainer width="100%" height="90%">
-                    <BarChart data={advancedAnalytics.priceVariance}>
-                      <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                      <XAxis dataKey="name" hide />
-                      <YAxis />
-                      <Tooltip formatter={(value) => [formatNaira(value), 'Average Price']} />
-                      <Bar dataKey="averagePrice" fill="#4f46e5" radius={[6, 6, 0, 0]} />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-                <div className="h-[320px] border border-gray-100 rounded-2xl p-5 shadow-sm bg-gray-50">
-                  <h3 className="font-bold text-gray-700 mb-4 uppercase tracking-widest text-xs">Action Heatmap</h3>
-                  <ResponsiveContainer width="100%" height="90%">
-                    <BarChart data={advancedAnalytics.actionHeatmap}>
-                      <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                      <XAxis dataKey="type" />
-                      <YAxis />
-                      <Tooltip />
-                      <Bar dataKey="frequency" fill="#10b981" radius={[6, 6, 0, 0]} />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-                <div className="h-[320px] border border-gray-100 rounded-2xl p-5 shadow-sm bg-gray-50">
-                  <h3 className="font-bold text-gray-700 mb-4 uppercase tracking-widest text-xs">Scraper Accuracy</h3>
-                  <ResponsiveContainer width="100%" height="90%">
-                    <PieChart>
-                      <Pie data={advancedAnalytics.scraperAccuracy} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={90} label>
-                        {advancedAnalytics.scraperAccuracy.map((entry, index) => (
-                          <Cell key={`scraper-cell-${index}`} fill={CHART_COLORS[index % CHART_COLORS.length]} />
-                        ))}
-                      </Pie>
-                      <Tooltip />
-                    </PieChart>
-                  </ResponsiveContainer>
-                </div>
-              </div>
-            </div>
-          ) : activeTab === 'products' ? (
-            <div className="bg-white/70 backdrop-blur-xl border border-gray-100 rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] p-6">
-              <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4 mb-6">
-                <div>
-                  <h2 className="text-2xl font-black tracking-tight text-gray-900">Global Products</h2>
-                  <p className="text-sm text-gray-500">6-level hierarchy: Category → Brand → Series → Device → Variation → Vendors.</p>
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 w-full lg:w-auto">
-                  <input
-                    type="text"
-                    value={productSearchQuery}
-                    onChange={(e) => setProductSearchQuery(e.target.value)}
-                    placeholder="Search category, device, series, vendor..."
-                    className="px-4 py-3 rounded-2xl border border-gray-100 bg-white/80 text-sm outline-none focus:ring-2 focus:ring-gray-300"
-                  />
-                  <select value={productCategoryFilter} onChange={(e) => setProductCategoryFilter(e.target.value)} className="px-4 py-3 rounded-2xl border border-gray-100 bg-white/80 text-sm outline-none focus:ring-2 focus:ring-gray-300">
-                    {uniqueGlobalCategories.map((category) => <option key={category} value={category}>{category}</option>)}
-                  </select>
-                  <select value={productConditionFilter} onChange={(e) => setProductConditionFilter(e.target.value)} className="px-4 py-3 rounded-2xl border border-gray-100 bg-white/80 text-sm outline-none focus:ring-2 focus:ring-gray-300">
-                    {uniqueGlobalConditions.map((condition) => <option key={condition} value={condition}>{condition}</option>)}
-                  </select>
-                  <select value={selectedVendorFilter} onChange={(e) => setSelectedVendorFilter(e.target.value)} className="px-4 py-3 rounded-2xl border border-gray-100 bg-white/80 text-sm outline-none focus:ring-2 focus:ring-gray-300">
-                    {uniqueVendorFilters.map((vendor) => <option key={vendor} value={vendor}>{vendor}</option>)}
-                  </select>
-                  <select value={dataViewMode} onChange={(e) => setDataViewMode(e.target.value)} className="px-4 py-3 rounded-2xl border border-gray-100 bg-white/80 text-sm outline-none focus:ring-2 focus:ring-gray-300">
-                    <option value="all">All</option>
-                    <option value="clean">Clean</option>
-                    <option value="unclean">Unclean</option>
-                    <option value="excluded">Excluded</option>
-                  </select>
-                  <select value={productSortMode} onChange={(e) => setProductSortMode(e.target.value)} className="px-4 py-3 rounded-2xl border border-gray-100 bg-white/80 text-sm outline-none focus:ring-2 focus:ring-gray-300">
-                    <option value="hierarchy">Apple Hierarchy</option>
-                    <option value="highest_price">Highest Total Price</option>
-                    <option value="highest_demand">Highest Demand</option>
-                  </select>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 mb-5">
-                <input
-                  type="text"
-                  value={excludedPhrases}
-                  onChange={(e) => setExcludedPhrases(e.target.value)}
-                  placeholder="Phrases to Exclude (comma separated)"
-                  className="lg:col-span-2 px-4 py-3 rounded-2xl border border-gray-100 bg-white/80 text-sm outline-none focus:ring-2 focus:ring-gray-300"
-                />
-                <div className="grid grid-cols-2 gap-3">
-                  <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="px-4 py-3 rounded-2xl border border-gray-100 bg-white/80 text-sm outline-none focus:ring-2 focus:ring-gray-300" />
-                  <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="px-4 py-3 rounded-2xl border border-gray-100 bg-white/80 text-sm outline-none focus:ring-2 focus:ring-gray-300" />
-                </div>
-              </div>
-
-              <div className="mb-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 bg-white/70 backdrop-blur-xl rounded-2xl border border-gray-100 shadow-sm p-4">
-                <p className="text-xs font-bold uppercase tracking-wider text-gray-500">Dictionary Mappings: {Object.keys(masterDictionary).length}</p>
-                <button type="button" onClick={syncMasterDictionary} disabled={syncingDictionary} className="px-4 py-2.5 rounded-2xl text-xs font-black uppercase tracking-wider border border-gray-100 bg-white/80 hover:bg-white disabled:opacity-50">{syncingDictionary ? 'Syncing...' : 'Sync Master Dictionary'}</button>
-              </div>
-
-              <div className="space-y-3">
-                {Object.entries(groupedGlobalProducts).map(([category, brands]) => {
-                  const categoryKey = `category:${category}`;
-                  if (!paginatedGroupKeySet.has(categoryKey)) return null;
-                  const categoryExpanded = expandedProductGroups.includes(categoryKey);
+  const renderTree = () => (
+    Object.entries(productTree).map(([category, categoryNode]) => {
+      const categoryKey = `cat:${category}`;
+      return (
+        <div key={categoryKey} className="rounded-2xl bg-white/10 border border-white/20 p-3">
+          <button className="w-full text-left font-semibold" onClick={() => toggleNode(categoryKey)}>
+            {category} ({categoryNode.count.toLocaleString()})
+          </button>
+          {expanded[categoryKey] && Object.entries(categoryNode.children).map(([brand, brandNode]) => {
+            const brandKey = `${categoryKey}|brand:${brand}`;
+            return (
+              <div key={brandKey} className="ml-4 mt-2">
+                <button className="w-full text-left font-medium" onClick={() => toggleNode(brandKey)}>
+                  {brand} ({brandNode.count.toLocaleString()})
+                </button>
+                {expanded[brandKey] && Object.entries(brandNode.children).map(([series, seriesNode]) => {
+                  const seriesKey = `${brandKey}|series:${series}`;
                   return (
-                    <div key={categoryKey} className="bg-white rounded-2xl border border-gray-100">
-                      <button type="button" onClick={() => toggleProductGroup(categoryKey)} className="w-full px-4 py-3 text-left font-bold text-gray-900 flex items-center justify-between">{category}<span>{categoryExpanded ? '⌄' : '›'}</span></button>
-                      {categoryExpanded && (
-                        <div className="pl-4 pr-2 pb-3 space-y-2">
-                          {Object.entries(brands).map(([brand, seriesMap]) => {
-                            const brandKey = `brand:${category}__${brand}`;
-                            if (!paginatedGroupKeySet.has(brandKey)) return null;
-                            const brandExpanded = expandedProductGroups.includes(brandKey);
-                            return (
-                              <div key={brandKey} className="bg-gray-50 rounded-2xl border border-gray-100">
-                                <button type="button" onClick={() => toggleProductGroup(brandKey)} className="w-full px-4 py-3 text-left text-sm font-bold text-gray-800 flex items-center justify-between">{brand}<span>{brandExpanded ? '⌄' : '›'}</span></button>
-                                {brandExpanded && (
-                                  <div className="pl-4 pr-2 pb-3 space-y-2">
-                                    {Object.entries(seriesMap).map(([series, devices]) => {
-                                      const seriesKey = `series:${category}__${brand}__${series}`;
-                                      if (!paginatedGroupKeySet.has(seriesKey)) return null;
-                                      const seriesExpanded = expandedProductGroups.includes(seriesKey);
-                                      return (
-                                        <div key={seriesKey} className="bg-white rounded-xl border border-gray-100">
-                                          <button type="button" onClick={() => toggleProductGroup(seriesKey)} className="w-full px-4 py-3 text-left text-sm font-bold text-gray-800 flex items-center justify-between">{series}<span>{seriesExpanded ? '⌄' : '›'}</span></button>
-                                          {seriesExpanded && (
-                                            <div className="pl-4 pr-2 pb-3 space-y-2">
-                                              {Object.entries(devices).map(([deviceType, variations]) => {
-                                                const deviceKey = `device:${category}__${brand}__${series}__${deviceType}`;
-                                                if (!paginatedGroupKeySet.has(deviceKey)) return null;
-                                                const deviceExpanded = expandedProductGroups.includes(deviceKey);
-                                                return (
-                                                  <div key={deviceKey} className="rounded-xl border border-gray-100 bg-gray-50">
-                                                    <button type="button" onClick={() => toggleProductGroup(deviceKey)} className="w-full px-4 py-3 text-left text-sm font-bold text-gray-900 flex items-center justify-between">{deviceType}<span>{deviceExpanded ? '⌄' : '›'}</span></button>
-                                                    {deviceExpanded && (
-                                                      <div className="px-2 pb-3 space-y-2">
-                                                        {Object.entries(variations).map(([variationRawKey, variation]) => {
-                                                          const variationKey = `variation:${category}__${brand}__${series}__${deviceType}__${variationRawKey}`;
-                                                          if (!paginatedGroupKeySet.has(variationKey)) return null;
-                                                          const variationExpanded = expandedProductGroups.includes(variationKey);
-                                                          return (
-                                                            <div key={variationKey} className="rounded-xl border border-gray-100 bg-white">
-                                                              <button type="button" onClick={() => toggleProductGroup(variationKey)} className="w-full px-3 py-2 text-left text-xs font-semibold text-gray-700 grid grid-cols-5 gap-2">
-                                                                <span>{variation.condition}</span>
-                                                                <span>{variation.simType}</span>
-                                                                <span>{variation.storage}</span>
-                                                                <span>{formatNaira(variation.totalAccumulatedPrice)}</span>
-                                                                <span className="text-right">{variation.stockCount} in stock {variationExpanded ? '⌄' : '›'}</span>
-                                                              </button>
-                                                              {variationExpanded && (
-                                                                <div className="px-3 pb-3">
-                                                                  <table className="w-full text-left">
-                                                                    <thead>
-                                                                      <tr className="text-[10px] uppercase text-gray-500"><th className="py-1">Vendor</th><th className="py-1">Price</th><th className="py-1">Date</th><th className="py-1">Link</th></tr>
-                                                                    </thead>
-                                                                    <tbody>
-                                                                      {variation.vendors.map((item) => (
-                                                                        <tr key={item.id} className="border-t border-gray-100">
-                                                                          <td className="py-2 text-xs font-semibold">{item.vendorName}</td>
-                                                                          <td className="py-2 text-xs">{item.price}</td>
-                                                                          <td className="py-2 text-xs">{formatTimelineDate(item.date)}</td>
-                                                                          <td className="py-2 text-xs"><Link to={item.vendorLink} target="_blank" rel="noopener noreferrer" className="text-blue-600 font-bold">Open ↗</Link></td>
-                                                                        </tr>
-                                                                      ))}
-                                                                    </tbody>
-                                                                  </table>
-                                                                </div>
-                                                              )}
-                                                            </div>
-                                                          );
-                                                        })}
-                                                      </div>
-                                                    )}
-                                                  </div>
-                                                );
-                                              })}
-                                            </div>
-                                          )}
-                                        </div>
-                                      );
-                                    })}
-                                  </div>
-                                )}
-                              </div>
-                            );
-                          })}
-                        </div>
-                      )}
+                    <div key={seriesKey} className="ml-4 mt-2">
+                      <button className="w-full text-left" onClick={() => toggleNode(seriesKey)}>
+                        {series} ({seriesNode.count.toLocaleString()})
+                      </button>
+                      {expanded[seriesKey] && Object.entries(seriesNode.children).map(([device, deviceNode]) => {
+                        const deviceKey = `${seriesKey}|device:${device}`;
+                        return (
+                          <div key={deviceKey} className="ml-4 mt-2">
+                            <button className="w-full text-left" onClick={() => toggleNode(deviceKey)}>
+                              {device} ({deviceNode.count.toLocaleString()})
+                            </button>
+                            {expanded[deviceKey] && Object.entries(deviceNode.children).map(([variation, variationNode]) => {
+                              const variationKey = `${deviceKey}|variation:${variation}`;
+                              return (
+                                <div key={variationKey} className="ml-4 mt-2 rounded-xl bg-black/20 p-2">
+                                  <button className="w-full text-left" onClick={() => toggleNode(variationKey)}>
+                                    {variation} ({variationNode.count.toLocaleString()})
+                                  </button>
+                                  {expanded[variationKey] && (
+                                    <ul className="ml-4 mt-2 space-y-1">
+                                      {variationNode.vendors.map((vendorRow) => (
+                                        <li key={vendorRow.id}>
+                                          {vendorRow.vendorName} - {formatNaira(vendorRow.priceValue)}
+                                        </li>
+                                      ))}
+                                    </ul>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        );
+                      })}
                     </div>
                   );
                 })}
               </div>
+            );
+          })}
+        </div>
+      );
+    })
+  );
 
-              {filteredGlobalProducts.length === 0 && <p className="text-center text-sm text-gray-400 py-8">No grouped products match your filters.</p>}
+  return (
+    <AdminDashboardLayout>
+      <section className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 text-white p-4 md:p-8">
+        <div className="max-w-7xl mx-auto space-y-5">
+          <div className="rounded-3xl border border-white/20 bg-white/10 backdrop-blur-xl p-5 shadow-2xl">
+            <div className="flex flex-wrap gap-2">
+              {['products', 'insights', 'pricing'].map((tab) => (
+                <button
+                  key={tab}
+                  onClick={() => setActiveTab(tab)}
+                  className={`px-4 py-2 rounded-2xl ${activeTab === tab ? 'bg-white/30' : 'bg-white/10'}`}
+                >
+                  {tab === 'products' ? 'Global Products' : tab === 'insights' ? 'Insights' : 'Pricing Engine'}
+                </button>
+              ))}
+              <button onClick={syncMasterDictionary} className="ml-auto px-4 py-2 rounded-2xl bg-emerald-500/70">
+                {syncing ? 'Syncing...' : 'Sync Master Dictionary'}
+              </button>
+            </div>
+          </div>
 
-              {filteredGlobalProducts.length > 0 && (
-                <div className="flex items-center justify-between px-2 pt-5">
-                  <p className="text-xs font-semibold text-gray-600">Page {currentProductPage} of {totalProductPages} • Showing {paginatedGroupedProducts.length} of {filteredGlobalProducts.length} grouped rows</p>
-                  <div className="flex gap-2">
-                    <button type="button" onClick={() => setCurrentProductPage((prev) => Math.max(1, prev - 1))} disabled={currentProductPage === 1} className="px-4 py-2 rounded-xl text-xs font-black uppercase border border-gray-100 bg-white/80 disabled:opacity-40">Prev</button>
-                    <button type="button" onClick={() => setCurrentProductPage((prev) => Math.min(totalProductPages, prev + 1))} disabled={currentProductPage === totalProductPages} className="px-4 py-2 rounded-xl text-xs font-black uppercase border border-gray-100 bg-white/80 disabled:opacity-40">Next</button>
-                  </div>
-                </div>
-              )}
+          {activeTab === 'products' && (
+            <div className="rounded-3xl border border-white/20 bg-white/10 backdrop-blur-xl p-5 space-y-3">
+              <div className="grid md:grid-cols-4 gap-3">
+                <input className="rounded-2xl bg-black/20 border border-white/20 px-3 py-2" placeholder="Search products" value={search} onChange={(e) => setSearch(e.target.value)} />
+                <input
+                  className="rounded-2xl bg-black/20 border border-white/20 px-3 py-2"
+                  type="text"
+                  list="vendor-search-list"
+                  placeholder="Vendor filter (All)"
+                  value={selectedVendorFilter === 'All' ? '' : selectedVendorFilter}
+                  onChange={(e) => setSelectedVendorFilter(e.target.value.trim() || 'All')}
+                />
+                <datalist id="vendor-search-list">
+                  {uniqueVendorNames.map((name) => <option key={name} value={name} />)}
+                </datalist>
+                <input className="rounded-2xl bg-black/20 border border-white/20 px-3 py-2" placeholder="Excluded phrases (comma-separated)" value={excludedPhrases} onChange={(e) => setExcludedPhrases(e.target.value)} />
+                <input className="rounded-2xl bg-black/20 border border-white/20 px-3 py-2" placeholder="Category filter" value={productCategoryFilter === 'All' ? '' : productCategoryFilter} onChange={(e) => setProductCategoryFilter(e.target.value.trim() || 'All')} />
+              </div>
+              <div className="space-y-2 max-h-[70vh] overflow-auto">{renderTree()}</div>
             </div>
-          ) : activeTab === 'backups' ? (
-            <div className="bg-white/70 backdrop-blur-xl border border-white/20 rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] overflow-hidden">
-              <div className="p-5 bg-gray-50 border-b flex justify-between items-center gap-4">
-                <h2 className="text-lg font-bold text-[#1A1C23]">Backup Version History ({backups.length})</h2>
-                <div>
-                  <button onClick={triggerManualBackup} disabled={manualBackupLoading} className="bg-blue-600 text-white px-5 py-2.5 rounded-lg text-sm font-bold hover:bg-blue-700 transition-all shadow-md disabled:opacity-50">
-                    {manualBackupLoading ? 'Running...' : 'Run Backup'}
-                  </button>
-                  <p className="text-xs text-gray-400 mt-2">Creates a manual snapshot and uploads it to Cloud Storage and Firebase.</p>
-                </div>
+          )}
+
+          {activeTab === 'insights' && (
+            <div className="grid lg:grid-cols-2 gap-4">
+              <div className="rounded-3xl border border-white/20 bg-white/10 backdrop-blur-xl p-4 h-80">
+                <h3 className="font-semibold mb-2">Category Mix</h3>
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie
+                      data={chartData.categoryMix}
+                      dataKey="value"
+                      nameKey="name"
+                      outerRadius={95}
+                      onClick={(entry) => {
+                        const category = entry?.name || entry?.payload?.name;
+                        if (!category) return;
+                        setProductCategoryFilter(category);
+                        setActiveTab('products');
+                      }}
+                    >
+                      {chartData.categoryMix.map((_, index) => <Cell key={`cat-${index + 1}`} fill={CHART_COLORS[index % CHART_COLORS.length]} />)}
+                    </Pie>
+                    <Tooltip />
+                  </PieChart>
+                </ResponsiveContainer>
               </div>
-              <table className="w-full text-left">
-                <thead className="bg-white text-gray-400 text-[11px] font-black uppercase tracking-widest border-b">
-                  <tr>
-                    <th className="p-4 pl-6">Backup ID</th>
-                    <th className="p-4">Created At</th>
-                    <th className="p-4">Total Docs</th>
-                    <th className="p-4">Action</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100">
-                  {backups.map(backup => (
-                    <tr key={backup.id} className="hover:bg-gray-50">
-                      <td className="p-4 pl-6 text-sm font-mono text-blue-600">{backup.id}</td>
-                      <td className="p-4 text-sm text-gray-600 font-medium">{backup.createdAt ? new Date(backup.createdAt).toLocaleString() : 'N/A'}</td>
-                      <td className="p-4 text-sm font-bold text-gray-800">{backup.totalDocuments || 0} Vendors</td>
-                      <td className="p-4">
-                        <div className="flex flex-col items-end">
-                          <button onClick={() => restoreBackup(backup.id)} disabled={restoringBackupId === backup.id} className="bg-red-50 text-red-600 px-4 py-2 rounded-lg text-xs font-black uppercase hover:bg-red-600 hover:text-white transition-all disabled:opacity-50">
-                            {restoringBackupId === backup.id ? 'Restoring...' : 'Restore Version'}
-                          </button>
-                          <p className="text-xs text-gray-400 mt-2 text-right">Reverts the selected item or collection to a previous historical state.</p>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : activeTab === 'activity' ? (
-            <div className="bg-white/70 backdrop-blur-xl border border-white/20 rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] overflow-hidden">
-              <div className="p-5 bg-gray-50 border-b">
-                <h2 className="text-lg font-bold text-[#1A1C23]">Global Platform Activity (Newest 50)</h2>
-              </div>
-              <div className="p-5 space-y-4 max-h-[600px] overflow-y-auto custom-scrollbar">
-                {platformActivityTimeline.map((entry, idx) => (
-                  <div key={idx} className="border-l-4 border-blue-500 pl-4 py-3 bg-gray-50 rounded-r-lg shadow-sm">
-                    <div className="flex justify-between items-start">
-                      <p className="font-bold text-sm text-[#1A1C23] max-w-[80%]">{entry.action}</p>
-                      <span className={`text-[9px] px-2 py-1 rounded-md font-black uppercase tracking-wider ${entry.channel === 'admin' ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700'}`}>{entry.channel}</span>
-                    </div>
-                    <p className="text-[11px] font-bold text-gray-400 mt-2 uppercase tracking-wider">{entry.vendorName} • {formatTimelineDate(entry.date)}</p>
-                  </div>
-                ))}
-                {platformActivityTimeline.length === 0 && <p className="p-10 text-center text-gray-400 font-bold uppercase tracking-widest">No activity logs recorded.</p>}
-              </div>
-            </div>
-          ) : activeTab === 'history' ? (
-            <div className="bg-white/70 backdrop-blur-xl border border-white/20 rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] overflow-hidden">
-              <div className="p-5 border-b bg-gray-50 flex items-center justify-between">
-                <h2 className="text-xl font-black text-[#1A1C23]">Audit Trail</h2>
-                <button onClick={fetchAuditLogs} className="text-xs font-bold uppercase tracking-wider bg-gray-100 px-4 py-2 rounded-lg">Refresh</button>
-              </div>
-              <div className="p-4 space-y-3 max-h-[60vh] overflow-y-auto">
-                {loadingAuditLogs ? (
-                  <p className="text-sm text-gray-400">Loading audit logs...</p>
-                ) : auditLogs.length ? auditLogs.map((log) => (
-                  <div key={log.id} className="border border-gray-200 rounded-xl p-4 bg-white">
-                    <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
-                      <div>
-                        <p className="text-sm font-black text-[#1A1C23]">{log.userRole || 'Unknown'} • {log.method} {log.path}</p>
-                        <p className="text-xs text-gray-500">{formatTimelineDate(log.timestamp)}</p>
-                      </div>
-                      <div className="flex flex-col items-end">
-                        <button onClick={() => undoAuditAction(log.id)} disabled={restoringAuditId === log.id} className="bg-red-600 text-white px-4 py-2 rounded-lg text-xs font-black uppercase disabled:opacity-50">
-                          {restoringAuditId === log.id ? 'Undoing...' : 'Undo'}
-                        </button>
-                        <p className="text-xs text-gray-400 mt-2 text-right">Reverts the selected item or collection to a previous historical state.</p>
-                      </div>
-                    </div>
-                  </div>
-                )) : (
-                  <p className="text-sm text-gray-400">No audit logs found.</p>
-                )}
+              <div className="rounded-3xl border border-white/20 bg-white/10 backdrop-blur-xl p-4 h-80">
+                <h3 className="font-semibold mb-2">Condition Mix</h3>
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={chartData.conditionMix}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.2)" />
+                    <XAxis dataKey="condition" stroke="#fff" />
+                    <YAxis stroke="#fff" />
+                    <Tooltip />
+                    <Bar
+                      dataKey="count"
+                      fill="#14b8a6"
+                      onClick={(entry) => {
+                        const condition = entry?.condition || entry?.payload?.condition;
+                        if (!condition) return;
+                        setProductConditionFilter(condition);
+                        setActiveTab('products');
+                      }}
+                    />
+                  </BarChart>
+                </ResponsiveContainer>
               </div>
             </div>
-          ) : activeTab === 'promote' ? (
-            <div className="space-y-4">
-              <div className="bg-emerald-50 border border-emerald-100 rounded-xl p-4">
-                <h3 className="text-sm font-black text-emerald-800 uppercase tracking-wider mb-3">Onboard Vendor</h3>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                  <input value={onboardVendorName} onChange={(e) => setOnboardVendorName(e.target.value)} placeholder="Vendor's Name" className="w-full p-3 border rounded-[8px] focus:ring-2 focus:ring-emerald-500 outline-none" />
-                  <input value={botNumber} onChange={(e) => setBotNumber(e.target.value)} placeholder="Your Admin Bot Number" className="w-full p-3 border rounded-[8px] focus:ring-2 focus:ring-emerald-500 outline-none" />
-                  <button onClick={generateOnboardingLink} className="bg-emerald-600 text-white px-4 py-3 rounded-[8px] font-bold hover:bg-emerald-700 transition-colors">Generate & Copy Link</button>
-                </div>
-                <div className="mt-3 p-3 rounded-lg border border-emerald-100 bg-emerald-50 text-emerald-900 text-xs">
-                  Generates a pre-formatted WhatsApp onboarding link for vendors and copies a shortened version to your clipboard.
-                </div>
+          )}
+
+          {activeTab === 'pricing' && (
+            <div className="rounded-3xl border border-white/20 bg-white/10 backdrop-blur-xl p-5 space-y-4">
+              <div className="grid md:grid-cols-5 gap-3">
+                <input className="rounded-2xl bg-black/20 border border-white/20 px-3 py-2 md:col-span-2" placeholder="Company CSV URL" value={pricingCsvUrl} onChange={(e) => setPricingCsvUrl(e.target.value)} />
+                <button onClick={loadCompanyCsv} className="rounded-2xl bg-blue-500/70 px-3 py-2">Load CSV</button>
+                <input
+                  className="rounded-2xl bg-black/20 border border-white/20 px-3 py-2"
+                  type="text"
+                  list="vendor-search-list"
+                  placeholder="Vendor"
+                  value={pricingVendor}
+                  onChange={(e) => setPricingVendor(e.target.value)}
+                />
+                <select className="rounded-2xl bg-black/20 border border-white/20 px-3 py-2" value={pricingMarginType} onChange={(e) => setPricingMarginType(e.target.value)}>
+                  <option value="amount">Amount</option>
+                  <option value="percentage">Percentage</option>
+                </select>
+                <input className="rounded-2xl bg-black/20 border border-white/20 px-3 py-2" placeholder="Margin value" value={pricingMarginValue} onChange={(e) => setPricingMarginValue(e.target.value)} />
+                <button onClick={exportPricingTxt} className="rounded-2xl bg-emerald-500/70 px-3 py-2">Export to TXT</button>
               </div>
 
-              <div className="bg-white border border-gray-200 rounded-xl p-4">
-                <h3 className="font-black text-[#1A1C23] mb-3">Tutorial Video Manager</h3>
-                <div className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-3">
-                  <input
-                    value={tutorialVideoUrl}
-                    onChange={(e) => setTutorialVideoUrl(e.target.value)}
-                    placeholder="Paste YouTube link"
-                    className="border border-gray-200 rounded-lg px-3 py-2 text-sm"
-                  />
-                  <button
-                    onClick={saveTutorialVideo}
-                    disabled={savingTutorialVideo}
-                    className="bg-blue-600 text-white rounded-lg px-4 py-2 text-sm font-bold hover:bg-blue-700 disabled:opacity-50"
-                  >
-                    {savingTutorialVideo ? 'Saving...' : 'Save Video'}
-                  </button>
-                </div>
-                <p className="text-xs text-gray-400 mt-2">Update the tutorial video shown to all vendors on their tips page.</p>
-              </div>
-            </div>
-          ) : activeTab === 'maintenance' ? (
-            <div className="bg-white border border-gray-200 rounded-2xl p-5 shadow-sm">
-              <h2 className="text-xl font-black text-[#1A1C23] mb-2">System Maintenance</h2>
-              <p className="text-sm text-gray-500 mb-4">Restore backup snapshots from local JSON or Google Drive versions.</p>
-
-              <div className="mb-5">
-                <label className="inline-flex items-center gap-2 bg-[#1A1C23] text-white px-4 py-2 rounded-lg font-bold text-sm cursor-pointer hover:bg-black">
-                  {uploadRestoreLoading ? 'Uploading...' : 'Upload & Restore from Local JSON'}
-                  <input type="file" accept="application/json,.json" className="hidden" onChange={uploadAndRestoreLocalBackup} disabled={uploadRestoreLoading} />
-                </label>
-              </div>
-
-              <div className="border-t pt-4">
-                <div className="flex items-center justify-between mb-3">
-                  <h3 className="text-sm font-black uppercase tracking-wider text-gray-600">Cloud Backups (Drive)</h3>
-                  <button onClick={fetchDriveBackups} className="text-xs font-bold px-3 py-1.5 bg-gray-100 rounded-lg hover:bg-gray-200">Refresh</button>
-                </div>
-
-                {loadingDriveBackups ? (
-                  <p className="text-sm text-gray-400">Loading cloud backups...</p>
-                ) : driveBackups.length ? (
-                  <div className="space-y-2">
-                    {driveBackups.map((file) => (
-                      <div key={file.id} className="flex flex-col md:flex-row md:items-center md:justify-between gap-2 border border-gray-100 rounded-lg p-3">
-                        <div>
-                          <p className="text-sm font-bold text-[#1A1C23]">{file.name}</p>
-                          <p className="text-xs text-gray-500">{file.createdTime ? new Date(file.createdTime).toLocaleString() : 'Unknown time'}</p>
-                        </div>
-                        <button
-                          onClick={() => restoreDriveBackup(file.id)}
-                          disabled={restoringDriveId === file.id}
-                          className="bg-red-600 text-white px-4 py-2 rounded-lg text-xs font-black uppercase hover:bg-red-700 disabled:opacity-50"
-                        >
-                          {restoringDriveId === file.id ? 'Restoring...' : 'Restore This Version'}
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="text-sm text-gray-400">No Drive backups found.</p>
-                )}
-              </div>
-            </div>
-          ) : (
-            <>
-              {/* Toolbar */}
-              <div className="flex flex-col xl:flex-row gap-4 mb-6">
-                <div className="flex-1 relative">
-                  <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400">🔍</span>
-                  <input type="text" placeholder="Search for a WhatsApp Vendor..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full pl-12 pr-4 py-4 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm shadow-sm font-medium" />
-                </div>
-                <div className="flex gap-3">
-                  <button onClick={() => bulkUpdateStatus('suspended')} disabled={!selectedVendorIds.length || bulkUpdating} className="bg-red-600 text-white px-6 py-2 rounded-xl text-xs font-black uppercase tracking-wider hover:bg-red-700 disabled:opacity-50 shadow-md transition-all">Suspend</button>
-                  <button onClick={() => bulkUpdateStatus('active')} disabled={!selectedVendorIds.length || bulkUpdating} className="bg-emerald-600 text-white px-6 py-2 rounded-xl text-xs font-black uppercase tracking-wider hover:bg-emerald-700 disabled:opacity-50 shadow-md transition-all">Activate</button>
-                  <button onClick={handleExport} className="bg-gray-800 text-white px-6 py-2 rounded-xl text-xs font-black uppercase tracking-wider hover:bg-black shadow-md transition-all">Export</button>
-                </div>
-              </div>
-
-              {selectedVendorIds.length > 0 && (
-                <div className="sticky bottom-4 z-20 bg-[#1A1C23] text-white px-4 py-3 rounded-xl shadow-lg mb-4 flex flex-wrap items-center justify-between gap-3">
-                  <p className="text-sm font-bold">{selectedVendorIds.length} vendors selected</p>
-                  <div className="flex flex-col">
-                    <button onClick={openBulkEdit} className="bg-blue-600 px-4 py-2 rounded-lg text-xs font-black uppercase">Bulk Edit</button>
-                    <p className="text-xs text-gray-400 mt-2">Updates condition, category, or price for all selected items instantly.</p>
-                  </div>
-                </div>
-              )}
-
-              {/* Vendor Directory */}
-              <div className="bg-white/70 backdrop-blur-xl border border-white/20 rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] overflow-hidden">
-                <table className="w-full text-left">
-                  <thead className="bg-gray-50 border-b border-gray-100">
-                    <tr className="text-gray-400 text-[11px] font-black uppercase tracking-widest">
-                      <th className="p-4 pl-6 w-[50px]"><input type="checkbox" checked={allFilteredSelected} onChange={toggleSelectAll} className="w-4 h-4 rounded border-gray-300 cursor-pointer" /></th>
-                      <th className="p-4">Vendor Name</th>
-                      <th className="p-4">Status</th>
-                      <th className="hidden md:table-cell p-4">View</th>
-                      <th className="hidden md:table-cell p-4">Access Details</th>
-                      <th className="hidden md:table-cell p-4">Monetization</th>
-                      <th className="hidden md:table-cell p-4">Total Inventory</th>
-                      <th className="p-4">Action</th>
-                      <th className="hidden md:table-cell p-4 pr-6">Contact</th>
+              <div className="overflow-auto rounded-2xl border border-white/20">
+                <table className="w-full text-sm">
+                  <thead className="bg-black/30">
+                    <tr>
+                      <th className="p-2 text-left">Device</th>
+                      <th className="p-2 text-left">Company Price</th>
+                      <th className="p-2 text-left">Vendor Price</th>
+                      <th className="p-2 text-left">Target</th>
+                      <th className="p-2 text-left">Adjustment</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-gray-50">
-                    {paginatedOffline.map(vendor => (
-                      <tr key={vendor.docId} className="hover:bg-blue-50/30 transition-colors">
-                        <td className="p-4 pl-6"><input type="checkbox" checked={selectedVendorIds.includes(vendor.docId)} onChange={() => toggleVendor(vendor.docId)} className="w-4 h-4 rounded border-gray-300 cursor-pointer" /></td>
-                        <td className="p-4 font-bold text-blue-600 hover:text-blue-800"><Link to={vendor.shareableLink} target="_blank" rel="noopener noreferrer">{vendor.vendorName}</Link></td>
-                        <td className="p-4">
-                          <span className={`px-2.5 py-1 rounded-lg text-[10px] font-black uppercase ${vendor.status === 'suspended' ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>{vendor.status}</span>
-                        </td>
-                        <td className="hidden md:table-cell p-4 text-xs font-bold text-gray-500 space-y-1">
-                          <p>👁️ {vendor.viewCount} Views</p>
-                          <p className="hidden md:block">🔗 {vendor.whatsappClicks} Clicks</p>
-                        </td>
-                        <td className="hidden md:table-cell p-4 text-[11px] text-gray-600 space-y-1">
-                          <p><span className="font-black uppercase text-[9px] text-gray-400 mr-1">Pass:</span><span className="font-mono">{vendor.vendorPassword || 'N/A'}</span></p>
-                          <p><span className="font-black uppercase text-[9px] text-gray-400 mr-1">WA:</span>{vendor.storeWhatsappNumber || 'N/A'}</p>
-                        </td>
-                        <td className="hidden md:table-cell p-4">
-                          <button
-                            onClick={() => toggleAdvancedTools(vendor)}
-                            disabled={togglingAdvancedVendorId === vendor.docId}
-                            className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all ${vendor.advancedEnabled ? 'bg-indigo-100 text-indigo-700 hover:bg-indigo-200' : 'bg-gray-100 text-gray-400 hover:bg-gray-200'} disabled:opacity-50`}
-                          >
-                            {togglingAdvancedVendorId === vendor.docId ? '...' : vendor.advancedEnabled ? 'AI Enabled' : 'AI Locked'}
-                          </button>
-                        </td>
-                        <td className="hidden md:table-cell p-4"><span className="bg-gray-100 text-gray-600 px-3 py-1.5 rounded-full text-[11px] font-bold">{vendor.totalProducts} Items</span></td>
-                        <td className="p-4"><Link to={vendor.shareableLink} target="_blank" rel="noopener noreferrer" className="inline-block bg-[#1A1C23] text-white px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-wider hover:bg-black transition-all shadow-sm">Manage</Link></td>
-                        <td className="hidden md:table-cell p-4 pr-6">
-                          <button onClick={() => openChatForVendor(vendor)} className="p-2.5 rounded-xl bg-blue-100 text-blue-600 hover:bg-blue-600 hover:text-white transition-all shadow-sm relative group">
-                            <IoMdChatboxes className="w-5 h-5" />
-                            {allMessages.some(m => m.vendorId === vendor.vendorId && m.sender === 'vendor' && !m.readByAdmin) && (
-                              <span className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full border-2 border-white animate-pulse"></span>
-                            )}
-                          </button>
-                        </td>
+                  <tbody>
+                    {pricingCalculations.map((row, index) => (
+                      <tr key={`${row.__device}-${index + 1}`} className="border-t border-white/10">
+                        <td className="p-2">{row.mappedDevice || row.__device || 'N/A'}</td>
+                        <td className="p-2">{formatNaira(row.companyPrice || 0)}</td>
+                        <td className="p-2">{row.vendorPrice === null ? 'N/A' : formatNaira(row.vendorPrice)}</td>
+                        <td className="p-2">{row.targetPrice === null ? 'N/A' : formatNaira(row.targetPrice)}</td>
+                        <td className="p-2">{row.adjustment === null ? 'N/A' : formatNaira(row.adjustment)}</td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
-                {filteredOffline.length === 0 && <div className="p-20 text-center text-gray-400 font-bold uppercase tracking-widest">No vendors found.</div>}
-                {filteredOffline.length > 0 && (
-                  <div className="flex items-center justify-between px-6 py-4 border-t border-white/20 bg-white/50">
-                    <p className="text-xs font-semibold text-gray-600">Page {currentPage} of {totalPages} • Showing {paginatedOffline.length} of {filteredOffline.length} vendors</p>
-                    <div className="flex gap-2">
-                      <button
-                        type="button"
-                        onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
-                        disabled={currentPage === 1}
-                        className="px-4 py-2 rounded-xl text-xs font-black uppercase border border-white/20 bg-white/80 disabled:opacity-40"
-                      >
-                        Prev
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setCurrentPage((prev) => Math.min(totalPages, prev + 1))}
-                        disabled={currentPage === totalPages}
-                        className="px-4 py-2 rounded-xl text-xs font-black uppercase border border-white/20 bg-white/80 disabled:opacity-40"
-                      >
-                        Next
-                      </button>
-                    </div>
-                  </div>
-                )}
               </div>
-            </>
+            </div>
           )}
         </div>
-      ) : (
-        <Outlet />
-      )}
-
-      {bulkEditOpen && (
-        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
-          <div className="bg-white w-full max-w-lg rounded-2xl shadow-2xl border border-gray-200 overflow-hidden">
-            <div className="p-5 border-b bg-gray-50 flex items-center justify-between">
-              <h3 className="text-lg font-black text-[#1A1C23]">Bulk Edit Products</h3>
-              <button onClick={() => setBulkEditOpen(false)} className="text-gray-400 hover:text-red-500 text-xl">✕</button>
-            </div>
-            <div className="p-5 grid grid-cols-1 gap-3">
-              <input value={bulkCondition} onChange={(e) => setBulkCondition(e.target.value)} placeholder="Condition (e.g. Used)" className="border border-gray-200 rounded-lg px-3 py-2 text-sm" />
-              <input value={bulkCategory} onChange={(e) => setBulkCategory(e.target.value)} placeholder="Category (e.g. Smartphones)" className="border border-gray-200 rounded-lg px-3 py-2 text-sm" />
-              <input value={bulkPrice} onChange={(e) => setBulkPrice(e.target.value)} placeholder="Price (e.g. ₦350,000)" className="border border-gray-200 rounded-lg px-3 py-2 text-sm" />
-            </div>
-            <div className="p-5 border-t bg-gray-50 flex justify-end gap-3">
-              <button onClick={() => setBulkEditOpen(false)} className="px-4 py-2 rounded-lg border border-gray-200 font-bold text-gray-600">Cancel</button>
-              <button onClick={runBulkEdit} disabled={bulkEditLoading} className="px-4 py-2 rounded-lg bg-blue-600 text-white font-black uppercase disabled:opacity-50">
-                {bulkEditLoading ? 'Applying...' : 'Apply Changes'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Global Notification Modal */}
-      {notificationOpen && (
-        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
-          <div className="bg-white rounded-2xl w-full max-w-2xl shadow-2xl border border-gray-200 overflow-hidden animate-in fade-in zoom-in duration-200">
-            <div className="p-5 border-b bg-gray-50 flex justify-between items-center">
-              <h3 className="text-xl font-black text-[#1A1C23]">Vendor Messages</h3>
-              <button onClick={() => setNotificationOpen(false)} className="text-gray-400 hover:text-red-500 font-bold text-xl transition-colors">✕</button>
-            </div>
-            <div className="p-6 max-h-[65vh] overflow-y-auto bg-gray-100 space-y-4">
-              {unreadMessages.length > 0 ? unreadMessages.map((message) => (
-                <div key={message.id} className="border border-blue-100 rounded-xl p-4 bg-white shadow-sm relative overflow-hidden">
-                  <div className="absolute left-0 top-0 bottom-0 w-1 bg-blue-500"></div>
-                  <div className="flex justify-between items-start mb-2">
-                    <p className="text-sm font-black text-[#1A1C23]">{message.vendorId}</p>
-                    <p className="text-[10px] font-bold text-gray-400 uppercase">{formatTimelineDate(message.timestamp)}</p>
-                  </div>
-                  <p className="text-sm text-gray-700 font-medium">{message.text}</p>
-                  <button 
-                    onClick={() => {
-                      setNotificationOpen(false);
-                      const vendor = offlineVendors.find(v => v.vendorId === message.vendorId);
-                      if(vendor) openChatForVendor(vendor);
-                    }} 
-                    className="mt-3 text-xs font-bold text-blue-600 hover:text-blue-800 uppercase tracking-widest"
-                  >
-                    Reply to Vendor &rarr;
-                  </button>
-                </div>
-              )) : (
-                <div className="text-center py-10">
-                  <span className="text-5xl block mb-4 grayscale opacity-50">📭</span>
-                  <p className="text-gray-400 font-bold uppercase tracking-widest">Inbox is zero.</p>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Admin-to-Vendor Chat Modal */}
-      {chatOpen && chatVendor && (
-        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
-          <div className="bg-white rounded-2xl w-full max-w-2xl shadow-2xl border border-gray-200 overflow-hidden flex flex-col h-[50vh] md:h-[600px] animate-in fade-in zoom-in duration-200">
-            <div className="p-5 border-b bg-gray-50 flex justify-between items-center">
-              <div>
-                <h3 className="text-xl font-black text-[#1A1C23]">Chat: {chatVendor.vendorName}</h3>
-                <p className="text-xs font-bold text-gray-400 uppercase tracking-widest mt-1">ID: {chatVendor.vendorId}</p>
-              </div>
-              <button onClick={() => setChatOpen(false)} className="text-gray-400 hover:text-red-500 font-bold text-xl transition-colors">✕</button>
-            </div>
-            <div className="p-5 flex-1 overflow-y-auto bg-gray-100 space-y-4 custom-scrollbar">
-              {chatMessages.length > 0 ? chatMessages.map((message) => {
-                const mine = isAdmin ? message.sender === 'admin' : message.sender === 'vendor';
-                return (
-                  <div key={message.id} className={`flex ${mine ? 'justify-end' : 'justify-start'}`}>
-                    <div className={`max-w-[80%] rounded-2xl px-5 py-3 shadow-sm ${mine ? 'bg-blue-600 text-white rounded-br-none' : 'bg-white border border-gray-200 text-gray-800 rounded-bl-none'}`}>
-                      <p className={`text-[10px] font-black uppercase tracking-widest mb-1 ${mine ? 'text-blue-200' : 'text-gray-400'}`}>{mine ? 'You (Admin)' : chatVendor.vendorName}</p>
-                      <p className="text-sm whitespace-pre-wrap font-medium leading-relaxed">{message.text}</p>
-                      <p className={`text-[9px] font-bold mt-2 ${mine ? 'text-right text-blue-300' : 'text-left text-gray-400'}`}>{formatTimelineDate(message.timestamp)}</p>
-                    </div>
-                  </div>
-                );
-              }) : (
-                 <div className="h-full flex flex-col items-center justify-center text-gray-400">
-                  <span className="text-4xl mb-3">💬</span>
-                  <p className="font-bold text-sm uppercase tracking-widest">Start the conversation</p>
-                </div>
-              )}
-            </div>
-            <div className="p-5 border-t bg-white flex gap-3">
-              <textarea 
-                value={chatInput} 
-                onChange={(e) => setChatInput(e.target.value)} 
-                className="flex-1 border border-gray-200 rounded-xl p-4 text-sm font-medium focus:ring-2 focus:ring-blue-500 outline-none resize-none shadow-sm" 
-                placeholder="Type your reply to the vendor..." 
-                rows={2}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !e.shiftKey) {
-                    e.preventDefault();
-                    sendAdminChat();
-                  }
-                }}
-              />
-              <button 
-                onClick={sendAdminChat} 
-                disabled={sendingChat || !chatInput.trim()} 
-                className="bg-[#1A1C23] text-white px-8 rounded-xl font-black uppercase tracking-wider disabled:opacity-50 hover:bg-black transition-all shadow-md"
-              >
-                {sendingChat ? '...' : 'Send'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      </section>
     </AdminDashboardLayout>
   );
 };
