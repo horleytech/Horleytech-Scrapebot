@@ -186,12 +186,15 @@ const parseMasterDictionaryCsv = (csvText = '') => {
   if (!lines.length) return { dictionary: {}, officialTargets: [] };
 
   const headers = parseCsvLine(lines[0]).map((header) => header.toLowerCase());
-  const rawNameIndex = headers.findIndex((header) => header.includes('raw name'));
-  const standardNameIndex = headers.findIndex((header) => header.includes('standard name'));
-  const deviceTypeIndex = headers.findIndex((header) => header.includes('device type'));
+  const normalizedHeaders = headers.map((header) => normalizeDictionaryKey(header));
+  const findHeaderIndex = (aliases = []) => normalizedHeaders.findIndex((header) => aliases.includes(header));
+
+  const rawNameIndex = findHeaderIndex(['rawname', 'rawdevicename', 'rawmodel', 'rawproduct']);
+  const standardNameIndex = findHeaderIndex(['standardname', 'normalizedname', 'canonicalname', 'mappedname']);
+  const deviceTypeIndex = findHeaderIndex(['devicetype', 'device', 'model', 'productname']);
 
   if (rawNameIndex === -1 || (standardNameIndex === -1 && deviceTypeIndex === -1)) {
-    throw new Error('CSV must include "Raw Name" plus either "Standard Name" or "Device Type" columns.');
+    throw new Error(`CSV must include a "Raw Name" column plus either "Standard Name" or "Device Type". Found headers: ${headers.join(', ') || '(none)'}`);
   }
 
   const dictionary = {};
