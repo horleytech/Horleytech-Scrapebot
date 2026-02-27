@@ -12,6 +12,7 @@ const __dirname = path.dirname(__filename);
 const BACKUP_COLLECTION = 'horleyTech_OfflineInventories';
 const BACKUP_HISTORY_COLLECTION = 'horleyTech_Backups';
 const AUDIT_COLLECTION = 'horleyTech_AuditLogs';
+const BACKUP_CHUNK_SIZE = 20;
 
 const ensureAdminInitialized = () => {
   if (!admin.apps.length) {
@@ -229,7 +230,33 @@ export const runBackup = async () => {
 
     await uploadFileToDrive(localPath, fileName);
 
-    await firestore.collection(BACKUP_HISTORY_COLLECTION).doc(safeTimestamp).set(payload);
+    const backupRef = firestore.collection(BACKUP_HISTORY_COLLECTION).doc(safeTimestamp);
+    const chunkCollection = backupRef.collection('chunks');
+
+    const existingChunks = await chunkCollection.get();
+    if (!existingChunks.empty) {
+      for (let i = 0; i < existingChunks.docs.length; i += 400) {
+        const batch = firestore.batch();
+        existingChunks.docs.slice(i, i + 400).forEach((docSnap) => batch.delete(docSnap.ref));
+        await batch.commit();
+      }
+    }
+
+    for (let i = 0; i < payload.documents.length; i += BACKUP_CHUNK_SIZE) {
+      const chunk = payload.documents.slice(i, i + BACKUP_CHUNK_SIZE);
+      await chunkCollection.doc(`chunk_${String(i / BACKUP_CHUNK_SIZE).padStart(4, '0')}`).set({
+        index: i / BACKUP_CHUNK_SIZE,
+        documents: chunk,
+      });
+    }
+
+    await backupRef.set({
+      createdAt: payload.createdAt,
+      backupId: payload.backupId,
+      collection: payload.collection,
+      totalDocuments: payload.totalDocuments,
+      chunkCount: Math.ceil(payload.documents.length / BACKUP_CHUNK_SIZE),
+    });
 
     console.log(`✅ Backup Successful: ${fileName}`);
 
@@ -249,6 +276,38 @@ export const runBackup = async () => {
       fs.unlinkSync(localPath);
     }
   }
+};
+
+export const getBackupPayloadFromFirestore = async (backupId) => {
+  if (!backupId) throw new Error('backupId is required.');
+
+  const firestore = getAdminFirestore();
+  const backupRef = firestore.collection(BACKUP_HISTORY_COLLECTION).doc(String(backupId));
+  const backupSnap = await backupRef.get();
+
+  if (!backupSnap.exists) {
+    throw new Error('Backup version not found.');
+  }
+
+  const metadata = backupSnap.data() || {};
+  const chunkSnapshot = await backupRef.collection('chunks').orderBy('index', 'asc').get();
+
+  const documents = chunkSnapshot.docs.flatMap((docSnap) => {
+    const chunkData = docSnap.data();
+    return Array.isArray(chunkData?.documents) ? chunkData.documents : [];
+  });
+
+  if (!documents.length && metadata.totalDocuments > 0) {
+    throw new Error('Backup payload is incomplete. Missing chunk documents.');
+  }
+
+  return {
+    backupId: metadata.backupId || String(backupId),
+    createdAt: metadata.createdAt || null,
+    collection: metadata.collection || BACKUP_COLLECTION,
+    totalDocuments: metadata.totalDocuments || documents.length,
+    documents,
+  };
 };
 
 export const initializeBackupJob = () => {

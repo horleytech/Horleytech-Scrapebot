@@ -18,6 +18,7 @@ import {
   listBackupsFromDrive,
   downloadAndRestoreFromDrive,
   restoreInventoryFromBackupPayload,
+  getBackupPayloadFromFirestore,
 } from './backup.js';
 
 dotenv.config();
@@ -85,6 +86,38 @@ const isAdminRequest = (req) => {
   return role === 'Admin';
 };
 
+const AUDIT_TEXT_LIMIT = 2000;
+const AUDIT_ARRAY_LIMIT = 40;
+
+const sanitizeAuditPayload = (value, depth = 0) => {
+  if (value === null || value === undefined) return value;
+  if (depth > 4) return '[truncated-depth]';
+
+  if (typeof value === 'string') {
+    return value.length > AUDIT_TEXT_LIMIT ? `${value.slice(0, AUDIT_TEXT_LIMIT)}...[truncated]` : value;
+  }
+
+  if (typeof value === 'number' || typeof value === 'boolean') return value;
+
+  if (Array.isArray(value)) {
+    const trimmed = value.slice(0, AUDIT_ARRAY_LIMIT).map((item) => sanitizeAuditPayload(item, depth + 1));
+    if (value.length > AUDIT_ARRAY_LIMIT) {
+      trimmed.push(`[truncated ${value.length - AUDIT_ARRAY_LIMIT} more items]`);
+    }
+    return trimmed;
+  }
+
+  if (typeof value === 'object') {
+    const entries = Object.entries(value).slice(0, 80);
+    return entries.reduce((acc, [key, val]) => {
+      acc[key] = sanitizeAuditPayload(val, depth + 1);
+      return acc;
+    }, {});
+  }
+
+  return String(value);
+};
+
 app.use(async (req, res, next) => {
   const method = req.method.toUpperCase();
   if (!['POST', 'PUT', 'DELETE'].includes(method)) {
@@ -129,8 +162,8 @@ app.use(async (req, res, next) => {
         method,
         userRole,
         targetDocId,
-        oldData,
-        newData: req.body || null,
+        oldData: sanitizeAuditPayload(oldData),
+        newData: sanitizeAuditPayload(req.body || null),
       });
     } catch (error) {
       console.error('Audit write failed:', error.message);
@@ -177,14 +210,14 @@ app.get('/api/logs', (req, res) => {
 
 // Admin Audit History Endpoint
 app.get('/api/admin/audit-logs', async (req, res) => {
-  const limit = Number.parseInt(req.query.limit, 10) || 200;
+  const limit = Number.parseInt(req.query.limit, 10) || 500;
 
   try {
     const firestore = getAdminFirestore();
     const snapshot = await firestore
       .collection(AUDIT_COLLECTION)
       .orderBy('timestamp', 'desc')
-      .limit(Math.min(limit, 500))
+.limit(Math.min(limit, 2000))
       .get();
 
     return res.json({
@@ -475,14 +508,7 @@ app.post('/api/backup/restore', async (req, res) => {
   }
 
   try {
-    const firestore = getAdminFirestore();
-
-    const backupDoc = await firestore.collection(BACKUP_COLLECTION).doc(backupId).get();
-    if (!backupDoc.exists) {
-      return res.status(404).json({ success: false, error: 'Backup version not found.' });
-    }
-
-    const payload = backupDoc.data();
+    const payload = await getBackupPayloadFromFirestore(String(backupId));
     const result = await restoreInventoryFromBackupPayload(payload);
 
     return res.json({
@@ -652,7 +678,14 @@ app.post('/process', upload.single('file'), async (req, res) => {
   });
 
   try {
-    const vendorsData = await processChatFile(filePath);
+    const selectedVendorName = String(req.body?.selectedVendorName || '').trim();
+    const selectedVendorId = String(req.body?.selectedVendorId || '').trim();
+
+    const vendorsData = await processChatFile(filePath, {
+      forcedVendorName: selectedVendorName || undefined,
+      forcedVendorId: selectedVendorId || undefined,
+    });
+
     if (vendorsData?.length) {
       await saveVendorsToFirebase(vendorsData);
     }

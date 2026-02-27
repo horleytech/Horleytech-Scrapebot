@@ -215,6 +215,13 @@ const parseMasterDictionaryCsv = (csvText = '') => {
   return { dictionary, officialTargets: Array.from(officialTargetsSet) };
 };
 
+
+const getCsvValueByAliases = (row = {}, aliases = []) => {
+  const normalizedAliases = aliases.map((alias) => normalizeDictionaryKey(alias));
+  const entry = Object.entries(row).find(([key]) => normalizedAliases.includes(normalizeDictionaryKey(key)));
+  return entry ? entry[1] : '';
+};
+
 const smartMapDevice = (rawString, officialTargets = []) => {
   const original = String(rawString || '').trim();
   if (!original) return 'Unknown Device';
@@ -475,7 +482,7 @@ const AdminDashboard = () => {
   const fetchAuditLogs = async () => {
     setLoadingAuditLogs(true);
     try {
-      const response = await fetch(`${BASE_URL}/api/admin/audit-logs`, {
+      const response = await fetch(`${BASE_URL}/api/admin/audit-logs?limit=1000`, {
         headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
       });
       const data = await response.json();
@@ -739,11 +746,9 @@ const AdminDashboard = () => {
       .filter(Boolean);
 
     const rows = [];
-    const sourceRows = globalProductsCacheRows.length
-      ? globalProductsCacheRows
-      : offlineVendors.flatMap((vendor) => (vendor.products || []).map((product, index) => ({ vendor, product, index })));
+    const sourceRows = offlineVendors.flatMap((vendor) => (vendor.products || []).map((product, index) => ({ vendor, product, index })));
 
-    if (globalProductsCacheRows.length) {
+    if (!offlineVendors.length && globalProductsCacheRows.length) {
       globalProductsCacheRows.forEach((row, index) => {
         if (selectedVendorFilter !== 'All' && row.vendorName !== selectedVendorFilter) return;
         if (!isWithinDateRange(row.date, startDate, endDate)) return;
@@ -1218,14 +1223,14 @@ const AdminDashboard = () => {
         setCompanyCsvRows([]);
         return;
       }
-      const headers = parseCsvLine(lines[0]);
+      const headers = parseCsvLine(lines[0]).map((header) => String(header || '').replace(/^﻿/, '').trim());
       const parsedRows = lines.slice(1).map((line) => {
         const values = parseCsvLine(line);
         return headers.reduce((acc, header, index) => {
           acc[header] = values[index] || '';
           return acc;
         }, {});
-      });
+      }).filter((row) => Object.values(row).some((value) => String(value || '').trim()));
       setCompanyCsvRows(parsedRows);
     } catch (error) {
       alert(`❌ ${error.message}`);
@@ -1239,12 +1244,12 @@ const AdminDashboard = () => {
     const vendorRows = normalizedProductRows.filter((row) => row.vendorName === pricingVendor);
 
     return companyCsvRows.reduce((acc, row) => {
-      const companyDevice = row['Device Type'] || row['device type'] || row['Product'] || '';
+      const companyDevice = getCsvValueByAliases(row, ['Device Type', 'device', 'product', 'model']);
       const mappedDevice = smartMapDevice(companyDevice, officialTargets);
-      const condition = standardizeCondition(row.Condition || row.condition || 'Unknown').condition;
-      const storage = row['Storage Capacity/Configuration'] || row.storage || '';
-      const simType = row['SIM Type/Model/Processor'] || row.simType || '';
-      const companyPriceRaw = row['Regular price'] || row['Company Price'] || row.price || '';
+      const condition = standardizeCondition(getCsvValueByAliases(row, ['Condition']) || 'Unknown').condition;
+      const storage = getCsvValueByAliases(row, ['Storage Capacity/Configuration', 'storage', 'configuration']);
+      const simType = getCsvValueByAliases(row, ['SIM Type/Model/Processor', 'sim type', 'model']);
+      const companyPriceRaw = getCsvValueByAliases(row, ['Regular price', 'Company Price', 'price']);
       const companyPrice = parseNairaValue(companyPriceRaw);
 
       const vendorMatch = vendorRows
