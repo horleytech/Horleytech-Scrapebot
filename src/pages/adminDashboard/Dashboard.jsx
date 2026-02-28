@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Outlet, useLocation, Link } from 'react-router-dom';
 import { collection, getDocs, doc, writeBatch, query, orderBy, updateDoc, setDoc, getDoc } from 'firebase/firestore';
 import { IoMdChatboxes } from 'react-icons/io';
@@ -47,7 +47,7 @@ const parseNairaValue = (value) => {
   if (typeof value === 'number' && Number.isFinite(value)) return value;
 
   const original = String(value || '');
-  if (/available/i.test(original)) return 0;
+  if (/available|negotiable/i.test(original)) return 0;
   const groupedNumber = original.match(/(\d{1,3}(?:,\d{3})+)/);
   if (groupedNumber) {
     const parsedGrouped = Number(groupedNumber[1].replace(/,/g, ''));
@@ -374,6 +374,9 @@ const AdminDashboard = () => {
   const [excludedPhrases, setExcludedPhrases] = useState('');
   const [masterDictionary, setMasterDictionary] = useState({});
   const [officialTargets, setOfficialTargets] = useState([]);
+  const [isResolvingAI, setIsResolvingAI] = useState(false);
+  const queueRef = useRef([]);
+  const [bulkMetaDataValue, setBulkMetaDataValue] = useState('Electronics');
   const [globalProductsCacheRows, setGlobalProductsCacheRows] = useState([]);
   const [syncingDictionary, setSyncingDictionary] = useState(false);
   const [companyCsvUrl, setCompanyCsvUrl] = useState(FALLBACK_COMPANY_PRICING_CSV);
@@ -451,6 +454,7 @@ const AdminDashboard = () => {
           advancedEnabled: Boolean(data.advancedEnabled),
           products: data.products || [],
           logs: normalizeLogs(data.logs),
+          metaData: data.metaData || 'Electronics',
         });
       });
 
@@ -671,7 +675,21 @@ const AdminDashboard = () => {
         const cacheRef = doc(db, 'horleyTech_Settings', 'globalProductsCache');
         const snapshot = await getDoc(cacheRef);
         if (!snapshot.exists()) return;
-        const rows = snapshot.data()?.products;
+
+        const metadata = snapshot.data() || {};
+        const totalChunks = Number(metadata.totalChunks || 0);
+
+        if (totalChunks > 0) {
+          const chunkDocs = await Promise.all(
+            Array.from({ length: totalChunks }, (_, index) => getDoc(doc(db, 'horleyTech_Settings', `cache_chunk_${index}`)))
+          );
+          const flattenedRows = chunkDocs.flatMap((chunkSnap) => (Array.isArray(chunkSnap.data()?.products) ? chunkSnap.data().products : []));
+          setGlobalProductsCacheRows(flattenedRows);
+          if (Array.isArray(metadata.officialTargets)) setOfficialTargets(metadata.officialTargets);
+          return;
+        }
+
+        const rows = metadata.products;
         if (Array.isArray(rows)) setGlobalProductsCacheRows(rows);
       } catch (error) {
         console.error('Failed to load global products cache:', error);
@@ -727,11 +745,28 @@ const AdminDashboard = () => {
       });
 
       const cacheRef = doc(db, 'horleyTech_Settings', 'globalProductsCache');
+      const chunkSize = 1500;
+      const chunks = [];
+      for (let i = 0; i < mappedRows.length; i += chunkSize) {
+        chunks.push(mappedRows.slice(i, i + chunkSize));
+      }
+
+      await Promise.all(
+        chunks.map((chunk, index) => setDoc(doc(db, 'horleyTech_Settings', `cache_chunk_${index}`), {
+          products: chunk,
+          chunkIndex: index,
+          syncedAt: new Date().toISOString(),
+        }, { merge: true }))
+      );
+
       await setDoc(cacheRef, {
-        products: mappedRows,
+        cache_metadata: true,
         syncedAt: new Date().toISOString(),
         totalItems: mappedRows.length,
+        totalChunks: chunks.length,
+        officialTargets: parsed.officialTargets,
       }, { merge: true });
+
       setGlobalProductsCacheRows(mappedRows);
 
       alert(`✅ Synced ${Object.keys(parsed.dictionary).length} dictionary mappings and cached ${mappedRows.length} products.`);
@@ -931,6 +966,15 @@ const AdminDashboard = () => {
     const startIndex = (currentPage - 1) * itemsPerPage;
     return filteredOffline.slice(startIndex, startIndex + itemsPerPage);
   }, [filteredOffline, currentPage, itemsPerPage]);
+
+  const groupedPaginatedOffline = useMemo(() => {
+    return paginatedOffline.reduce((acc, vendor) => {
+      const key = vendor.metaData || 'Electronics';
+      if (!acc[key]) acc[key] = [];
+      acc[key].push(vendor);
+      return acc;
+    }, {});
+  }, [paginatedOffline]);
 
   const totalProductPages = Math.max(1, Math.ceil(flattenedVariations.length / itemsPerPage));
 
@@ -1142,6 +1186,28 @@ const AdminDashboard = () => {
     }
   };
 
+  const bulkAssignMetaData = async () => {
+    if (!selectedVendorIds.length) return;
+
+    try {
+      setBulkUpdating(true);
+      const batch = writeBatch(db);
+      selectedVendorIds.forEach((docId) => {
+        batch.update(doc(db, COLLECTIONS.offline, docId), {
+          metaData: bulkMetaDataValue || 'Electronics',
+          lastUpdated: new Date().toISOString(),
+        });
+      });
+      await batch.commit();
+      await fetchInventory();
+      alert('✅ Meta data assigned successfully.');
+    } catch (error) {
+      alert(`❌ ${error.message}`);
+    } finally {
+      setBulkUpdating(false);
+    }
+  };
+
   const bulkUpdateStatus = async (status) => {
     if (!selectedVendorIds.length) {
       alert('Please select at least one vendor first.');
@@ -1185,6 +1251,18 @@ const AdminDashboard = () => {
       alert(`❌ ${error.message}`);
     } finally {
       setManualBackupLoading(false);
+    }
+  };
+
+  const runRetroactiveCleanup = async () => {
+    try {
+      const res = await fetch(`${BASE_URL}/api/admin/retroactive-sweep`, { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || 'Retroactive cleanup failed');
+      alert(`✅ Cleanup finished. Corrected ${data.correctedProducts || 0} products.`);
+      fetchInventory();
+    } catch (error) {
+      alert(`❌ ${error.message}`);
     }
   };
 
@@ -1723,7 +1801,7 @@ const AdminDashboard = () => {
                     <option value="excluded">Excluded</option>
                   </select>
                   <select value={productSortMode} onChange={(e) => setProductSortMode(e.target.value)} className="px-4 py-3 rounded-2xl border border-gray-100 bg-white/80 text-sm outline-none focus:ring-2 focus:ring-gray-300">
-                    <option value="hierarchy">Apple Hierarchy</option>
+                    <option value="hierarchy">Standard Hierarchy</option>
                     <option value="highest_price">Highest Total Price</option>
                     <option value="highest_demand">Highest Demand</option>
                   </select>
@@ -1929,7 +2007,7 @@ const AdminDashboard = () => {
                       <td className="p-4">
                         <div className="flex flex-col items-end">
                           <button onClick={() => restoreBackup(backup.id)} disabled={restoringBackupId === backup.id} className="bg-red-50 text-red-600 px-4 py-2 rounded-lg text-xs font-black uppercase hover:bg-red-600 hover:text-white transition-all disabled:opacity-50">
-                            {restoringBackupId === backup.id ? 'Restoring...' : 'Restore Version'}
+                            {restoringBackupId === backup.id ? 'Restoring...' : 'Safe Restore'}
                           </button>
                           <p className="text-xs text-gray-400 mt-2 text-right">Reverts the selected item or collection to a previous historical state.</p>
                         </div>
@@ -2023,13 +2101,14 @@ const AdminDashboard = () => {
           ) : activeTab === 'maintenance' ? (
             <div className="bg-white border border-gray-200 rounded-2xl p-5 shadow-sm">
               <h2 className="text-xl font-black text-[#1A1C23] mb-2">System Maintenance</h2>
-              <p className="text-sm text-gray-500 mb-4">Restore backup snapshots from local JSON or Google Drive versions.</p>
+              <p className="text-sm text-gray-500 mb-4">Restore backup snapshots from local JSON or Google Drive versions using Safe Restore auto-save.</p>
 
-              <div className="mb-5">
+              <div className="mb-5 flex gap-3 flex-wrap">
                 <label className="inline-flex items-center gap-2 bg-[#1A1C23] text-white px-4 py-2 rounded-lg font-bold text-sm cursor-pointer hover:bg-black">
-                  {uploadRestoreLoading ? 'Uploading...' : 'Upload & Restore from Local JSON'}
+                  {uploadRestoreLoading ? 'Uploading...' : 'Upload & Safe Restore from Local JSON'}
                   <input type="file" accept="application/json,.json" className="hidden" onChange={uploadAndRestoreLocalBackup} disabled={uploadRestoreLoading} />
                 </label>
+                <button onClick={runRetroactiveCleanup} className="bg-emerald-600 text-white px-4 py-2 rounded-lg font-bold text-sm hover:bg-emerald-700">🧹 Run Retroactive Cleanup</button>
               </div>
 
               <div className="border-t pt-4">
@@ -2053,7 +2132,7 @@ const AdminDashboard = () => {
                           disabled={restoringDriveId === file.id}
                           className="bg-red-600 text-white px-4 py-2 rounded-lg text-xs font-black uppercase hover:bg-red-700 disabled:opacity-50"
                         >
-                          {restoringDriveId === file.id ? 'Restoring...' : 'Restore This Version'}
+                          {restoringDriveId === file.id ? 'Restoring...' : 'Safe Restore'}
                         </button>
                       </div>
                     ))}
@@ -2071,9 +2150,11 @@ const AdminDashboard = () => {
                   <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400">🔍</span>
                   <input type="text" placeholder="Search for a WhatsApp Vendor..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full pl-12 pr-4 py-4 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm shadow-sm font-medium" />
                 </div>
-                <div className="flex gap-3">
+                <div className="flex gap-3 flex-wrap items-center">
                   <button onClick={() => bulkUpdateStatus('suspended')} disabled={!selectedVendorIds.length || bulkUpdating} className="bg-red-600 text-white px-6 py-2 rounded-xl text-xs font-black uppercase tracking-wider hover:bg-red-700 disabled:opacity-50 shadow-md transition-all">Suspend</button>
                   <button onClick={() => bulkUpdateStatus('active')} disabled={!selectedVendorIds.length || bulkUpdating} className="bg-emerald-600 text-white px-6 py-2 rounded-xl text-xs font-black uppercase tracking-wider hover:bg-emerald-700 disabled:opacity-50 shadow-md transition-all">Activate</button>
+                  <input value={bulkMetaDataValue} onChange={(e) => setBulkMetaDataValue(e.target.value)} placeholder="Meta Data" className="px-3 py-2 rounded-xl border border-gray-200 bg-white/80 text-xs font-semibold" />
+                  <button onClick={bulkAssignMetaData} disabled={!selectedVendorIds.length || bulkUpdating} className="bg-blue-600 text-white px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider hover:bg-blue-700 disabled:opacity-50 shadow-md transition-all">Assign Meta Data</button>
                   <button onClick={handleExport} className="bg-gray-800 text-white px-6 py-2 rounded-xl text-xs font-black uppercase tracking-wider hover:bg-black shadow-md transition-all">Export</button>
                 </div>
               </div>
@@ -2105,7 +2186,12 @@ const AdminDashboard = () => {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-50">
-                    {paginatedOffline.map(vendor => (
+                    {Object.entries(groupedPaginatedOffline).map(([metaDataGroup, vendors]) => (
+                      <React.Fragment key={metaDataGroup}>
+                        <tr className="bg-gray-50/80">
+                          <td colSpan={9} className="px-6 py-2 text-[11px] font-black uppercase tracking-wider text-gray-500">{metaDataGroup}</td>
+                        </tr>
+                        {vendors.map((vendor) => (
                       <tr key={vendor.docId} className="hover:bg-blue-50/30 transition-colors">
                         <td className="p-4 pl-6"><input type="checkbox" checked={selectedVendorIds.includes(vendor.docId)} onChange={() => toggleVendor(vendor.docId)} className="w-4 h-4 rounded border-gray-300 cursor-pointer" /></td>
                         <td className="p-4 font-bold text-blue-600 hover:text-blue-800"><Link to={vendor.shareableLink} target="_blank" rel="noopener noreferrer">{vendor.vendorName}</Link></td>
@@ -2140,6 +2226,8 @@ const AdminDashboard = () => {
                           </button>
                         </td>
                       </tr>
+                        ))}
+                      </React.Fragment>
                     ))}
                   </tbody>
                 </table>

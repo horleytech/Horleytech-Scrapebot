@@ -10,8 +10,8 @@ import { fileURLToPath } from 'url';
 import OpenAI from 'openai';
 import { processChatFile } from './fileProcessor.js';
 import { saveVendorsToFirebase } from './dataProcessor.js';
+import { initializeCronTasks, runRetroactiveSweep } from './cronTasks.js';
 import {
-  initializeBackupJob,
   initializeSystemCollections,
   runBackup,
   getAdminFirestore,
@@ -63,8 +63,8 @@ const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const CATS = "'Smartphones', 'Smartwatches', 'Laptops', 'Sounds', 'Accessories', 'Tablets', 'Gaming', 'Others'";
 
 // Initialize infrastructure
-initializeBackupJob();
 initializeSystemCollections();
+initializeCronTasks();
 
 
 const resolveUserRole = (req) => {
@@ -499,6 +499,17 @@ app.post('/api/backup/upload-restore', upload.single('file'), async (req, res) =
   }
 });
 
+// Manual Retroactive Sweeper Trigger
+app.post('/api/admin/retroactive-sweep', async (_req, res) => {
+  try {
+    const result = await runRetroactiveSweep();
+    return res.json(result);
+  } catch (error) {
+    console.error('❌ Retroactive sweep error:', error);
+    return res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 // Admin Database Restore Endpoint
 app.post('/api/backup/restore', async (req, res) => {
   const { backupId } = req.body || {};
@@ -508,6 +519,12 @@ app.post('/api/backup/restore', async (req, res) => {
   }
 
   try {
+    const autoSaveResult = await runBackup();
+
+    if (!autoSaveResult?.success) {
+      throw new Error(autoSaveResult?.error || 'Auto-save backup failed before restore.');
+    }
+
     const payload = await getBackupPayloadFromFirestore(String(backupId));
     const result = await restoreInventoryFromBackupPayload(payload);
 
@@ -515,6 +532,7 @@ app.post('/api/backup/restore', async (req, res) => {
       success: true,
       restoredDocuments: result.restoredDocuments,
       backupId,
+      autoSaveBackupId: autoSaveResult.backupId,
     });
   } catch (error) {
     console.error('❌ Restore error:', error);

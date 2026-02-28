@@ -33,6 +33,21 @@ const downloadCsv = (filename, rows) => {
   document.body.removeChild(link);
 };
 
+
+const normalizePriceInput = (value) => {
+  const raw = String(value || '').trim();
+  if (!raw) return '0';
+  if (/available|negotiable/i.test(raw)) return '0';
+  return raw;
+};
+
+const parsePriceValue = (value) => {
+  const normalized = normalizePriceInput(value);
+  const digits = normalized.replace(/[^0-9.]/g, '');
+  const parsed = Number(digits);
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
 // Log Helpers
 const normalizeLogs = (logs) => ({
   admin: Array.isArray(logs?.admin) ? logs.admin : [],
@@ -310,6 +325,59 @@ const VendorPage = () => {
   }, [products, dateFilter, categoryFilter, groupFilter, allowedGroups]);
 
   const allVisibleRowsSelected = displayData.length > 0 && displayData.every(({ index }) => selectedProductIndexes.includes(index));
+
+  const marketTrend = useMemo(() => {
+    const now = Date.now();
+    const thisWeek = [];
+    const lastWeek = [];
+
+    displayData.forEach(({ product }) => {
+      const postedAt = new Date(product.DatePosted || product.lastUpdated || 0).getTime();
+      if (!postedAt) return;
+      const ageDays = (now - postedAt) / (1000 * 60 * 60 * 24);
+      const price = parsePriceValue(product['Regular price']);
+      if (ageDays <= 7) thisWeek.push(price);
+      if (ageDays > 7 && ageDays <= 14) lastWeek.push(price);
+    });
+
+    const avg = (arr) => (arr.length ? arr.reduce((sum, item) => sum + item, 0) / arr.length : 0);
+    const thisWeekAvg = avg(thisWeek);
+    const lastWeekAvg = avg(lastWeek);
+    const direction = thisWeekAvg >= lastWeekAvg ? 'up' : 'down';
+
+    return { thisWeekAvg, lastWeekAvg, direction };
+  }, [displayData]);
+
+  const storefrontProducts = useMemo(
+    () => displayData.map(({ product }) => product).filter((product) => product.isVisible !== false),
+    [displayData]
+  );
+
+  const exportLines = useMemo(() => {
+    const grouped = {};
+
+    storefrontProducts.forEach((product) => {
+      const category = product.Category || 'Others';
+      const brand = product.Brand || 'Others';
+      const device = product['Device Type'] || 'Unknown Device';
+      if (!grouped[category]) grouped[category] = {};
+      if (!grouped[category][brand]) grouped[category][brand] = [];
+      grouped[category][brand].push({ device, price: normalizePriceInput(product['Regular price']) });
+    });
+
+    const lines = [];
+    Object.entries(grouped).forEach(([category, brands]) => {
+      lines.push(`*${category}*`);
+      Object.entries(brands).forEach(([brand, devices]) => {
+        lines.push(`  ${brand}`);
+        devices.forEach((row) => lines.push(`    ${row.device} - ${row.price}`));
+      });
+      lines.push('');
+    });
+
+    return lines;
+  }, [storefrontProducts]);
+
 
   const handleVendorPasswordSubmit = () => {
     if (!vendorData?.vendorPassword) {
@@ -701,7 +769,7 @@ const VendorPage = () => {
     setEditSpecification(specification);
     setEditStorage(storage);
     setEditCondition(product.Condition || '');
-    setEditPrice(product['Regular price'] || '');
+    setEditPrice(normalizePriceInput(product['Regular price'] || '0'));
   };
 
   const closeEditModal = () => {
@@ -725,7 +793,7 @@ const VendorPage = () => {
         ...product,
         'Device Type': editDeviceType.trim(),
         Condition: editCondition.trim(),
-        'Regular price': editPrice.trim(),
+        'Regular price': normalizePriceInput(editPrice),
         ...parsed,
       };
     });
@@ -1003,6 +1071,23 @@ const VendorPage = () => {
             <button onClick={handleExport} className="bg-green-600 text-white px-6 py-3 rounded-[10px] shadow-md hover:bg-green-700 font-bold transition-all">Export CSV</button>
           </div>
 
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
+            <div className="bg-white/70 backdrop-blur-xl border border-gray-100 rounded-2xl p-4">
+              <p className="text-xs font-black uppercase tracking-wider text-gray-500 mb-2">Market Trend</p>
+              <p className={`text-lg font-black ${marketTrend.direction === 'up' ? 'text-emerald-600' : 'text-red-600'}`}>{marketTrend.direction === 'up' ? '↗ Prices Up' : '↘ Prices Down'}</p>
+              <p className="text-sm text-gray-600 mt-1">Last Week Avg: {Math.round(marketTrend.lastWeekAvg).toLocaleString()} • This Week Avg: {Math.round(marketTrend.thisWeekAvg).toLocaleString()}</p>
+            </div>
+            <div className="bg-white/70 backdrop-blur-xl border border-gray-100 rounded-2xl p-4">
+              <p className="text-xs font-black uppercase tracking-wider text-gray-500 mb-3">Export My Pricelist</p>
+              <div className="flex gap-2 flex-wrap">
+                <button onClick={async () => { await navigator.clipboard.writeText(exportLines.join('\n')); alert('✅ Pricelist copied for WhatsApp.'); }} className="bg-[#1A1C23] text-white px-3 py-2 rounded-lg text-xs font-black uppercase">Copy for WhatsApp</button>
+                <button onClick={() => { const blob = new Blob([exportLines.join('\n')], { type: 'text/plain' }); const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `${vendorData.vendorName || 'vendor'}-pricelist.txt`; a.click(); }} className="bg-blue-600 text-white px-3 py-2 rounded-lg text-xs font-black uppercase">Download TXT</button>
+                <button onClick={() => downloadCsv(`${vendorData.vendorName || 'vendor'}-pricelist.csv`, storefrontProducts.map((product) => ({ Category: product.Category || 'Others', Brand: product.Brand || 'Others', Device: product['Device Type'] || '', Price: normalizePriceInput(product['Regular price']) })))} className="bg-emerald-600 text-white px-3 py-2 rounded-lg text-xs font-black uppercase">Download CSV</button>
+              </div>
+            </div>
+          </div>
+
           {/* Filters */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6 bg-white p-5 rounded-[12px] border border-gray-200 shadow-sm">
             <div>
@@ -1061,7 +1146,7 @@ const VendorPage = () => {
                     <td className="hidden md:table-cell p-4"><span className={`text-xs font-bold px-2 py-1 rounded ${product.Condition?.toLowerCase().includes('new') ? 'bg-blue-100 text-blue-700' : 'bg-orange-100 text-orange-700'}`}>{product.Condition || 'N/A'}</span></td>
                     <td className="hidden md:table-cell p-4 text-sm text-gray-600">{product['SIM Type/Model/Processor'] || 'N/A'}</td>
                     <td className="hidden md:table-cell p-4 text-sm font-semibold text-gray-700">{product['Storage Capacity/Configuration'] || 'N/A'}</td>
-                    <td className="p-4 font-black text-green-700 text-lg">{product['Regular price'] || 'N/A'}</td>
+                    <td className="p-4 font-black text-green-700 text-lg">{normalizePriceInput(product['Regular price'] || '0')}</td>
                     <td className="p-4"><span className={`px-2 py-1 rounded text-[10px] font-black uppercase ${product.isVisible === false ? 'bg-gray-200 text-gray-500' : 'bg-emerald-100 text-emerald-700'}`}>{product.isVisible === false ? 'Hidden' : 'Visible'}</span></td>
                     <td className="hidden md:table-cell p-4 text-[11px] text-gray-400 font-medium">{product.DatePosted || 'N/A'}</td>
                     <td className="p-4">
