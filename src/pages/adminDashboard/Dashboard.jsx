@@ -1335,10 +1335,41 @@ const AdminDashboard = () => {
     }
   };
 
+  const cleanInvalidMappings = async () => {
+    try {
+      const mappingRef = doc(db, 'horleyTech_Settings', 'customMappings');
+      const mappingSnap = await getDoc(mappingRef);
+      const mappings = mappingSnap.exists() ? (mappingSnap.data()?.mappings || {}) : {};
+      const cleanedMappings = {};
+
+      Object.entries(mappings).forEach(([key, value]) => {
+        if (!value || typeof value !== 'object') return;
+        const condition = value.condition || 'Unknown';
+        const deviceType = value.deviceType || value.standardName || 'Unknown Device';
+        if (condition === 'Unknown' || deviceType === 'Unknown Device') return;
+        cleanedMappings[key] = value;
+      });
+
+      await setDoc(mappingRef, {
+        mappings: cleanedMappings,
+        updatedAt: new Date().toISOString(),
+      });
+
+      setMasterDictionary(cleanedMappings);
+      localStorage.setItem(MASTER_DICTIONARY_STORAGE_KEY, JSON.stringify({
+        dictionary: cleanedMappings,
+        officialTargets,
+      }));
+      alert('✅ Cleaned invalid AI mappings.');
+    } catch (error) {
+      alert(`❌ ${error.message}`);
+    }
+  };
+
   const pricingResults = useMemo(() => {
     const margin = Number(marginValue) || 0;
     const vendorRows = normalizedProductRows.filter((row) => row.vendorName === pricingVendor);
-    return companyCsvRows.reduce((acc, row) => {
+    return companyCsvRows.map((row) => {
       const companyDevice = getCsvValueByAliases(row, ['Device Type', 'device', 'product', 'model']);
       const companyCondition = getCsvValueByAliases(row, ['Condition']) || 'Unknown';
       const companySim = getCsvValueByAliases(row, ['SIM Type/Model/Processor', 'sim type', 'model']);
@@ -1357,12 +1388,17 @@ const AdminDashboard = () => {
         .find((item) => (!storage || item.storage === storage)
           && (!requiresSimMatch || item.simType === simType)
           && (!requiresConditionMatch || item.condition === condition));
-      if (!vendorMatch) return acc;
-      const vendorPrice = vendorMatch.priceValue;
-      const target = marginType === 'percentage' ? Math.round(vendorPrice * (1 + (margin / 100))) : vendorPrice + margin;
-      const adjustment = target - companyPrice;
-      const adjustmentPercent = companyPrice > 0 ? Math.round((adjustment / companyPrice) * 100) : 0;
-      acc.push({
+
+      const hasVendorMatch = Boolean(vendorMatch);
+      const shouldCalculate = pricingVendor !== 'All' && hasVendorMatch;
+      const vendorPrice = shouldCalculate ? vendorMatch.priceValue : 0;
+      const target = shouldCalculate
+        ? (marginType === 'percentage' ? Math.round(vendorPrice * (1 + (margin / 100))) : vendorPrice + margin)
+        : 0;
+      const adjustment = shouldCalculate ? (target - companyPrice) : 0;
+      const adjustmentPercent = shouldCalculate && companyPrice > 0 ? Math.round((adjustment / companyPrice) * 100) : 0;
+
+      return {
         ...row,
         mappedDevice,
         companyPrice,
@@ -1370,9 +1406,9 @@ const AdminDashboard = () => {
         target,
         adjustment,
         adjustmentPercent,
-      });
-      return acc;
-    }, []);
+        hasVendorMatch,
+      };
+    });
   }, [companyCsvRows, pricingVendor, marginType, marginValue, normalizedProductRows, officialTargets]);
   const exportPricingTxt = () => {
     const lines = pricingResults
@@ -1407,6 +1443,12 @@ const AdminDashboard = () => {
     setSavedPricingSessions(updated);
     localStorage.setItem('admin-pricing-sessions-v1', JSON.stringify(updated));
     alert('✅ Pricing session saved.');
+  };
+
+  const deletePricingSession = (sessionId) => {
+    const updated = savedPricingSessions.filter((session) => session.id !== sessionId);
+    setSavedPricingSessions(updated);
+    localStorage.setItem('admin-pricing-sessions-v1', JSON.stringify(updated));
   };
 
   const openChatForVendor = async (vendor) => {
@@ -1835,6 +1877,7 @@ const AdminDashboard = () => {
                 <div className="flex items-center gap-2">
                   <button type="button" onClick={syncMasterDictionary} disabled={syncingDictionary} className="px-4 py-2.5 rounded-2xl text-xs font-black uppercase tracking-wider border border-gray-100 bg-white/80 hover:bg-white disabled:opacity-50">{syncingDictionary ? 'Syncing...' : 'Sync Master Dictionary'}</button>
                   <button type="button" onClick={runTwoLayerAIJudge} disabled={Boolean(isResolvingAI)} className="px-4 py-2.5 rounded-2xl text-xs font-black uppercase tracking-wider border border-gray-100 bg-white/80 hover:bg-white disabled:opacity-50">{isResolvingAI ? (typeof isResolvingAI === 'string' ? isResolvingAI : 'Judging...') : 'Run Two-Layer AI Judge'}</button>
+                  <button type="button" onClick={cleanInvalidMappings} className="px-4 py-2.5 rounded-2xl text-xs font-black uppercase tracking-wider border border-red-200 text-red-700 bg-red-50 hover:bg-red-100">🧹 Clear Junk AI Cache</button>
                 </div>
               </div>
               <div className="space-y-3">
@@ -1998,10 +2041,10 @@ const AdminDashboard = () => {
                         <td className="px-3 py-2">{row['SIM Type/Model/Processor'] || row.sim || 'Unknown'}</td>
                         <td className="px-3 py-2">{row['Storage Capacity/Configuration'] || row.storage || 'N/A'}</td>
                         <td className="px-3 py-2">{formatNaira(row.companyPrice)}</td>
-                        <td className="px-3 py-2">{formatNaira(row.vendorPrice)}</td>
-                        <td className="px-3 py-2">{formatNaira(row.target)}</td>
-                        <td className="px-3 py-2">{formatNaira(row.adjustment)}</td>
-                        <td className="px-3 py-2">{row.adjustmentPercent}%</td>
+                        <td className="px-3 py-2">{row.hasVendorMatch ? formatNaira(row.vendorPrice) : 'N/A'}</td>
+                        <td className="px-3 py-2">{row.hasVendorMatch ? formatNaira(row.target) : 'N/A'}</td>
+                        <td className="px-3 py-2">{row.hasVendorMatch ? formatNaira(row.adjustment) : 'N/A'}</td>
+                        <td className="px-3 py-2">{row.hasVendorMatch ? `${row.adjustmentPercent}%` : 'N/A'}</td>
                       </tr>
                     ))}
                     {!pricingResults.length && (
@@ -2020,6 +2063,7 @@ const AdminDashboard = () => {
                           <p className="text-sm font-bold text-gray-800">{session.pricingVendor || 'All Vendors'} • {session.marginType} {session.marginValue}</p>
                           <p className="text-xs text-gray-500">{new Date(session.createdAt).toLocaleString()} • {session.rows?.length || 0} rows</p>
                         </div>
+                        <button type="button" onClick={() => deletePricingSession(session.id)} className="text-xs font-black uppercase tracking-wider px-2.5 py-1.5 rounded-lg border border-red-200 bg-red-50 text-red-600 hover:bg-red-100">Delete</button>
                       </div>
                     ))}
                   </div>
