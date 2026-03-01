@@ -394,11 +394,11 @@ const AdminDashboard = () => {
   const [excludedPhrases, setExcludedPhrases] = useState('');
   const [masterDictionary, setMasterDictionary] = useState({});
   const [officialTargets, setOfficialTargets] = useState([]);
-  const [isResolvingAI, setIsResolvingAI] = useState(false);
   const queueRef = useRef([]);
   const [bulkMetaDataValue, setBulkMetaDataValue] = useState('Electronics');
   const [globalProductsCacheRows, setGlobalProductsCacheRows] = useState([]);
   const [syncingDictionary, setSyncingDictionary] = useState(false);
+  const [syncProgress, setSyncProgress] = useState('');
   const [companyCsvUrl, setCompanyCsvUrl] = useState(FALLBACK_COMPANY_PRICING_CSV);
   const [loadingCompanyCsv, setLoadingCompanyCsv] = useState(false);
   const [companyCsvRows, setCompanyCsvRows] = useState([]);
@@ -668,6 +668,23 @@ const AdminDashboard = () => {
     }
   }, []);
   useEffect(() => {
+    const loadAdminPreferences = async () => {
+      try {
+        const preferencesRef = doc(db, 'horleyTech_Settings', 'adminPreferences');
+        const preferencesSnap = await getDoc(preferencesRef);
+        if (!preferencesSnap.exists()) {
+          setExcludedPhrases('');
+          return;
+        }
+        const preferencesData = preferencesSnap.data() || {};
+        setExcludedPhrases(String(preferencesData.excludedPhrases || ''));
+      } catch (error) {
+        console.error('Failed to load admin preferences:', error);
+      }
+    };
+    loadAdminPreferences();
+  }, []);
+  useEffect(() => {
     try {
       const saved = JSON.parse(localStorage.getItem('admin-pricing-sessions-v1') || '[]');
       if (Array.isArray(saved)) setSavedPricingSessions(saved);
@@ -709,23 +726,44 @@ const AdminDashboard = () => {
     };
     loadGlobalCache();
   }, []);
-  const syncMasterDictionary = async () => {
+
+  const saveExcludedPhrasesFilter = async () => {
+    try {
+      await setDoc(doc(db, 'horleyTech_Settings', 'adminPreferences'), {
+        excludedPhrases: String(excludedPhrases || ''),
+        updatedAt: new Date().toISOString(),
+      }, { merge: true });
+      alert('✅ Excluded phrases filter saved.');
+    } catch (error) {
+      alert(`❌ Failed to save filter: ${error.message}`);
+    }
+  };
+
+  const runMasterAutoSync = async () => {
     const csvUrl = normalizeGoogleSheetCsvUrl(import.meta.env.VITE_MASTER_DICTIONARY_CSV || FALLBACK_MASTER_DICTIONARY_CSV);
     setSyncingDictionary(true);
+    setSyncProgress('Syncing master dictionary...');
     try {
       const response = await fetch(csvUrl, { headers: { Accept: 'text/csv,text/plain,*/*' } });
       if (!response.ok) throw new Error(`Unable to fetch CSV (${response.status})`);
       const csvText = await response.text();
       const parsed = parseMasterDictionaryCsv(csvText);
-      setMasterDictionary(parsed.dictionary);
+      const baseDictionary = { ...masterDictionary, ...parsed.dictionary };
+      setMasterDictionary(baseDictionary);
       setOfficialTargets(parsed.officialTargets);
-      localStorage.setItem(MASTER_DICTIONARY_STORAGE_KEY, JSON.stringify(parsed));
-      const mappedRows = [];
+      localStorage.setItem(MASTER_DICTIONARY_STORAGE_KEY, JSON.stringify({
+        dictionary: baseDictionary,
+        officialTargets: parsed.officialTargets,
+      }));
+
+      setSyncProgress('Mapping offline vendor inventory...');
+      const initiallyMappedRows = [];
+      const uncleanCandidates = new Set();
       offlineVendors.forEach((vendor) => {
         (vendor.products || []).forEach((product, index) => {
           const rawDeviceType = (product['Device Type'] || 'Unknown Device').trim() || 'Unknown Device';
           const rawDescriptor = `${rawDeviceType} ${product.Condition || ''} ${product['SIM Type/Model/Processor'] || ''}`.trim();
-          const mappedResult = smartMapDevice(rawDescriptor, parsed.officialTargets, parsed.dictionary);
+          const mappedResult = smartMapDevice(rawDescriptor, parsed.officialTargets, baseDictionary);
           const smartMappedDeviceType = mappedResult.standardName;
           const productDate = product.DatePosted || vendor.lastUpdated;
           const category = (product.Category || 'Others').trim() || 'Others';
@@ -733,7 +771,10 @@ const AdminDashboard = () => {
           const cleanStatus = rawCondition === 'Unknown' ? 'unclean' : 'clean';
           const normalizedSim = mappedResult.sim;
           const storage = (product['Storage Capacity/Configuration'] || 'N/A').trim() || 'N/A';
-          mappedRows.push({
+          if (rawCondition === 'Unknown' || smartMappedDeviceType === 'Unknown Device') {
+            uncleanCandidates.add(rawDescriptor);
+          }
+          initiallyMappedRows.push({
             id: `${vendor.docId}-${index}-${smartMappedDeviceType}`,
             raw: rawDescriptor,
             vendorName: vendor.vendorName,
@@ -752,12 +793,84 @@ const AdminDashboard = () => {
           });
         });
       });
+
+      const candidates = Array.from(uncleanCandidates);
+      const newAiMappings = {};
+      if (candidates.length) {
+        setSyncProgress(`AI Judging 0 / ${candidates.length}`);
+        const aiBatchSize = 20;
+        let aiProcessed = 0;
+        for (let i = 0; i < candidates.length; i += aiBatchSize) {
+          const chunk = candidates.slice(i, i + aiBatchSize);
+          try {
+            const aiResponse = await fetch(`${BASE_URL}/api/admin/extract-detailed-schema`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', Accept: 'application/json', 'x-user-role': 'admin' },
+              body: JSON.stringify({ rows: chunk }),
+            });
+            const parsedPayload = await parseApiJsonSafe(aiResponse);
+            if (!aiResponse.ok) {
+              throw new Error(parsedPayload?.error || parsedPayload?.message || `AI judge failed (${aiResponse.status})`);
+            }
+            const aiData = Array.isArray(parsedPayload?.data) ? parsedPayload.data : [];
+            aiData.forEach((item) => {
+              const raw = String(item?.raw || '').trim();
+              if (!raw) return;
+              const key = normalizeDictionaryKey(raw);
+              newAiMappings[key] = {
+                standardName: item.deviceType || 'Unknown Device',
+                condition: item.condition || 'Unknown',
+                sim: item.sim || 'Unknown',
+                isOthers: Boolean(item.isOthers),
+                category: item.category || 'Others',
+                brand: item.brand || 'Others',
+                series: item.series || 'Others',
+                deviceType: item.deviceType || 'Unknown Device',
+              };
+            });
+          } catch (error) {
+            console.error(`AI judge batch failed (${i} - ${i + chunk.length}):`, error);
+          } finally {
+            aiProcessed += chunk.length;
+            setSyncProgress(`AI Judging ${Math.min(aiProcessed, candidates.length)} / ${candidates.length}`);
+          }
+        }
+      }
+
+      const finalDictionary = { ...baseDictionary, ...newAiMappings };
+      setMasterDictionary(finalDictionary);
+      localStorage.setItem(MASTER_DICTIONARY_STORAGE_KEY, JSON.stringify({
+        dictionary: finalDictionary,
+        officialTargets: parsed.officialTargets,
+      }));
+
+      setSyncProgress('Re-mapping inventory with AI improvements...');
+      const finalMappedRows = initiallyMappedRows.map((row, index) => {
+        const baseMapped = smartMapDevice(row.raw, parsed.officialTargets, finalDictionary);
+        if (row.condition !== 'Unknown' && row.deviceType !== 'Unknown Device') {
+          return row;
+        }
+        const remappedDeviceType = baseMapped.standardName;
+        const remappedCondition = baseMapped.condition;
+        return {
+          ...row,
+          id: `${row.vendorName}-${index}-${remappedDeviceType}`,
+          brandSubCategory: inferBrandSubCategory(remappedDeviceType),
+          series: inferSeries(remappedDeviceType),
+          deviceType: remappedDeviceType,
+          condition: remappedCondition,
+          cleanStatus: remappedCondition === 'Unknown' ? 'unclean' : 'clean',
+          simType: baseMapped.sim,
+        };
+      });
+
       const cacheRef = doc(db, 'horleyTech_Settings', 'globalProductsCache');
       const chunkSize = 1500;
       const chunks = [];
-      for (let i = 0; i < mappedRows.length; i += chunkSize) {
-        chunks.push(mappedRows.slice(i, i + chunkSize));
+      for (let i = 0; i < finalMappedRows.length; i += chunkSize) {
+        chunks.push(finalMappedRows.slice(i, i + chunkSize));
       }
+      setSyncProgress(`Caching ${finalMappedRows.length} products in ${chunks.length} chunks...`);
       await Promise.all(
         chunks.map((chunk, index) => setDoc(doc(db, 'horleyTech_Settings', `cache_chunk_${index}`), {
           products: chunk,
@@ -768,16 +881,22 @@ const AdminDashboard = () => {
       await setDoc(cacheRef, {
         cache_metadata: true,
         syncedAt: new Date().toISOString(),
-        totalItems: mappedRows.length,
+        totalItems: finalMappedRows.length,
         totalChunks: chunks.length,
         officialTargets: parsed.officialTargets,
       }, { merge: true });
-      setGlobalProductsCacheRows(mappedRows);
-      alert(`✅ Synced ${Object.keys(parsed.dictionary).length} dictionary mappings and cached ${mappedRows.length} products.`);
+      await setDoc(doc(db, 'horleyTech_Settings', 'customMappings'), {
+        mappings: newAiMappings,
+        updatedAt: new Date().toISOString(),
+      }, { merge: true });
+      setGlobalProductsCacheRows(finalMappedRows);
+      setSyncProgress('');
+      alert(`✅ Master Sync complete. Dictionary: ${Object.keys(finalDictionary).length} mappings. Cached ${finalMappedRows.length} products.`);
     } catch (error) {
       console.error('Master dictionary sync failed:', error);
       alert(`❌ Failed to sync dictionary: ${error.message}`);
     } finally {
+      setSyncProgress('');
       setSyncingDictionary(false);
     }
   };
@@ -1237,101 +1356,6 @@ const AdminDashboard = () => {
       setCompanyCsvRows([]);
     } finally {
       setLoadingCompanyCsv(false);
-    }
-  };
-
-  const runTwoLayerAIJudge = async () => {
-    const candidateSet = new Set();
-    offlineVendors.forEach((vendor) => {
-      (vendor.products || []).forEach((product) => {
-        const rawDeviceType = (product['Device Type'] || 'Unknown Device').trim() || 'Unknown Device';
-        const rawDescriptor = `${rawDeviceType} ${product.Condition || ''} ${product['SIM Type/Model/Processor'] || ''}`.trim();
-        if (!rawDescriptor) return;
-        const mappingKey = normalizeDictionaryKey(rawDescriptor);
-        const mapped = masterDictionary[mappingKey];
-        const inferredDeviceType = mapped?.standardName || rawDeviceType;
-        const inferredCondition = mapped?.condition || 'Unknown';
-        const cleanStatus = inferredCondition === 'Unknown' ? 'unclean' : 'clean';
-        if (inferredDeviceType === 'Unknown Device' || cleanStatus === 'unclean') {
-          candidateSet.add(rawDescriptor);
-        }
-      });
-    });
-
-    const candidates = Array.from(candidateSet);
-    if (!candidates.length) {
-      alert('No unclean rows detected for AI judge.');
-      return;
-    }
-
-    setIsResolvingAI(`Judging 0 / ${candidates.length}`);
-    try {
-      const mergedMappings = {};
-      const chunkSize = 50;
-      let processed = 0;
-      let hadFailure = false;
-
-      for (let i = 0; i < candidates.length; i += chunkSize) {
-        const chunk = candidates.slice(i, i + chunkSize);
-
-        try {
-          const response = await fetch(`${BASE_URL}/api/admin/extract-detailed-schema`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', Accept: 'application/json', 'x-user-role': 'admin' },
-            body: JSON.stringify({ rows: chunk }),
-          });
-          const parsedPayload = await parseApiJsonSafe(response);
-          const data = Array.isArray(parsedPayload?.data) ? parsedPayload.data : [];
-
-          if (!response.ok) {
-            throw new Error(parsedPayload?.error || parsedPayload?.message || `AI judge failed (${response.status})`);
-          }
-
-          data.forEach((item) => {
-            const raw = String(item?.raw || '').trim();
-            if (!raw) return;
-            const key = normalizeDictionaryKey(raw);
-            mergedMappings[key] = {
-              standardName: item.deviceType || 'Unknown Device',
-              condition: item.condition || 'Unknown',
-              sim: item.sim || 'Unknown',
-              isOthers: Boolean(item.isOthers),
-              category: item.category || 'Others',
-              brand: item.brand || 'Others',
-              series: item.series || 'Others',
-              deviceType: item.deviceType || 'Unknown Device',
-            };
-          });
-        } catch (error) {
-          hadFailure = true;
-          alert(`❌ AI Judge stopped at ${processed}/${candidates.length}: ${error.message}`);
-          break;
-        }
-
-        processed += chunk.length;
-        setIsResolvingAI(`Judging ${processed} / ${candidates.length}`);
-      }
-
-      if (Object.keys(mergedMappings).length) {
-        const updatedDictionary = { ...masterDictionary, ...mergedMappings };
-        setMasterDictionary(updatedDictionary);
-        localStorage.setItem(MASTER_DICTIONARY_STORAGE_KEY, JSON.stringify({
-          dictionary: updatedDictionary,
-          officialTargets,
-        }));
-        await setDoc(doc(db, 'horleyTech_Settings', 'customMappings'), {
-          mappings: mergedMappings,
-          updatedAt: new Date().toISOString(),
-        }, { merge: true });
-      }
-
-      if (!hadFailure) {
-        alert(`✅ Two-Layer AI Judge processed ${candidates.length} descriptors.`);
-      }
-    } catch (error) {
-      alert(`❌ ${error.message}`);
-    } finally {
-      setIsResolvingAI(false);
     }
   };
 
@@ -1860,13 +1884,16 @@ const AdminDashboard = () => {
                 </div>
               </div>
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 mb-5">
-                <input
-                  type="text"
-                  value={excludedPhrases}
-                  onChange={(e) => setExcludedPhrases(e.target.value)}
-                  placeholder="Phrases to Exclude (comma separated)"
-                  className="lg:col-span-2 px-4 py-3 rounded-2xl border border-gray-100 bg-white/80 text-sm outline-none focus:ring-2 focus:ring-gray-300"
-                />
+                <div className="lg:col-span-2 flex gap-2">
+                  <input
+                    type="text"
+                    value={excludedPhrases}
+                    onChange={(e) => setExcludedPhrases(e.target.value)}
+                    placeholder="Phrases to Exclude (comma separated)"
+                    className="flex-1 px-4 py-3 rounded-2xl border border-gray-100 bg-white/80 text-sm outline-none focus:ring-2 focus:ring-gray-300"
+                  />
+                  <button type="button" onClick={saveExcludedPhrasesFilter} className="px-3 py-2 rounded-2xl text-[11px] font-black uppercase tracking-wider border border-gray-100 bg-white/80 hover:bg-white whitespace-nowrap">Save Filter</button>
+                </div>
                 <div className="grid grid-cols-2 gap-3">
                   <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="px-4 py-3 rounded-2xl border border-gray-100 bg-white/80 text-sm outline-none focus:ring-2 focus:ring-gray-300" />
                   <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="px-4 py-3 rounded-2xl border border-gray-100 bg-white/80 text-sm outline-none focus:ring-2 focus:ring-gray-300" />
@@ -1875,8 +1902,7 @@ const AdminDashboard = () => {
               <div className="mb-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 bg-white/70 backdrop-blur-xl rounded-2xl border border-gray-100 shadow-sm p-4">
                 <p className="text-xs font-bold uppercase tracking-wider text-gray-500">Dictionary Mappings: {Object.keys(masterDictionary).length}</p>
                 <div className="flex items-center gap-2">
-                  <button type="button" onClick={syncMasterDictionary} disabled={syncingDictionary} className="px-4 py-2.5 rounded-2xl text-xs font-black uppercase tracking-wider border border-gray-100 bg-white/80 hover:bg-white disabled:opacity-50">{syncingDictionary ? 'Syncing...' : 'Sync Master Dictionary'}</button>
-                  <button type="button" onClick={runTwoLayerAIJudge} disabled={Boolean(isResolvingAI)} className="px-4 py-2.5 rounded-2xl text-xs font-black uppercase tracking-wider border border-gray-100 bg-white/80 hover:bg-white disabled:opacity-50">{isResolvingAI ? (typeof isResolvingAI === 'string' ? isResolvingAI : 'Judging...') : 'Run Two-Layer AI Judge'}</button>
+                  <button type="button" onClick={runMasterAutoSync} disabled={syncingDictionary} className="px-4 py-2.5 rounded-2xl text-xs font-black uppercase tracking-wider border border-gray-100 bg-white/80 hover:bg-white disabled:opacity-50">{syncingDictionary ? syncProgress || 'Syncing...' : 'Master Sync & AI Clean'}</button>
                   <button type="button" onClick={cleanInvalidMappings} className="px-4 py-2.5 rounded-2xl text-xs font-black uppercase tracking-wider border border-red-200 text-red-700 bg-red-50 hover:bg-red-100">🧹 Clear Junk AI Cache</button>
                 </div>
               </div>
