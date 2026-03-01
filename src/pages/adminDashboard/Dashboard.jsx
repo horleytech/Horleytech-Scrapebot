@@ -220,11 +220,13 @@ const getCsvValueByAliases = (row = {}, aliases = []) => {
   const entry = Object.entries(row).find(([key]) => normalizedAliases.includes(normalizeDictionaryKey(key)));
   return entry ? entry[1] : '';
 };
+
 const extractLaptopSpecs = (raw) => {
   const normalized = String(raw || '').toLowerCase();
   const ramMatch = normalized.match(/\b(\d{1,3})\s*gb\s*(ram)?\b/);
   const storageMatch = normalized.match(/\b(\d{1,2}(?:\.\d+)?)\s*(tb|gb|ssd)\b/);
   const ram = ramMatch ? `${ramMatch[1]}GB` : 'Unknown';
+
   if (!storageMatch) return { ram, storage: 'Unknown' };
   const storageUnit = storageMatch[2] === 'ssd' ? 'GB' : storageMatch[2].toUpperCase();
   return {
@@ -232,6 +234,7 @@ const extractLaptopSpecs = (raw) => {
     storage: `${storageMatch[1]}${storageUnit}`,
   };
 };
+
 const smartMapDevice = (rawString, officialTargets = [], customMappings = {}) => {
   const original = String(rawString || '').trim();
   if (!original) {
@@ -248,6 +251,7 @@ const smartMapDevice = (rawString, officialTargets = [], customMappings = {}) =>
   const mappedSeed = typeof mappingEntry === 'object'
     ? (mappingEntry.standardName || mappingEntry.deviceType || original)
     : (mappingEntry || original);
+
   const normalizedRaw = String(mappedSeed || '')
     .toLowerCase()
     .replace(/\+/g, ' plus ')
@@ -262,6 +266,7 @@ const smartMapDevice = (rawString, officialTargets = [], customMappings = {}) =>
     const hasExactBase = new RegExp(`\\b${modelToken}\\b`, 'i').test(normalizedRaw)
       || new RegExp(`\\b(?:samsung\\s+|galaxy\\s+|samsung\\s+galaxy\\s+)${modelToken}\\b`, 'i').test(normalizedRaw);
     if (!hasExactBase) return false;
+
     const targetHasUltra = /\bultra\b/.test(targetNormalized);
     const targetHasPlus = /\bplus\b/.test(targetNormalized);
     const rawHasUltra = /\bultra\b/.test(normalizedRaw);
@@ -280,8 +285,10 @@ const smartMapDevice = (rawString, officialTargets = [], customMappings = {}) =>
   const standardName = exact?.raw || normalizedTargets
     .filter((target) => normalizedRaw.includes(target.normalized) && samsungSuffixGuard(target.normalized))
     .sort((a, b) => b.normalized.length - a.normalized.length)[0]?.raw || mappedSeed;
+
   const normalizedStandardName = String(standardName || '').trim();
   const laptopSpecs = extractLaptopSpecs(original);
+
   const result = {
     standardName: normalizedStandardName || 'Unknown Device',
     condition: 'Unknown',
@@ -290,8 +297,10 @@ const smartMapDevice = (rawString, officialTargets = [], customMappings = {}) =>
     aiRequired: false,
     laptopSpecs,
   };
+
   result.condition = standardizeCondition(original);
   result.sim = normalizeSimType(original);
+
   if (result.standardName === 'Unknown Device' || result.condition === 'Unknown') {
     result.isOthers = true;
     result.aiRequired = true;
@@ -667,6 +676,15 @@ const AdminDashboard = () => {
     }
   }, []);
   useEffect(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem('admin-pricing-sessions-v1') || '[]');
+      if (Array.isArray(saved)) setSavedPricingSessions(saved);
+    } catch (error) {
+      console.error('Failed to load pricing sessions:', error);
+    }
+  }, []);
+
+  useEffect(() => {
     const loadGlobalCache = async () => {
       try {
         const cacheRef = doc(db, 'horleyTech_Settings', 'globalProductsCache');
@@ -809,6 +827,7 @@ const AdminDashboard = () => {
       ].join(' ').toLowerCase();
       const isExcluded = excludedTokens.some((phrase) => haystack.includes(phrase));
       const cleanStatus = isExcluded ? 'excluded' : ((rawCondition === 'Unknown' || mappedResult.aiRequired) ? 'unclean' : 'clean');
+
       if (dataViewMode !== 'all' && cleanStatus !== dataViewMode) return;
       rows.push({
         id: `${vendor.docId}-${index}-${mappedDeviceType}`,
@@ -1239,12 +1258,14 @@ const AdminDashboard = () => {
       setLoadingCompanyCsv(false);
     }
   };
+
   const runTwoLayerAIJudge = async () => {
     const candidates = normalizedProductRows.filter((row) => row.cleanStatus !== 'clean' || row.deviceType === 'Unknown Device');
     if (!candidates.length) {
       alert('No unclean rows detected for AI judge.');
       return;
     }
+
     setIsResolvingAI(true);
     try {
       const payload = candidates.map((row) => ({ raw: `${row.deviceType} ${row.condition} ${row.simType} ${row.storage}`.trim() }));
@@ -1258,6 +1279,7 @@ const AdminDashboard = () => {
         ? parsedPayload
         : (Array.isArray(parsedPayload?.data) ? parsedPayload.data : []);
       if (!response.ok || !data.length) throw new Error(parsedPayload?.error || parsedPayload?.message || 'AI judge failed');
+
       const mergedMappings = {};
       data.forEach((item) => {
         const raw = String(item?.raw || '').trim();
@@ -1274,6 +1296,7 @@ const AdminDashboard = () => {
           deviceType: item.deviceType || 'Unknown Device',
         };
       });
+
       if (Object.keys(mergedMappings).length) {
         setMasterDictionary((prev) => ({ ...prev, ...mergedMappings }));
         localStorage.setItem(MASTER_DICTIONARY_STORAGE_KEY, JSON.stringify({
@@ -1285,6 +1308,7 @@ const AdminDashboard = () => {
           updatedAt: new Date().toISOString(),
         }, { merge: true });
       }
+
       alert(`✅ Two-Layer AI Judge processed ${data.length} records.`);
     } catch (error) {
       alert(`❌ ${error.message}`);
@@ -1292,6 +1316,7 @@ const AdminDashboard = () => {
       setIsResolvingAI(false);
     }
   };
+
   const pricingResults = useMemo(() => {
     const margin = Number(marginValue) || 0;
     const vendorRows = normalizedProductRows.filter((row) => row.vendorName === pricingVendor);
@@ -1346,6 +1371,7 @@ const AdminDashboard = () => {
     link.click();
     document.body.removeChild(link);
   };
+
   const savePricingSession = () => {
     if (!pricingResults.length) {
       alert('No pricing result to save.');
@@ -1364,6 +1390,7 @@ const AdminDashboard = () => {
     localStorage.setItem('admin-pricing-sessions-v1', JSON.stringify(updated));
     alert('✅ Pricing session saved.');
   };
+
   const openChatForVendor = async (vendor) => {
     setChatVendor(vendor);
     setChatOpen(true);
