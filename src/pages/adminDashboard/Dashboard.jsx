@@ -141,6 +141,19 @@ const parseApiJsonSafe = async (response) => {
     throw new Error(`Invalid JSON response from server: ${trimmed.slice(0, 180)}`);
   }
 };
+const postJsonWithFallbackRoutes = async (routes = [], options = {}) => {
+  const attemptedErrors = [];
+  for (const route of routes) {
+    try {
+      const response = await fetch(`${BASE_URL}${route}`, options);
+      const parsedPayload = await parseApiJsonSafe(response);
+      return { response, parsedPayload, route };
+    } catch (error) {
+      attemptedErrors.push(`${route}: ${error.message}`);
+    }
+  }
+  throw new Error(attemptedErrors.join(' | ') || 'No API routes configured.');
+};
 const parseCompanyCsvText = (csvText = '') => {
   const safeText = normalizeCsvText(csvText);
   const lines = safeText.split(/\n/).map((line) => line.trimEnd()).filter(Boolean);
@@ -1269,12 +1282,14 @@ const AdminDashboard = () => {
     setIsResolvingAI(true);
     try {
       const payload = candidates.map((row) => ({ raw: `${row.deviceType} ${row.condition} ${row.simType} ${row.storage}`.trim() }));
-      const response = await fetch(`${BASE_URL}/api/admin/extract-detailed-schema`, {
+      const { response, parsedPayload } = await postJsonWithFallbackRoutes([
+        '/api/admin/extract-detailed-schema',
+        '/api/v1/admin/extract-detailed-schema',
+      ], {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Accept: 'application/json', 'x-user-role': 'admin' },
         body: JSON.stringify({ rows: payload, payload, inputs: payload, data: payload }),
       });
-      const parsedPayload = await parseApiJsonSafe(response);
       const data = Array.isArray(parsedPayload)
         ? parsedPayload
         : (Array.isArray(parsedPayload?.data) ? parsedPayload.data : []);
