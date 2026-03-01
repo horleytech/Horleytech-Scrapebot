@@ -8,17 +8,14 @@ import {
 import AdminDashboardLayout from '../../components/layouts/DashboardLayout';
 import { db } from '../../services/firebase/index.js';
 import { BASE_URL } from '../../services/constants/apiConstants.js';
-
 const COLLECTIONS = {
   offline: 'horleyTech_OfflineInventories',
   backups: 'horleyTech_Backups',
 };
-
 const CHART_COLORS = ['#16a34a', '#2563eb', '#f59e0b', '#7c3aed', '#ef4444', '#14b8a6', '#f97316'];
 const MASTER_DICTIONARY_STORAGE_KEY = 'admin-master-dictionary-v1';
 const FALLBACK_MASTER_DICTIONARY_CSV = 'https://example.com/master-dictionary.csv';
 const FALLBACK_COMPANY_PRICING_CSV = 'https://example.com/company-pricing.csv';
-
 const toCsv = (rows) => {
   if (!rows.length) return '';
   const headers = Object.keys(rows[0]);
@@ -27,7 +24,6 @@ const toCsv = (rows) => {
   );
   return `${headers.join(',')}\n${csvRows.join('\n')}`;
 };
-
 const downloadCsv = (filename, rows) => {
   const csv = toCsv(rows);
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
@@ -38,11 +34,9 @@ const downloadCsv = (filename, rows) => {
   link.click();
   document.body.removeChild(link);
 };
-
 const parseNairaValue = (value) => {
   if (value === null || value === undefined) return 0;
   if (typeof value === 'number' && Number.isFinite(value)) return value;
-
   const original = String(value || '');
   if (/available|negotiable/i.test(original)) return 0;
   const groupedNumber = original.match(/(\d{1,3}(?:,\d{3})+)/);
@@ -50,111 +44,120 @@ const parseNairaValue = (value) => {
     const parsedGrouped = Number(groupedNumber[1].replace(/,/g, ''));
     if (Number.isFinite(parsedGrouped)) return parsedGrouped;
   }
-
   const raw = original.toLowerCase().replace(/[₦n\s,]/g, '').trim();
   if (!raw) return 0;
-
   const millionAndThousand = raw.match(/(\d+(?:\.\d+)?)m(\d+(?:\.\d+)?)k/);
   if (millionAndThousand) {
     const millions = Number(millionAndThousand[1]) || 0;
     const thousands = Number(millionAndThousand[2]) || 0;
     return Math.round((millions * 1000000) + (thousands * 1000));
   }
-
   const shorthandMatch = raw.match(/(\d+(?:\.\d+)?)([mk])/);
   if (shorthandMatch) {
     const amount = Number(shorthandMatch[1]) || 0;
     const multiplier = shorthandMatch[2] === 'm' ? 1000000 : 1000;
     return Math.round(amount * multiplier);
   }
-
   const safeNumberPart = raw.match(/\d+(?:\.\d+)?/);
   if (!safeNumberPart) return 0;
-
   const numeric = Number(safeNumberPart[0]);
   return Number.isFinite(numeric) ? numeric : 0;
 };
-
 const formatNaira = (amount) =>
   new Intl.NumberFormat('en-NG', { style: 'currency', currency: 'NGN', maximumFractionDigits: 0 }).format(amount);
-
 const formatCompactNaira = (amount) =>
   new Intl.NumberFormat('en-NG', { style: 'currency', currency: 'NGN', notation: 'compact', maximumFractionDigits: 1 }).format(amount);
-
 const normalizeLogs = (logs) => ({
   admin: Array.isArray(logs?.admin) ? logs.admin : [],
   vendor: Array.isArray(logs?.vendor) ? logs.vendor : [],
   customer: Array.isArray(logs?.customer) ? logs.customer : [],
 });
-
 const formatTimelineDate = (isoDate) => {
   const date = new Date(isoDate);
   if (Number.isNaN(date.getTime())) return isoDate;
-
   const now = new Date();
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const target = new Date(date.getFullYear(), date.getMonth(), date.getDate());
   const diffDays = Math.round((today - target) / (1000 * 60 * 60 * 24));
-
   const timeText = date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-
   if (diffDays === 0) return `Today at ${timeText}`;
   if (diffDays === 1) return `Yesterday at ${timeText}`;
-
   return date.toLocaleString();
 };
-
 const parseDateValue = (value) => {
   if (!value) return null;
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? null : date;
 };
-
 const isWithinDateRange = (value, startDate, endDate) => {
   const parsedDate = parseDateValue(value);
   if (!parsedDate) return !startDate && !endDate;
-
   if (startDate) {
     const start = new Date(startDate);
     start.setHours(0, 0, 0, 0);
     if (parsedDate < start) return false;
   }
-
   if (endDate) {
     const end = new Date(endDate);
     end.setHours(23, 59, 59, 999);
     if (parsedDate > end) return false;
   }
-
   return true;
 };
-
 const normalizeDictionaryKey = (value) => String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-
 const normalizeGoogleSheetCsvUrl = (url) => {
   const raw = String(url || '').trim();
   if (!raw) return raw;
   if (!raw.includes('docs.google.com/spreadsheets')) return raw;
   try {
     const parsed = new URL(raw);
-    const segments = parsed.pathname.split('/').filter(Boolean);
-    const editIndex = segments.findIndex((segment) => segment === 'edit');
-    if (editIndex !== -1) {
-      segments[editIndex] = 'export';
-      parsed.pathname = `/${segments.join('/')}`;
-    }
-    parsed.searchParams.set('format', 'csv');
-    return parsed.toString();
+    const sheetId = extractGoogleSheetId(raw);
+    if (!sheetId) return raw;
+    const gid = parsed.searchParams.get('gid') || (parsed.hash || '').replace('#gid=', '') || '0';
+    return `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv&gid=${gid}`;
   } catch {
-    return raw.replace('/edit', '/export').replace(/\?.*$/, '?format=csv');
+    const sheetId = extractGoogleSheetId(raw);
+    if (!sheetId) return raw.replace('/edit', '/export').replace(/\?.*$/, '?format=csv');
+    return `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv&gid=0`;
   }
 };
-
+const extractGoogleSheetId = (url) => {
+  const raw = String(url || '').trim();
+  if (!raw) return '';
+  const match = raw.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+  return match?.[1] || '';
+};
+const normalizeCsvText = (rawText = '') => String(rawText || '').replace(/^\uFEFF/, '').replace(/\r/g, '');
+const parseApiJsonSafe = async (response) => {
+  const bodyText = await response.text();
+  const trimmed = bodyText.trim();
+  if (!trimmed) return null;
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    if (trimmed.startsWith('<!DOCTYPE') || trimmed.startsWith('<html')) {
+      throw new Error('Received HTML instead of JSON. Check BASE_URL or backend route for /api/admin/extract-detailed-schema.');
+    }
+    throw new Error(`Invalid JSON response from server: ${trimmed.slice(0, 180)}`);
+  }
+};
+const parseCompanyCsvText = (csvText = '') => {
+  const safeText = normalizeCsvText(csvText);
+  const lines = safeText.split(/\n/).map((line) => line.trimEnd()).filter(Boolean);
+  if (!lines.length) return [];
+  const headers = parseCsvLine(lines[0]).map((header) => String(header || '').replace(/^\uFEFF/, '').trim());
+  return lines.slice(1).map((line) => {
+    const values = parseCsvLine(line);
+    return headers.reduce((acc, header, index) => {
+      acc[header] = values[index] || '';
+      return acc;
+    }, {});
+  }).filter((row) => Object.values(row).some((value) => String(value || '').trim()));
+};
 const parseCsvLine = (line = '') => {
   const parsed = [];
   let current = '';
   let inQuotes = false;
-
   for (let i = 0; i < line.length; i += 1) {
     const char = line[i];
     if (char === '"') {
@@ -173,19 +176,15 @@ const parseCsvLine = (line = '') => {
     }
     current += char;
   }
-
   parsed.push(current.trim());
   return parsed;
 };
-
 const parseMasterDictionaryCsv = (csvText = '') => {
   const lines = csvText.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
   if (!lines.length) return { dictionary: {}, officialTargets: [] };
-
   const headers = parseCsvLine(lines[0]).map((header) => header.toLowerCase());
   const normalizedHeaders = headers.map((header) => normalizeDictionaryKey(header));
   const findHeaderIndex = (aliases = []) => normalizedHeaders.findIndex((header) => aliases.includes(header));
-
   const rawNameIndex = findHeaderIndex([
     'rawname',
     'rawdevicename',
@@ -199,30 +198,23 @@ const parseMasterDictionaryCsv = (csvText = '') => {
   ]);
   const standardNameIndex = findHeaderIndex(['standardname', 'normalizedname', 'canonicalname', 'mappedname']);
   const deviceTypeIndex = findHeaderIndex(['devicetype', 'device', 'model', 'productname']);
-
   if (rawNameIndex === -1 || (standardNameIndex === -1 && deviceTypeIndex === -1)) {
     throw new Error(`CSV must include a recognizable raw-name column (e.g. "Raw Name" or "Device Type") plus either "Standard Name" or "Device Type". Found headers: ${headers.join(', ') || '(none)'}`);
   }
-
   const dictionary = {};
   const officialTargetsSet = new Set();
-
   lines.slice(1).forEach((line) => {
     const values = parseCsvLine(line);
     const rawName = values[rawNameIndex];
     const deviceType = values[deviceTypeIndex] || values[standardNameIndex] || '';
     const standardName = values[standardNameIndex] || deviceType;
     const rawKey = normalizeDictionaryKey(rawName);
-
     if (deviceType?.trim()) officialTargetsSet.add(deviceType.trim());
     if (!rawKey || !standardName) return;
     dictionary[rawKey] = standardName.trim();
   });
-
   return { dictionary, officialTargets: Array.from(officialTargetsSet) };
 };
-
-
 const getCsvValueByAliases = (row = {}, aliases = []) => {
   const normalizedAliases = aliases.map((alias) => normalizeDictionaryKey(alias));
   const entry = Object.entries(row).find(([key]) => normalizedAliases.includes(normalizeDictionaryKey(key)));
@@ -254,7 +246,6 @@ const smartMapDevice = (rawString, officialTargets = [], customMappings = {}) =>
       aiRequired: true,
     };
   }
-
   const mappingKey = normalizeDictionaryKey(original);
   const mappingEntry = customMappings?.[mappingKey];
   const mappedSeed = typeof mappingEntry === 'object'
@@ -268,7 +259,6 @@ const smartMapDevice = (rawString, officialTargets = [], customMappings = {}) =>
     .replace(/[^a-z0-9\s]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
-
   const samsungSuffixGuard = (targetNormalized) => {
     const samsungBaseMatch = targetNormalized.match(/\b(?:samsung\s+galaxy\s+|galaxy\s+|samsung\s+)?s(\d{1,3})\b/);
     if (!samsungBaseMatch) return true;
@@ -281,19 +271,16 @@ const smartMapDevice = (rawString, officialTargets = [], customMappings = {}) =>
     const targetHasPlus = /\bplus\b/.test(targetNormalized);
     const rawHasUltra = /\bultra\b/.test(normalizedRaw);
     const rawHasPlus = /\bplus\b/.test(normalizedRaw);
-
     if (!targetHasUltra && rawHasUltra) return false;
     if (!targetHasPlus && rawHasPlus) return false;
     return true;
   };
-
   const normalizedTargets = officialTargets
     .map((target) => ({
       raw: target,
       normalized: String(target || '').toLowerCase().replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim(),
     }))
     .filter((target) => target.normalized);
-
   const exact = normalizedTargets.find((target) => normalizedRaw === target.normalized);
   const standardName = exact?.raw || normalizedTargets
     .filter((target) => normalizedRaw.includes(target.normalized) && samsungSuffixGuard(target.normalized))
@@ -318,24 +305,19 @@ const smartMapDevice = (rawString, officialTargets = [], customMappings = {}) =>
     result.isOthers = true;
     result.aiRequired = true;
   }
-
   return result;
 };
-
 const getConditionRank = (condition) => {
   const standardized = standardizeCondition(condition);
   if (standardized === 'Brand New') return 0;
   if (standardized === 'Grade A UK Used') return 1;
   return 2;
 };
-
-
 const extractDeviceVersion = (deviceType) => {
   const matches = String(deviceType || '').match(/\d+(?:\.\d+)?/g);
   if (!matches?.length) return -1;
   return Math.max(...matches.map((entry) => Number(entry) || 0));
 };
-
 const getDeviceTierWeight = (deviceType) => {
   const normalized = String(deviceType || '').toLowerCase();
   if (normalized.includes('pro max')) return 3;
@@ -343,7 +325,6 @@ const getDeviceTierWeight = (deviceType) => {
   if (normalized.includes('plus')) return 1;
   return 0;
 };
-
 const getSimRank = (specification) => {
   const normalized = String(specification || '').toLowerCase();
   if (normalized.includes('dual sim') || normalized.includes('physical sim+esim') || (normalized.includes('physical sim') && normalized.includes('esim'))) return 0;
@@ -352,7 +333,6 @@ const getSimRank = (specification) => {
   if (normalized.includes('locked') || normalized.includes('wi-fi only') || normalized.includes('wifi only')) return 3;
   return 4;
 };
-
 const getStorageRank = (storage) => {
   const normalized = String(storage || '').toLowerCase();
   const match = normalized.match(/(\d+(?:\.\d+)?)\s*(tb|gb)/);
@@ -361,26 +341,22 @@ const getStorageRank = (storage) => {
   const unit = match[2];
   return unit === 'tb' ? value * 1024 : value;
 };
-
 const standardizeCondition = (raw) => {
   const normalized = String(raw || '').toLowerCase();
   if (/(used|open\s*box|uk)/i.test(normalized)) return 'Grade A UK Used';
   if (/(new|pristine|sealed)/i.test(normalized)) return 'Brand New';
   return 'Unknown';
 };
-
 const normalizeSimType = (raw) => {
   const normalized = String(raw || '').toLowerCase();
   const hasEsim = /\besim\b/i.test(normalized);
   const hasPhysical = /\bphysical\b/i.test(normalized);
   const hasDual = /\bdual\b/i.test(normalized);
-
   if ((hasPhysical && hasEsim) || hasDual) return 'Physical SIM + ESIM';
   if (hasEsim) return 'ESIM';
   if (hasPhysical) return 'Physical SIM';
   return 'Unknown';
 };
-
 const inferBrandSubCategory = (deviceType) => {
   const normalized = String(deviceType || '').toLowerCase();
   if (normalized.includes('iphone')) return '#iphones';
@@ -390,7 +366,6 @@ const inferBrandSubCategory = (deviceType) => {
   if (normalized.includes('macbook')) return '#macbooks';
   return '#others';
 };
-
 const inferSeries = (deviceType) => {
   const normalized = String(deviceType || '').toLowerCase();
   if (normalized.includes('iphone')) {
@@ -403,11 +378,9 @@ const inferSeries = (deviceType) => {
   }
   return 'Others';
 };
-
 const AdminDashboard = () => {
   const location = useLocation();
   const isAdmin = true;
-
   const [activeTab, setActiveTab] = useState('offline');
   const [searchQuery, setSearchQuery] = useState('');
   const [productSearchQuery, setProductSearchQuery] = useState('');
@@ -450,7 +423,6 @@ const AdminDashboard = () => {
   
   // Advanced Tools Toggle State
   const [togglingAdvancedVendorId, setTogglingAdvancedVendorId] = useState(null);
-
   // Messaging State
   const [allMessages, setAllMessages] = useState([]);
   const [notificationOpen, setNotificationOpen] = useState(false);
@@ -459,7 +431,6 @@ const AdminDashboard = () => {
   const [chatMessages, setChatMessages] = useState([]);
   const [chatInput, setChatInput] = useState('');
   const [sendingChat, setSendingChat] = useState(false);
-
   // Audit, Bulk Edit, Onboarding
   const [auditLogs, setAuditLogs] = useState([]);
   const [loadingAuditLogs, setLoadingAuditLogs] = useState(false);
@@ -477,7 +448,6 @@ const AdminDashboard = () => {
   const [loadingDriveBackups, setLoadingDriveBackups] = useState(false);
   const [restoringDriveId, setRestoringDriveId] = useState(null);
   const [uploadRestoreLoading, setUploadRestoreLoading] = useState(false);
-
   const fetchInventory = async () => {
     setLoadingSearch(true);
     try {
@@ -506,7 +476,6 @@ const AdminDashboard = () => {
           metaData: data.metaData || 'Electronics',
         });
       });
-
       setOfflineVendors(vendors);
       setSelectedVendorIds([]);
     } catch (error) {
@@ -515,7 +484,6 @@ const AdminDashboard = () => {
       setLoadingSearch(false);
     }
   };
-
   const fetchBackups = async () => {
     setLoadingBackups(true);
     try {
@@ -528,7 +496,6 @@ const AdminDashboard = () => {
       setLoadingBackups(false);
     }
   };
-
   const fetchAllMessages = async () => {
     try {
       const response = await fetch(`${BASE_URL}/api/messages`, {
@@ -541,7 +508,6 @@ const AdminDashboard = () => {
       console.error('Unable to fetch global messages:', error);
     }
   };
-
   const fetchAuditLogs = async () => {
     setLoadingAuditLogs(true);
     try {
@@ -557,7 +523,6 @@ const AdminDashboard = () => {
       setLoadingAuditLogs(false);
     }
   };
-
   const fetchTutorialVideo = async () => {
     try {
       const response = await fetch(`${BASE_URL}/api/settings/tutorial-video`, {
@@ -570,17 +535,13 @@ const AdminDashboard = () => {
       console.error('Unable to fetch tutorial video setting:', error);
     }
   };
-
   const saveTutorialVideo = async () => {
     const trimmedUrl = tutorialVideoUrl.trim();
-
     if (!trimmedUrl) {
       alert('Please enter a valid YouTube link.');
       return;
     }
-
     if (!window.confirm('Are you sure you want to proceed? This will change the live user experience/data.')) return;
-
     setSavingTutorialVideo(true);
     try {
       const response = await fetch(`${BASE_URL}/api/settings/tutorial-video`, {
@@ -598,13 +559,11 @@ const AdminDashboard = () => {
       setSavingTutorialVideo(false);
     }
   };
-
   const generateOnboardingLink = async () => {
     if (!onboardVendorName.trim() || !botNumber.trim()) {
       alert('Please enter vendor name and bot number.');
       return;
     }
-
     try {
       const response = await fetch(`${BASE_URL}/api/admin/onboard-vendor`, {
         method: 'POST',
@@ -624,7 +583,6 @@ const AdminDashboard = () => {
       alert(`❌ ${error.message}`);
     }
   };
-
   const fetchDriveBackups = async () => {
     setLoadingDriveBackups(true);
     try {
@@ -640,7 +598,6 @@ const AdminDashboard = () => {
       setLoadingDriveBackups(false);
     }
   };
-
   const restoreDriveBackup = async (fileId) => {
     setRestoringDriveId(fileId);
     try {
@@ -658,14 +615,11 @@ const AdminDashboard = () => {
       setRestoringDriveId(null);
     }
   };
-
   const uploadAndRestoreLocalBackup = async (event) => {
     const file = event.target.files?.[0];
     if (!file) return;
-
     const formData = new FormData();
     formData.append('file', file);
-
     setUploadRestoreLoading(true);
     try {
       const response = await fetch(`${BASE_URL}/api/backup/upload-restore`, {
@@ -682,14 +636,12 @@ const AdminDashboard = () => {
       setUploadRestoreLoading(false);
     }
   };
-
   useEffect(() => {
     if (location.pathname === '/dashboard' || location.pathname === '/dashboard/') {
       fetchInventory();
       fetchBackups();
     }
   }, [location.pathname]);
-
   useEffect(() => {
     fetchAllMessages();
     fetchAuditLogs();
@@ -697,13 +649,11 @@ const AdminDashboard = () => {
     const timer = setInterval(fetchAllMessages, 12000);
     return () => clearInterval(timer);
   }, []);
-
   useEffect(() => {
     if (activeTab === 'maintenance') {
       fetchDriveBackups();
     }
   }, [activeTab]);
-
   useEffect(() => {
     try {
       const cached = localStorage.getItem(MASTER_DICTIONARY_STORAGE_KEY);
@@ -717,7 +667,14 @@ const AdminDashboard = () => {
       console.error('Failed to load cached master dictionary:', error);
     }
   }, []);
-
+  useEffect(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem('admin-pricing-sessions-v1') || '[]');
+      if (Array.isArray(saved)) setSavedPricingSessions(saved);
+    } catch (error) {
+      console.error('Failed to load pricing sessions:', error);
+    }
+  }, []);
   useEffect(() => {
     try {
       const saved = JSON.parse(localStorage.getItem('admin-pricing-sessions-v1') || '[]');
@@ -733,10 +690,8 @@ const AdminDashboard = () => {
         const cacheRef = doc(db, 'horleyTech_Settings', 'globalProductsCache');
         const snapshot = await getDoc(cacheRef);
         if (!snapshot.exists()) return;
-
         const metadata = snapshot.data() || {};
         const totalChunks = Number(metadata.totalChunks || 0);
-
         if (totalChunks > 0) {
           const chunkDocs = await Promise.all(
             Array.from({ length: totalChunks }, (_, index) => getDoc(doc(db, 'horleyTech_Settings', `cache_chunk_${index}`)))
@@ -746,31 +701,25 @@ const AdminDashboard = () => {
           if (Array.isArray(metadata.officialTargets)) setOfficialTargets(metadata.officialTargets);
           return;
         }
-
         const rows = metadata.products;
         if (Array.isArray(rows)) setGlobalProductsCacheRows(rows);
       } catch (error) {
         console.error('Failed to load global products cache:', error);
       }
     };
-
     loadGlobalCache();
   }, []);
-
   const syncMasterDictionary = async () => {
     const csvUrl = normalizeGoogleSheetCsvUrl(import.meta.env.VITE_MASTER_DICTIONARY_CSV || FALLBACK_MASTER_DICTIONARY_CSV);
     setSyncingDictionary(true);
-
     try {
       const response = await fetch(csvUrl, { headers: { Accept: 'text/csv,text/plain,*/*' } });
       if (!response.ok) throw new Error(`Unable to fetch CSV (${response.status})`);
-
       const csvText = await response.text();
       const parsed = parseMasterDictionaryCsv(csvText);
       setMasterDictionary(parsed.dictionary);
       setOfficialTargets(parsed.officialTargets);
       localStorage.setItem(MASTER_DICTIONARY_STORAGE_KEY, JSON.stringify(parsed));
-
       const mappedRows = [];
       offlineVendors.forEach((vendor) => {
         (vendor.products || []).forEach((product, index) => {
@@ -784,7 +733,6 @@ const AdminDashboard = () => {
           const cleanStatus = rawCondition === 'Unknown' ? 'unclean' : 'clean';
           const normalizedSim = mappedResult.sim;
           const storage = (product['Storage Capacity/Configuration'] || 'N/A').trim() || 'N/A';
-
           mappedRows.push({
             id: `${vendor.docId}-${index}-${smartMappedDeviceType}`,
             vendorName: vendor.vendorName,
@@ -803,14 +751,12 @@ const AdminDashboard = () => {
           });
         });
       });
-
       const cacheRef = doc(db, 'horleyTech_Settings', 'globalProductsCache');
       const chunkSize = 1500;
       const chunks = [];
       for (let i = 0; i < mappedRows.length; i += chunkSize) {
         chunks.push(mappedRows.slice(i, i + chunkSize));
       }
-
       await Promise.all(
         chunks.map((chunk, index) => setDoc(doc(db, 'horleyTech_Settings', `cache_chunk_${index}`), {
           products: chunk,
@@ -818,7 +764,6 @@ const AdminDashboard = () => {
           syncedAt: new Date().toISOString(),
         }, { merge: true }))
       );
-
       await setDoc(cacheRef, {
         cache_metadata: true,
         syncedAt: new Date().toISOString(),
@@ -826,9 +771,7 @@ const AdminDashboard = () => {
         totalChunks: chunks.length,
         officialTargets: parsed.officialTargets,
       }, { merge: true });
-
       setGlobalProductsCacheRows(mappedRows);
-
       alert(`✅ Synced ${Object.keys(parsed.dictionary).length} dictionary mappings and cached ${mappedRows.length} products.`);
     } catch (error) {
       console.error('Master dictionary sync failed:', error);
@@ -837,42 +780,33 @@ const AdminDashboard = () => {
       setSyncingDictionary(false);
     }
   };
-
-
   const filteredOffline = useMemo(
     () => offlineVendors.filter((v) => !searchQuery || v.vendorName?.toLowerCase().includes(searchQuery.toLowerCase())),
     [offlineVendors, searchQuery]
   );
-
   const normalizedProductRows = useMemo(() => {
     const excludedTokens = excludedPhrases
       .split(',')
       .map((token) => token.trim().toLowerCase())
       .filter(Boolean);
-
     const rows = [];
     const sourceRows = offlineVendors.flatMap((vendor) => (vendor.products || []).map((product, index) => ({ vendor, product, index })));
-
     if (!offlineVendors.length && globalProductsCacheRows.length) {
       globalProductsCacheRows.forEach((row, index) => {
         if (selectedVendorFilter !== 'All' && row.vendorName !== selectedVendorFilter) return;
         if (!isWithinDateRange(row.date, startDate, endDate)) return;
-
         const haystack = [row.category, row.deviceType, row.condition, row.simType, row.storage].join(' ').toLowerCase();
         const isExcluded = excludedTokens.some((phrase) => haystack.includes(phrase));
         const cleanStatus = isExcluded ? 'excluded' : row.cleanStatus;
         if (dataViewMode !== 'all' && cleanStatus !== dataViewMode) return;
-
         rows.push({ ...row, id: row.id || `cache-${index}`, cleanStatus });
       });
       return rows;
     }
-
     sourceRows.forEach(({ vendor, product, index }) => {
       if (selectedVendorFilter !== 'All' && vendor.vendorName !== selectedVendorFilter) return;
       const productDate = product.DatePosted || vendor.lastUpdated;
       if (!isWithinDateRange(productDate, startDate, endDate)) return;
-
       const rawDeviceType = (product['Device Type'] || 'Unknown Device').trim() || 'Unknown Device';
       const rawDescriptor = `${rawDeviceType} ${product.Condition || ''} ${product['SIM Type/Model/Processor'] || ''}`.trim();
       const mappedResult = smartMapDevice(rawDescriptor, officialTargets, masterDictionary);
@@ -883,7 +817,6 @@ const AdminDashboard = () => {
       const category = (product.Category || 'Others').trim() || 'Others';
       const brandSubCategory = inferBrandSubCategory(mappedDeviceType);
       const series = inferSeries(mappedDeviceType);
-
       const haystack = [
         product.Category,
         rawDeviceType,
@@ -892,12 +825,10 @@ const AdminDashboard = () => {
         product['SIM Type/Model/Processor'],
         product['Storage Capacity/Configuration'],
       ].join(' ').toLowerCase();
-
       const isExcluded = excludedTokens.some((phrase) => haystack.includes(phrase));
       const cleanStatus = isExcluded ? 'excluded' : ((rawCondition === 'Unknown' || mappedResult.aiRequired) ? 'unclean' : 'clean');
 
       if (dataViewMode !== 'all' && cleanStatus !== dataViewMode) return;
-
       rows.push({
         id: `${vendor.docId}-${index}-${mappedDeviceType}`,
         vendorName: vendor.vendorName,
@@ -915,14 +846,10 @@ const AdminDashboard = () => {
         priceValue: parseNairaValue(product['Regular price']),
       });
     });
-
     return rows;
   }, [offlineVendors, globalProductsCacheRows, startDate, endDate, masterDictionary, officialTargets, selectedVendorFilter, dataViewMode, excludedPhrases]);
-
-
   const filteredProductRows = useMemo(() => {
     const queryText = productSearchQuery.trim().toLowerCase();
-
     return normalizedProductRows.filter((row) => {
       const matchesQuery = !queryText || [
         row.category,
@@ -934,22 +861,18 @@ const AdminDashboard = () => {
         row.storage,
         row.vendorName,
       ].some((field) => String(field || '').toLowerCase().includes(queryText));
-
       const matchesCategory = productCategoryFilter === 'All' || row.category === productCategoryFilter;
       const matchesCondition = productConditionFilter === 'All' || row.condition === productConditionFilter;
       return matchesQuery && matchesCategory && matchesCondition;
     });
   }, [normalizedProductRows, productSearchQuery, productCategoryFilter, productConditionFilter]);
-
   const groupedGlobalProducts = useMemo(() => {
     const tree = {};
-
     filteredProductRows.forEach((row) => {
       tree[row.category] ??= {};
       tree[row.category][row.brandSubCategory] ??= {};
       tree[row.category][row.brandSubCategory][row.series] ??= {};
       tree[row.category][row.brandSubCategory][row.series][row.deviceType] ??= {};
-
       const variationKey = `${row.condition}__${row.simType}__${row.storage}`;
       tree[row.category][row.brandSubCategory][row.series][row.deviceType][variationKey] ??= {
         condition: row.condition,
@@ -959,7 +882,6 @@ const AdminDashboard = () => {
         stockCount: 0,
         vendors: [],
       };
-
       const variation = tree[row.category][row.brandSubCategory][row.series][row.deviceType][variationKey];
       variation.totalAccumulatedPrice += row.priceValue;
       variation.stockCount += 1;
@@ -972,10 +894,8 @@ const AdminDashboard = () => {
         date: row.date,
       });
     });
-
     return tree;
   }, [filteredProductRows]);
-
   const flattenedVariations = useMemo(() => {
     const rows = [];
     Object.entries(groupedGlobalProducts).forEach(([category, brands]) => {
@@ -989,7 +909,6 @@ const AdminDashboard = () => {
         });
       });
     });
-
     if (productSortMode === 'highest_price') {
       rows.sort((a, b) => b.totalAccumulatedPrice - a.totalAccumulatedPrice);
     } else if (productSortMode === 'lowest_price') {
@@ -997,25 +916,19 @@ const AdminDashboard = () => {
     } else {
       rows.sort((a, b) => b.totalAccumulatedPrice - a.totalAccumulatedPrice);
     }
-
     return rows;
   }, [groupedGlobalProducts, productSortMode]);
-
   const totalPages = Math.max(1, Math.ceil(filteredOffline.length / itemsPerPage));
-
   useEffect(() => {
     setCurrentPage(1);
   }, [searchQuery]);
-
   useEffect(() => {
     if (currentPage > totalPages) setCurrentPage(totalPages);
   }, [currentPage, totalPages]);
-
   const paginatedOffline = useMemo(() => {
     const startIndex = (currentPage - 1) * itemsPerPage;
     return filteredOffline.slice(startIndex, startIndex + itemsPerPage);
   }, [filteredOffline, currentPage, itemsPerPage]);
-
   const groupedPaginatedOffline = useMemo(() => {
     return paginatedOffline.reduce((acc, vendor) => {
       const key = vendor.metaData || 'Electronics';
@@ -1024,19 +937,15 @@ const AdminDashboard = () => {
       return acc;
     }, {});
   }, [paginatedOffline]);
-
   const totalProductPages = Math.max(1, Math.ceil(flattenedVariations.length / itemsPerPage));
-
   useEffect(() => {
     setCurrentProductPage(1);
     setExpandedProductGroups([]);
   }, [productSearchQuery, productCategoryFilter, productConditionFilter, productSortMode, selectedVendorFilter, dataViewMode, excludedPhrases]);
-
   const paginatedGroupedProducts = useMemo(() => {
     const startIndex = (currentProductPage - 1) * itemsPerPage;
     return flattenedVariations.slice(startIndex, startIndex + itemsPerPage);
   }, [flattenedVariations, currentProductPage, itemsPerPage]);
-
   const paginatedGroupKeySet = useMemo(() => {
     const keys = new Set();
     paginatedGroupedProducts.forEach((row) => {
@@ -1048,30 +957,23 @@ const AdminDashboard = () => {
     });
     return keys;
   }, [paginatedGroupedProducts]);
-
   const filteredGlobalProducts = flattenedVariations;
-
   useEffect(() => {
     if (currentProductPage > totalProductPages) setCurrentProductPage(totalProductPages);
   }, [currentProductPage, totalProductPages]);
-
   const uniqueGlobalCategories = useMemo(
     () => ['All', ...new Set(normalizedProductRows.map((row) => row.category))],
     [normalizedProductRows]
   );
-
   const uniqueGlobalConditions = useMemo(
     () => ['All', ...new Set(normalizedProductRows.map((row) => row.condition))],
     [normalizedProductRows]
   );
-
   const uniqueVendorFilters = useMemo(
     () => ['All', ...new Set(offlineVendors.map((vendor) => vendor.vendorName).filter(Boolean))],
     [offlineVendors]
   );
-
   const uniqueVendorNames = useMemo(() => uniqueVendorFilters.filter((name) => name !== 'All'), [uniqueVendorFilters]);
-
   const platformActivityTimeline = useMemo(() => {
     const allEntries = [];
     offlineVendors.forEach((vendor) => {
@@ -1087,7 +989,6 @@ const AdminDashboard = () => {
     });
     return allEntries.sort((a, b) => new Date(b.date) - new Date(a.date)).slice(0, 50);
   }, [offlineVendors]);
-
   const analytics = useMemo(() => {
     const vendorSet = new Set(normalizedProductRows.map((row) => row.vendorName));
     const totalVendors = offlineVendors.length;
@@ -1096,15 +997,12 @@ const AdminDashboard = () => {
     const totalInventoryValue = normalizedProductRows.reduce((sum, row) => sum + row.priceValue, 0);
     const totalStoreViews = vendorSource.reduce((sum, vendor) => sum + (vendor.viewCount || 0), 0);
     const totalWhatsAppOrders = vendorSource.reduce((sum, vendor) => sum + (vendor.whatsappClicks || 0), 0);
-
     const deviceFrequency = {};
     normalizedProductRows.forEach((row) => {
       deviceFrequency[row.deviceType] = (deviceFrequency[row.deviceType] || 0) + 1;
     });
-
     const mostTrackedDevice = Object.entries(deviceFrequency).sort((a, b) => b[1] - a[1])[0]?.[0] || 'N/A';
     const topVendor = [...vendorSource].sort((a, b) => (b.whatsappClicks || 0) - (a.whatsappClicks || 0))[0]?.vendorName || 'N/A';
-
     return {
       totalVendors,
       filteredVendorCount,
@@ -1115,7 +1013,6 @@ const AdminDashboard = () => {
       topVendor,
     };
   }, [offlineVendors, normalizedProductRows]);
-
   const insightCharts = useMemo(() => {
     const categoryCount = {};
     const priceDensityMap = {
@@ -1125,7 +1022,6 @@ const AdminDashboard = () => {
     };
     const conditionMap = {};
     const leadMap = {};
-
     normalizedProductRows.forEach((row) => {
       categoryCount[row.category] = (categoryCount[row.category] || 0) + 1;
       if (row.priceValue > 0 && row.priceValue < 100000) priceDensityMap['< ₦100k'] += 1;
@@ -1133,7 +1029,6 @@ const AdminDashboard = () => {
       else if (row.priceValue > 500000) priceDensityMap['₦500k+'] += 1;
       conditionMap[row.condition] = (conditionMap[row.condition] || 0) + 1;
     });
-
     offlineVendors.forEach((vendor) => {
       if (selectedVendorFilter !== 'All' && vendor.vendorName !== selectedVendorFilter) return;
       const customerLogs = normalizeLogs(vendor.logs).customer || [];
@@ -1145,7 +1040,6 @@ const AdminDashboard = () => {
         leadMap[key] = (leadMap[key] || 0) + 1;
       });
     });
-
     const now = new Date();
     const leadVelocity = Array.from({ length: 7 }).map((_, index) => {
       const date = new Date(now);
@@ -1156,7 +1050,6 @@ const AdminDashboard = () => {
         clicks: leadMap[key] || 0,
       };
     });
-
     return {
       categoryMix: Object.entries(categoryCount).map(([name, value]) => ({ name, value })),
       priceDensity: Object.entries(priceDensityMap).map(([range, count]) => ({ range, count })),
@@ -1164,15 +1057,12 @@ const AdminDashboard = () => {
       leadVelocity,
     };
   }, [normalizedProductRows, offlineVendors, selectedVendorFilter, startDate, endDate]);
-
   const unreadMessages = useMemo(
     () => allMessages.filter((message) => message.sender === 'vendor' && !message.readByAdmin),
     [allMessages]
   );
-
   const allFilteredSelected =
     filteredOffline.length > 0 && filteredOffline.every((vendor) => selectedVendorIds.includes(vendor.docId));
-
   const toggleSelectAll = () => {
     if (allFilteredSelected) {
       const filteredSet = new Set(filteredOffline.map((vendor) => vendor.docId));
@@ -1182,19 +1072,16 @@ const AdminDashboard = () => {
       setSelectedVendorIds(Array.from(merged));
     }
   };
-
   const toggleVendor = (docId) => {
     setSelectedVendorIds((prev) =>
       prev.includes(docId) ? prev.filter((id) => id !== docId) : [...prev, docId]
     );
   };
-
   const toggleProductGroup = (groupKey) => {
     setExpandedProductGroups((prev) =>
       prev.includes(groupKey) ? prev.filter((key) => key !== groupKey) : [...prev, groupKey]
     );
   };
-
   const handleCategoryChartClick = (entry) => {
     const category = entry?.name || entry?.payload?.name || entry?.payload?.payload?.name;
     if (!category) return;
@@ -1202,7 +1089,6 @@ const AdminDashboard = () => {
     setProductCategoryFilter(category);
     setProductSortMode('highest_price');
   };
-
   const handleConditionChartClick = (entry) => {
     const condition = entry?.condition || entry?.payload?.condition || entry?.payload?.payload?.condition;
     if (!condition) return;
@@ -1210,7 +1096,6 @@ const AdminDashboard = () => {
     setProductConditionFilter(condition);
     setProductSortMode('highest_price');
   };
-
   const toggleAdvancedTools = async (vendor) => {
     const nextValue = !vendor.advancedEnabled;
     setTogglingAdvancedVendorId(vendor.docId);
@@ -1219,7 +1104,6 @@ const AdminDashboard = () => {
         advancedEnabled: nextValue,
         lastUpdated: new Date().toISOString(),
       });
-
       setOfflineVendors((prev) =>
         prev.map((item) =>
           item.docId === vendor.docId
@@ -1234,10 +1118,8 @@ const AdminDashboard = () => {
       setTogglingAdvancedVendorId(null);
     }
   };
-
   const bulkAssignMetaData = async () => {
     if (!selectedVendorIds.length) return;
-
     try {
       setBulkUpdating(true);
       const batch = writeBatch(db);
@@ -1256,13 +1138,11 @@ const AdminDashboard = () => {
       setBulkUpdating(false);
     }
   };
-
   const bulkUpdateStatus = async (status) => {
     if (!selectedVendorIds.length) {
       alert('Please select at least one vendor first.');
       return;
     }
-
     setBulkUpdating(true);
     try {
       const batch = writeBatch(db);
@@ -1273,7 +1153,6 @@ const AdminDashboard = () => {
           lastUpdated: new Date().toISOString(),
         });
       });
-
       await batch.commit();
       fetchInventory();
       setSelectedVendorIds([]);
@@ -1285,7 +1164,6 @@ const AdminDashboard = () => {
       setBulkUpdating(false);
     }
   };
-
   const triggerManualBackup = async () => {
     setManualBackupLoading(true);
     try {
@@ -1302,7 +1180,6 @@ const AdminDashboard = () => {
       setManualBackupLoading(false);
     }
   };
-
   const runRetroactiveCleanup = async () => {
     try {
       const res = await fetch(`${BASE_URL}/api/admin/retroactive-sweep`, { method: 'POST' });
@@ -1314,7 +1191,6 @@ const AdminDashboard = () => {
       alert(`❌ ${error.message}`);
     }
   };
-
   const restoreBackup = async (backupId) => {
     if (!window.confirm(`Restore backup ${backupId}? This will overwrite the live offline inventory.`)) return;
     setRestoringBackupId(backupId);
@@ -1334,7 +1210,6 @@ const AdminDashboard = () => {
       setRestoringBackupId(null);
     }
   };
-
   const handleExport = () => {
     const rows = filteredOffline.map(v => ({
       Vendor: v.vendorName,
@@ -1347,30 +1222,38 @@ const AdminDashboard = () => {
     }));
     downloadCsv('platform-directory.csv', rows);
   };
-
   const loadCompanyCsv = async () => {
     setLoadingCompanyCsv(true);
     try {
       const normalizedUrl = normalizeGoogleSheetCsvUrl(companyCsvUrl);
-      const res = await fetch(normalizedUrl, { headers: { Accept: 'text/csv,text/plain,*/*' } });
-      if (!res.ok) throw new Error(`Unable to fetch company CSV (${res.status})`);
-      const csvText = await res.text();
-      const lines = csvText.split(/\r?\n/).filter(Boolean);
-      if (!lines.length) {
-        setCompanyCsvRows([]);
-        return;
+      let csvText = '';
+      if (normalizedUrl.includes('\n') || normalizedUrl.includes(',')) {
+        csvText = normalizedUrl;
+      } else {
+        const res = await fetch(normalizedUrl, { headers: { Accept: 'text/csv,text/plain,*/*' } });
+        if (!res.ok) throw new Error(`Unable to fetch company CSV (${res.status})`);
+        csvText = await res.text();
       }
-      const headers = parseCsvLine(lines[0]).map((header) => String(header || '').replace(/^\uFEFF/, '').trim());
-      const parsedRows = lines.slice(1).map((line) => {
-        const values = parseCsvLine(line);
-        return headers.reduce((acc, header, index) => {
-          acc[header] = values[index] || '';
-          return acc;
-        }, {});
-      }).filter((row) => Object.values(row).some((value) => String(value || '').trim()));
+      let parsedRows = parseCompanyCsvText(csvText);
+      if (!parsedRows.length && /^\s*<!DOCTYPE|^\s*<html/i.test(csvText)) {
+        const sheetId = extractGoogleSheetId(companyCsvUrl);
+        if (!sheetId) {
+          throw new Error('Company CSV URL returned HTML. Please provide a direct CSV link or Google Sheets URL.');
+        }
+        const fallbackUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv&gid=0`;
+        const fallbackRes = await fetch(fallbackUrl, { headers: { Accept: 'text/csv,text/plain,*/*' } });
+        if (!fallbackRes.ok) throw new Error(`Unable to fetch fallback company CSV (${fallbackRes.status})`);
+        const fallbackText = await fallbackRes.text();
+        parsedRows = parseCompanyCsvText(fallbackText);
+      }
+      if (!parsedRows.length) {
+        throw new Error('No rows found in company CSV. Confirm the sheet has a header row and data rows.');
+      }
       setCompanyCsvRows(parsedRows);
+      alert(`✅ Loaded ${parsedRows.length} company pricing rows.`);
     } catch (error) {
       alert(`❌ ${error.message}`);
+      setCompanyCsvRows([]);
     } finally {
       setLoadingCompanyCsv(false);
     }
@@ -1389,10 +1272,13 @@ const AdminDashboard = () => {
       const response = await fetch(`${BASE_URL}/api/admin/extract-detailed-schema`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Accept: 'application/json', 'x-user-role': 'admin' },
-        body: JSON.stringify({ rows: payload }),
+        body: JSON.stringify({ rows: payload, payload, inputs: payload, data: payload }),
       });
-      const data = await response.json();
-      if (!response.ok || !Array.isArray(data)) throw new Error(data?.error || 'AI judge failed');
+      const parsedPayload = await parseApiJsonSafe(response);
+      const data = Array.isArray(parsedPayload)
+        ? parsedPayload
+        : (Array.isArray(parsedPayload?.data) ? parsedPayload.data : []);
+      if (!response.ok || !data.length) throw new Error(parsedPayload?.error || parsedPayload?.message || 'AI judge failed');
 
       const mergedMappings = {};
       data.forEach((item) => {
@@ -1434,7 +1320,6 @@ const AdminDashboard = () => {
   const pricingResults = useMemo(() => {
     const margin = Number(marginValue) || 0;
     const vendorRows = normalizedProductRows.filter((row) => row.vendorName === pricingVendor);
-
     return companyCsvRows.reduce((acc, row) => {
       const companyDevice = getCsvValueByAliases(row, ['Device Type', 'device', 'product', 'model']);
       const companyCondition = getCsvValueByAliases(row, ['Condition']) || 'Unknown';
@@ -1447,23 +1332,18 @@ const AdminDashboard = () => {
       const simType = mappedResult.sim;
       const companyPriceRaw = getCsvValueByAliases(row, ['Regular price', 'Company Price', 'price']);
       const companyPrice = parseNairaValue(companyPriceRaw);
-
       const requiresConditionMatch = condition !== 'Unknown';
       const requiresSimMatch = simType !== 'Unknown';
-
       const vendorMatch = vendorRows
         .filter((item) => item.deviceType === mappedDevice)
         .find((item) => (!storage || item.storage === storage)
           && (!requiresSimMatch || item.simType === simType)
           && (!requiresConditionMatch || item.condition === condition));
-
       if (!vendorMatch) return acc;
-
       const vendorPrice = vendorMatch.priceValue;
       const target = marginType === 'percentage' ? Math.round(vendorPrice * (1 + (margin / 100))) : vendorPrice + margin;
       const adjustment = target - companyPrice;
       const adjustmentPercent = companyPrice > 0 ? Math.round((adjustment / companyPrice) * 100) : 0;
-
       acc.push({
         ...row,
         mappedDevice,
@@ -1476,7 +1356,6 @@ const AdminDashboard = () => {
       return acc;
     }, []);
   }, [companyCsvRows, pricingVendor, marginType, marginValue, normalizedProductRows, officialTargets]);
-
   const exportPricingTxt = () => {
     const lines = pricingResults
       .filter((item) => Number.isFinite(item.companyPrice) && item.companyPrice > 0)
@@ -1527,10 +1406,8 @@ const AdminDashboard = () => {
       alert(`❌ ${error.message}`);
     }
   };
-
   const sendAdminChat = async () => {
     if (!chatVendor || !chatInput.trim()) return;
-
     setSendingChat(true);
     try {
       const response = await fetch(`${BASE_URL}/api/messages/send`, {
@@ -1555,7 +1432,6 @@ const AdminDashboard = () => {
       setSendingChat(false);
     }
   };
-
   const openBulkEdit = () => {
     if (!selectedVendorIds.length) {
       alert('Select at least one vendor first.');
@@ -1566,32 +1442,26 @@ const AdminDashboard = () => {
     setBulkPrice('');
     setBulkEditOpen(true);
   };
-
   const runBulkEdit = async () => {
     const fields = {};
     if (bulkCondition.trim()) fields.Condition = bulkCondition.trim();
     if (bulkCategory.trim()) fields.Category = bulkCategory.trim();
     if (bulkPrice.trim()) fields['Regular price'] = bulkPrice.trim();
-
     if (!Object.keys(fields).length) {
       alert('Please add at least one field update.');
       return;
     }
-
     const selectedVendors = offlineVendors.filter((vendor) => selectedVendorIds.includes(vendor.docId));
     const productIds = [];
-
     selectedVendors.forEach((vendor) => {
       (vendor.products || []).forEach((_product, index) => {
         productIds.push(`${vendor.docId}::${index}`);
       });
     });
-
     if (!productIds.length) {
       alert('No products found for selected vendors.');
       return;
     }
-
     setBulkEditLoading(true);
     try {
       const response = await fetch(`${BASE_URL}/api/inventory/bulk-edit`, {
@@ -1611,7 +1481,6 @@ const AdminDashboard = () => {
       setBulkEditLoading(false);
     }
   };
-
   const undoAuditAction = async (auditId) => {
     if (!window.confirm('Are you sure you want to proceed? This will change the live user experience/data.')) return;
     setRestoringAuditId(auditId);
@@ -1632,19 +1501,16 @@ const AdminDashboard = () => {
       setRestoringAuditId(null);
     }
   };
-
   const advancedAnalytics = useMemo(() => {
     const buckets = {};
     const heat = { 'Admin edits': 0, 'Vendor WhatsApp updates': 0 };
     const accuracy = { 'Automated Fixes': 0, 'Manual Edits': 0 };
-
     normalizedProductRows.forEach((row) => {
       const key = `${row.deviceType} (${row.condition})`;
       if (!buckets[key]) buckets[key] = { total: 0, count: 0 };
       buckets[key].total += row.priceValue;
       buckets[key].count += 1;
     });
-
     offlineVendors.forEach((vendor) => {
       if (selectedVendorFilter !== 'All' && vendor.vendorName !== selectedVendorFilter) return;
       const logs = normalizeLogs(vendor.logs);
@@ -1663,7 +1529,6 @@ const AdminDashboard = () => {
         }
       });
     });
-
     return {
       priceVariance: Object.entries(buckets).slice(0, 10).map(([name, v]) => ({
         name,
@@ -1673,7 +1538,6 @@ const AdminDashboard = () => {
       scraperAccuracy: Object.entries(accuracy).map(([name, value]) => ({ name, value })),
     };
   }, [normalizedProductRows, offlineVendors, selectedVendorFilter]);
-
   return (
     <AdminDashboardLayout notificationCount={unreadMessages.length} onNotificationClick={() => setNotificationOpen(true)}>
       {location.pathname === '/dashboard' || location.pathname === '/dashboard/' ? (
@@ -1742,7 +1606,6 @@ const AdminDashboard = () => {
               <p className="text-xs text-violet-600/80 mt-2">Highest WA conversions</p>
             </button>
           </div>
-
           {/* Tab Navigation */}
           <div className="mb-6 flex overflow-x-auto hide-scrollbar whitespace-nowrap w-full gap-2 pb-2 items-center">
             <div className="flex gap-2 bg-white border border-gray-200 p-1.5 rounded-2xl shadow-sm">
@@ -1757,12 +1620,10 @@ const AdminDashboard = () => {
               <button onClick={() => setActiveTab('maintenance')} className={`flex-shrink-0 px-4 py-2.5 rounded-xl text-sm font-bold transition-all ${activeTab === 'maintenance' ? 'bg-[#1A1C23] text-white shadow-sm' : 'text-gray-600 hover:text-[#1A1C23] hover:bg-gray-100'}`}>System Maintenance</button>
             </div>
           </div>
-
           <datalist id="vendor-search-list">
             <option value="All">All</option>
             {uniqueVendorNames.map((vendor) => <option key={`vendor-search-${vendor}`} value={vendor} />)}
           </datalist>
-
           {/* Conditional Rendering of Tabs */}
           {activeTab === 'analytics' ? (
             <div className="bg-white/70 backdrop-blur-xl rounded-3xl overflow-hidden mb-10 p-6 border border-gray-100 shadow-sm">
@@ -1831,7 +1692,6 @@ const AdminDashboard = () => {
                     </PieChart>
                   </ResponsiveContainer>
                 </div>
-
                 {/* Bar Chart: Condition Distribution */}
                 <div className="h-[380px] border border-gray-100 rounded-2xl p-5 shadow-sm bg-gray-50">
                   <h3 className="font-bold text-gray-700 mb-4 uppercase tracking-widest text-xs">Condition Distribution</h3>
@@ -1852,7 +1712,6 @@ const AdminDashboard = () => {
                   </ResponsiveContainer>
                 </div>
               </div>
-
               {/* Line Chart: Lead Velocity */}
               <div className="h-[400px] border border-gray-100 rounded-2xl p-5 shadow-sm bg-gray-50">
                 <h3 className="font-bold text-gray-700 mb-4 uppercase tracking-widest text-xs">Lead Velocity (WhatsApp Clicks - Last 7 Days)</h3>
@@ -1940,7 +1799,6 @@ const AdminDashboard = () => {
                   </select>
                 </div>
               </div>
-
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 mb-5">
                 <input
                   type="text"
@@ -1954,7 +1812,6 @@ const AdminDashboard = () => {
                   <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="px-4 py-3 rounded-2xl border border-gray-100 bg-white/80 text-sm outline-none focus:ring-2 focus:ring-gray-300" />
                 </div>
               </div>
-
               <div className="mb-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 bg-white/70 backdrop-blur-xl rounded-2xl border border-gray-100 shadow-sm p-4">
                 <p className="text-xs font-bold uppercase tracking-wider text-gray-500">Dictionary Mappings: {Object.keys(masterDictionary).length}</p>
                 <div className="flex items-center gap-2">
@@ -1962,7 +1819,6 @@ const AdminDashboard = () => {
                   <button type="button" onClick={runTwoLayerAIJudge} disabled={isResolvingAI} className="px-4 py-2.5 rounded-2xl text-xs font-black uppercase tracking-wider border border-gray-100 bg-white/80 hover:bg-white disabled:opacity-50">{isResolvingAI ? 'Judging...' : 'Run Two-Layer AI Judge'}</button>
                 </div>
               </div>
-
               <div className="space-y-3">
                 {Object.entries(groupedGlobalProducts).map(([category, brands]) => {
                   const categoryKey = `category:${category}`;
@@ -2068,9 +1924,7 @@ const AdminDashboard = () => {
                   );
                 })}
               </div>
-
               {filteredGlobalProducts.length === 0 && <p className="text-center text-sm text-gray-400 py-8">No grouped products match your filters.</p>}
-
               {filteredGlobalProducts.length > 0 && (
                 <div className="flex items-center justify-between px-2 pt-5">
                   <p className="text-xs font-semibold text-gray-600">Page {currentProductPage} of {totalProductPages} • Showing {paginatedGroupedProducts.length} of {filteredGlobalProducts.length} grouped rows</p>
@@ -2253,7 +2107,6 @@ const AdminDashboard = () => {
                   Generates a pre-formatted WhatsApp onboarding link for vendors and copies a shortened version to your clipboard.
                 </div>
               </div>
-
               <div className="bg-white border border-gray-200 rounded-xl p-4">
                 <h3 className="font-black text-[#1A1C23] mb-3">Tutorial Video Manager</h3>
                 <div className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-3">
@@ -2278,7 +2131,6 @@ const AdminDashboard = () => {
             <div className="bg-white border border-gray-200 rounded-2xl p-5 shadow-sm">
               <h2 className="text-xl font-black text-[#1A1C23] mb-2">System Maintenance</h2>
               <p className="text-sm text-gray-500 mb-4">Restore backup snapshots from local JSON or Google Drive versions using Safe Restore auto-save.</p>
-
               <div className="mb-5 flex gap-3 flex-wrap">
                 <label className="inline-flex items-center gap-2 bg-[#1A1C23] text-white px-4 py-2 rounded-lg font-bold text-sm cursor-pointer hover:bg-black">
                   {uploadRestoreLoading ? 'Uploading...' : 'Upload & Safe Restore from Local JSON'}
@@ -2286,13 +2138,11 @@ const AdminDashboard = () => {
                 </label>
                 <button onClick={runRetroactiveCleanup} className="bg-emerald-600 text-white px-4 py-2 rounded-lg font-bold text-sm hover:bg-emerald-700">🧹 Run Retroactive Cleanup</button>
               </div>
-
               <div className="border-t pt-4">
                 <div className="flex items-center justify-between mb-3">
                   <h3 className="text-sm font-black uppercase tracking-wider text-gray-600">Cloud Backups (Drive)</h3>
                   <button onClick={fetchDriveBackups} className="text-xs font-bold px-3 py-1.5 bg-gray-100 rounded-lg hover:bg-gray-200">Refresh</button>
                 </div>
-
                 {loadingDriveBackups ? (
                   <p className="text-sm text-gray-400">Loading cloud backups...</p>
                 ) : driveBackups.length ? (
@@ -2334,7 +2184,6 @@ const AdminDashboard = () => {
                   <button onClick={handleExport} className="bg-gray-800 text-white px-6 py-2 rounded-xl text-xs font-black uppercase tracking-wider hover:bg-black shadow-md transition-all">Export</button>
                 </div>
               </div>
-
               {selectedVendorIds.length > 0 && (
                 <div className="sticky bottom-4 z-20 bg-[#1A1C23] text-white px-4 py-3 rounded-xl shadow-lg mb-4 flex flex-wrap items-center justify-between gap-3">
                   <p className="text-sm font-bold">{selectedVendorIds.length} vendors selected</p>
@@ -2344,7 +2193,6 @@ const AdminDashboard = () => {
                   </div>
                 </div>
               )}
-
               {/* Vendor Directory */}
               <div className="bg-white/70 backdrop-blur-xl border border-white/20 rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] overflow-hidden">
                 <table className="w-full text-left">
@@ -2438,7 +2286,6 @@ const AdminDashboard = () => {
       ) : (
         <Outlet />
       )}
-
       {bulkEditOpen && (
         <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
           <div className="bg-white w-full max-w-lg rounded-2xl shadow-2xl border border-gray-200 overflow-hidden">
@@ -2460,7 +2307,6 @@ const AdminDashboard = () => {
           </div>
         </div>
       )}
-
       {/* Global Notification Modal */}
       {notificationOpen && (
         <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
@@ -2499,7 +2345,6 @@ const AdminDashboard = () => {
           </div>
         </div>
       )}
-
       {/* Admin-to-Vendor Chat Modal */}
       {chatOpen && chatVendor && (
         <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
@@ -2558,5 +2403,4 @@ const AdminDashboard = () => {
     </AdminDashboardLayout>
   );
 };
-
 export default AdminDashboard;
