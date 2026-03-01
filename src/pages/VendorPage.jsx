@@ -254,7 +254,7 @@ const VendorPage = () => {
             existingNumbers[1] || '',
             existingNumbers[2] || '',
           ]);
-          setBusinessTypeInput(payload.businessType || 'Other');
+          setBusinessTypeInput(payload.metaData || payload.businessType || 'Other');
           setStorefrontDisplayLimit(Number(payload.storefrontDisplayLimit) > 0 ? Number(payload.storefrontDisplayLimit) : 20);
 
           const storedSessionTime = localStorage.getItem(`vendor_session_${vendorId}`);
@@ -330,8 +330,9 @@ const VendorPage = () => {
     const now = Date.now();
     const thisWeek = [];
     const lastWeek = [];
+    const vendorOnlyRows = products.filter((product) => product.isVisible !== false);
 
-    displayData.forEach(({ product }) => {
+    vendorOnlyRows.forEach((product) => {
       const postedAt = new Date(product.DatePosted || product.lastUpdated || 0).getTime();
       if (!postedAt) return;
       const ageDays = (now - postedAt) / (1000 * 60 * 60 * 24);
@@ -346,37 +347,22 @@ const VendorPage = () => {
     const direction = thisWeekAvg >= lastWeekAvg ? 'up' : 'down';
 
     return { thisWeekAvg, lastWeekAvg, direction };
-  }, [displayData]);
+  }, [products]);
 
   const storefrontProducts = useMemo(
     () => displayData.map(({ product }) => product).filter((product) => product.isVisible !== false),
     [displayData]
   );
 
-  const exportLines = useMemo(() => {
-    const grouped = {};
-
-    storefrontProducts.forEach((product) => {
+  const exportLines = useMemo(() => (
+    storefrontProducts.map((product) => {
       const category = product.Category || 'Others';
       const brand = product.Brand || 'Others';
       const device = product['Device Type'] || 'Unknown Device';
-      if (!grouped[category]) grouped[category] = {};
-      if (!grouped[category][brand]) grouped[category][brand] = [];
-      grouped[category][brand].push({ device, price: normalizePriceInput(product['Regular price']) });
-    });
-
-    const lines = [];
-    Object.entries(grouped).forEach(([category, brands]) => {
-      lines.push(`*${category}*`);
-      Object.entries(brands).forEach(([brand, devices]) => {
-        lines.push(`  ${brand}`);
-        devices.forEach((row) => lines.push(`    ${row.device} - ${row.price}`));
-      });
-      lines.push('');
-    });
-
-    return lines;
-  }, [storefrontProducts]);
+      const price = normalizePriceInput(product['Regular price']);
+      return `${category} -> ${brand} -> ${device} -> ${price}`;
+    })
+  ), [storefrontProducts]);
 
 
   const handleVendorPasswordSubmit = () => {
@@ -723,6 +709,7 @@ const VendorPage = () => {
       vendorPassword: vendorPasswordInput,
       storefrontAllowedGroups: cleanedAllowedGroups,
       businessType: businessTypeInput || 'Other',
+      metaData: businessTypeInput || 'Other',
       storefrontDisplayLimit: Number(storefrontDisplayLimit) > 0 ? Number(storefrontDisplayLimit) : 20,
     };
 
@@ -1077,13 +1064,15 @@ const VendorPage = () => {
               <p className="text-xs font-black uppercase tracking-wider text-gray-500 mb-2">Market Trend</p>
               <p className={`text-lg font-black ${marketTrend.direction === 'up' ? 'text-emerald-600' : 'text-red-600'}`}>{marketTrend.direction === 'up' ? '↗ Prices Up' : '↘ Prices Down'}</p>
               <p className="text-sm text-gray-600 mt-1">Last Week Avg: {Math.round(marketTrend.lastWeekAvg).toLocaleString()} • This Week Avg: {Math.round(marketTrend.thisWeekAvg).toLocaleString()}</p>
+              <p className="text-[11px] font-semibold text-gray-500 mt-2">Private Vendor Analytics: Only your storefront-enabled products are analyzed.</p>
             </div>
             <div className="bg-white/70 backdrop-blur-xl border border-gray-100 rounded-2xl p-4">
               <p className="text-xs font-black uppercase tracking-wider text-gray-500 mb-3">Export My Pricelist</p>
+              <p className="text-[11px] text-gray-500 mb-2">Strict format: Category -&gt; Brand -&gt; Device -&gt; Price</p>
               <div className="flex gap-2 flex-wrap">
                 <button onClick={async () => { await navigator.clipboard.writeText(exportLines.join('\n')); alert('✅ Pricelist copied for WhatsApp.'); }} className="bg-[#1A1C23] text-white px-3 py-2 rounded-lg text-xs font-black uppercase">Copy for WhatsApp</button>
                 <button onClick={() => { const blob = new Blob([exportLines.join('\n')], { type: 'text/plain' }); const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `${vendorData.vendorName || 'vendor'}-pricelist.txt`; a.click(); }} className="bg-blue-600 text-white px-3 py-2 rounded-lg text-xs font-black uppercase">Download TXT</button>
-                <button onClick={() => downloadCsv(`${vendorData.vendorName || 'vendor'}-pricelist.csv`, storefrontProducts.map((product) => ({ Category: product.Category || 'Others', Brand: product.Brand || 'Others', Device: product['Device Type'] || '', Price: normalizePriceInput(product['Regular price']) })))} className="bg-emerald-600 text-white px-3 py-2 rounded-lg text-xs font-black uppercase">Download CSV</button>
+                <button onClick={() => downloadCsv(`${vendorData.vendorName || 'vendor'}-pricelist.csv`, storefrontProducts.map((product) => ({ Export: `${product.Category || 'Others'} -> ${product.Brand || 'Others'} -> ${product['Device Type'] || ''} -> ${normalizePriceInput(product['Regular price'])}` })))} className="bg-emerald-600 text-white px-3 py-2 rounded-lg text-xs font-black uppercase">Download CSV</button>
               </div>
             </div>
           </div>
@@ -1248,6 +1237,10 @@ const VendorPage = () => {
         <div className="bg-white/70 backdrop-blur-xl border border-white/20 rounded-3xl p-6 shadow-[0_8px_30px_rgb(0,0,0,0.04)]">
           <h2 className="text-2xl font-black tracking-tight text-gray-900 mb-2">Metadata</h2>
           <p className="text-sm text-gray-500 mb-5">Set your business classification for better customer context.</p>
+          <div className="mb-4 p-3 rounded-xl bg-white/80 border border-gray-100 max-w-md">
+            <p className="text-[11px] uppercase tracking-wider text-gray-500 font-black">CRM Assigned Category</p>
+            <p className="text-sm font-bold text-gray-800">{vendorData.metaData || vendorData.businessType || 'Other'}</p>
+          </div>
           <div className="max-w-md">
             <label className="block text-xs font-black uppercase tracking-wider text-gray-500 mb-2">Business Type</label>
             <select
