@@ -19,9 +19,6 @@ const MASTER_DICTIONARY_STORAGE_KEY = 'admin-master-dictionary-v1';
 const FALLBACK_MASTER_DICTIONARY_CSV = 'https://example.com/master-dictionary.csv';
 const FALLBACK_COMPANY_PRICING_CSV = 'https://example.com/company-pricing.csv';
 
-const BRAND_NEW_CONDITIONS = new Set(['brand new', 'pristine boxed', 'new']);
-const USED_CONDITIONS = new Set(['grade a uk used', 'grade a used', 'used']);
-
 const toCsv = (rows) => {
   if (!rows.length) return '';
   const headers = Object.keys(rows[0]);
@@ -232,11 +229,21 @@ const getCsvValueByAliases = (row = {}, aliases = []) => {
   return entry ? entry[1] : '';
 };
 
-const smartMapDevice = (rawString, officialTargets = []) => {
+const smartMapDevice = (rawString, officialTargets = [], customMappings = {}) => {
   const original = String(rawString || '').trim();
-  if (!original) return 'Unknown Device';
+  if (!original) {
+    return {
+      standardName: 'Unknown Device',
+      condition: 'Unknown',
+      sim: 'Unknown',
+      isOthers: true,
+    };
+  }
 
-  const normalizedRaw = original
+  const mappingKey = normalizeDictionaryKey(original);
+  const mappedSeed = customMappings?.[mappingKey] || original;
+
+  const normalizedRaw = String(mappedSeed || '')
     .toLowerCase()
     .replace(/\+/g, ' plus ')
     .replace(/\bpm\b/g, ' pro max ')
@@ -268,17 +275,31 @@ const smartMapDevice = (rawString, officialTargets = []) => {
     .filter((target) => target.normalized);
 
   const exact = normalizedTargets.find((target) => normalizedRaw === target.normalized);
-  if (exact) return exact.raw;
-
-  const candidate = normalizedTargets
+  const standardName = exact?.raw || normalizedTargets
     .filter((target) => normalizedRaw.includes(target.normalized) && samsungSuffixGuard(target.normalized))
-    .sort((a, b) => b.normalized.length - a.normalized.length)[0];
+    .sort((a, b) => b.normalized.length - a.normalized.length)[0]?.raw || mappedSeed;
 
-  return candidate?.raw || original;
+  const result = {
+    standardName: standardName || 'Unknown Device',
+    condition: 'Unknown',
+    sim: 'Unknown',
+    isOthers: false,
+  };
+
+  if (result && result.standardName !== 'Unknown Device') {
+    result.condition = standardizeCondition(original);
+    result.sim = normalizeSimType(original);
+
+    if (result.condition === 'Unknown') {
+      result.isOthers = true;
+    }
+  }
+
+  return result;
 };
 
 const getConditionRank = (condition) => {
-  const standardized = standardizeCondition(condition).condition;
+  const standardized = standardizeCondition(condition);
   if (standardized === 'Brand New') return 0;
   if (standardized === 'Grade A UK Used') return 1;
   return 2;
@@ -317,21 +338,23 @@ const getStorageRank = (storage) => {
   return unit === 'tb' ? value * 1024 : value;
 };
 
-const standardizeCondition = (condition) => {
-  const normalized = String(condition || '').toLowerCase().trim();
-  if (BRAND_NEW_CONDITIONS.has(normalized)) return { condition: 'Brand New', cleanStatus: 'clean' };
-  if (USED_CONDITIONS.has(normalized)) return { condition: 'Grade A UK Used', cleanStatus: 'clean' };
-  return { condition: 'Unclean', cleanStatus: 'unclean' };
+const standardizeCondition = (raw) => {
+  const normalized = String(raw || '').toLowerCase();
+  if (/(used|open\s*box|uk)/i.test(normalized)) return 'Grade A UK Used';
+  if (/(new|pristine|sealed)/i.test(normalized)) return 'Brand New';
+  return 'Unknown';
 };
 
-const normalizeSimType = (simType, deviceType) => {
-  const rawSim = String(simType || '').trim();
-  if (rawSim) return rawSim;
-  const normalizedDevice = String(deviceType || '').toLowerCase();
-  if (normalizedDevice.includes('iphone') || normalizedDevice.includes('ipad') || normalizedDevice.includes('apple')) {
-    return 'Physical SIM + ESIM (Dual)';
-  }
-  return 'N/A';
+const normalizeSimType = (raw) => {
+  const normalized = String(raw || '').toLowerCase();
+  const hasEsim = /\besim\b/i.test(normalized);
+  const hasPhysical = /\bphysical\b/i.test(normalized);
+  const hasDual = /\bdual\b/i.test(normalized);
+
+  if ((hasPhysical && hasEsim) || hasDual) return 'Physical SIM + ESIM';
+  if (hasEsim) return 'ESIM';
+  if (hasPhysical) return 'Physical SIM';
+  return 'Unknown';
 };
 
 const inferBrandSubCategory = (deviceType) => {
@@ -717,12 +740,14 @@ const AdminDashboard = () => {
       offlineVendors.forEach((vendor) => {
         (vendor.products || []).forEach((product, index) => {
           const rawDeviceType = (product['Device Type'] || 'Unknown Device').trim() || 'Unknown Device';
-          const dictionaryMapped = parsed.dictionary[normalizeDictionaryKey(rawDeviceType)] || rawDeviceType;
-          const smartMappedDeviceType = smartMapDevice(dictionaryMapped, parsed.officialTargets);
-          const rawCondition = standardizeCondition(product.Condition || 'Unknown');
+          const rawDescriptor = `${rawDeviceType} ${product.Condition || ''} ${product['SIM Type/Model/Processor'] || ''}`.trim();
+          const mappedResult = smartMapDevice(rawDescriptor, parsed.officialTargets, parsed.dictionary);
+          const smartMappedDeviceType = mappedResult.standardName;
           const productDate = product.DatePosted || vendor.lastUpdated;
           const category = (product.Category || 'Others').trim() || 'Others';
-          const normalizedSim = normalizeSimType(product['SIM Type/Model/Processor'], smartMappedDeviceType);
+          const rawCondition = mappedResult.condition;
+          const cleanStatus = rawCondition === 'Unknown' ? 'unclean' : 'clean';
+          const normalizedSim = mappedResult.sim;
           const storage = (product['Storage Capacity/Configuration'] || 'N/A').trim() || 'N/A';
 
           mappedRows.push({
@@ -734,8 +759,8 @@ const AdminDashboard = () => {
             brandSubCategory: inferBrandSubCategory(smartMappedDeviceType),
             series: inferSeries(smartMappedDeviceType),
             deviceType: smartMappedDeviceType,
-            condition: rawCondition.condition,
-            cleanStatus: rawCondition.cleanStatus,
+            condition: rawCondition,
+            cleanStatus,
             simType: normalizedSim,
             storage,
             price: product['Regular price'] || 'N/A',
@@ -814,10 +839,11 @@ const AdminDashboard = () => {
       if (!isWithinDateRange(productDate, startDate, endDate)) return;
 
       const rawDeviceType = (product['Device Type'] || 'Unknown Device').trim() || 'Unknown Device';
-      const dictionaryMapped = masterDictionary[normalizeDictionaryKey(rawDeviceType)] || rawDeviceType;
-      const mappedDeviceType = smartMapDevice(dictionaryMapped, officialTargets);
-      const rawCondition = standardizeCondition(product.Condition || 'Unknown');
-      const normalizedSim = normalizeSimType(product['SIM Type/Model/Processor'], mappedDeviceType);
+      const rawDescriptor = `${rawDeviceType} ${product.Condition || ''} ${product['SIM Type/Model/Processor'] || ''}`.trim();
+      const mappedResult = smartMapDevice(rawDescriptor, officialTargets, masterDictionary);
+      const mappedDeviceType = mappedResult.standardName;
+      const rawCondition = mappedResult.condition;
+      const normalizedSim = mappedResult.sim;
       const storage = (product['Storage Capacity/Configuration'] || 'N/A').trim() || 'N/A';
       const category = (product.Category || 'Others').trim() || 'Others';
       const brandSubCategory = inferBrandSubCategory(mappedDeviceType);
@@ -833,7 +859,7 @@ const AdminDashboard = () => {
       ].join(' ').toLowerCase();
 
       const isExcluded = excludedTokens.some((phrase) => haystack.includes(phrase));
-      const cleanStatus = isExcluded ? 'excluded' : rawCondition.cleanStatus;
+      const cleanStatus = isExcluded ? 'excluded' : (rawCondition === 'Unknown' ? 'unclean' : 'clean');
 
       if (dataViewMode !== 'all' && cleanStatus !== dataViewMode) return;
 
@@ -846,7 +872,7 @@ const AdminDashboard = () => {
         brandSubCategory,
         series,
         deviceType: mappedDeviceType,
-        condition: rawCondition.condition,
+        condition: rawCondition,
         cleanStatus,
         simType: normalizedSim,
         storage,
@@ -1311,7 +1337,7 @@ const AdminDashboard = () => {
         setCompanyCsvRows([]);
         return;
       }
-      const headers = parseCsvLine(lines[0]).map((header) => String(header || '').replace(/^﻿/, '').trim());
+      const headers = parseCsvLine(lines[0]).map((header) => String(header || '').replace(/^\uFEFF/, '').trim());
       const parsedRows = lines.slice(1).map((line) => {
         const values = parseCsvLine(line);
         return headers.reduce((acc, header, index) => {
@@ -1333,16 +1359,25 @@ const AdminDashboard = () => {
 
     return companyCsvRows.reduce((acc, row) => {
       const companyDevice = getCsvValueByAliases(row, ['Device Type', 'device', 'product', 'model']);
-      const mappedDevice = smartMapDevice(companyDevice, officialTargets);
-      const condition = standardizeCondition(getCsvValueByAliases(row, ['Condition']) || 'Unknown').condition;
+      const companyCondition = getCsvValueByAliases(row, ['Condition']) || 'Unknown';
+      const companySim = getCsvValueByAliases(row, ['SIM Type/Model/Processor', 'sim type', 'model']);
+      const companyRawDescriptor = `${companyDevice} ${companyCondition} ${companySim}`.trim();
+      const mappedResult = smartMapDevice(companyRawDescriptor, officialTargets);
+      const mappedDevice = mappedResult.standardName;
+      const condition = mappedResult.condition;
       const storage = getCsvValueByAliases(row, ['Storage Capacity/Configuration', 'storage', 'configuration']);
-      const simType = getCsvValueByAliases(row, ['SIM Type/Model/Processor', 'sim type', 'model']);
+      const simType = mappedResult.sim;
       const companyPriceRaw = getCsvValueByAliases(row, ['Regular price', 'Company Price', 'price']);
       const companyPrice = parseNairaValue(companyPriceRaw);
 
+      const requiresConditionMatch = condition !== 'Unknown';
+      const requiresSimMatch = simType !== 'Unknown';
+
       const vendorMatch = vendorRows
         .filter((item) => item.deviceType === mappedDevice)
-        .find((item) => (!storage || item.storage === storage) && (!simType || item.simType === simType) && (!condition || item.condition === condition));
+        .find((item) => (!storage || item.storage === storage)
+          && (!requiresSimMatch || item.simType === simType)
+          && (!requiresConditionMatch || item.condition === condition));
 
       if (!vendorMatch) return acc;
 
