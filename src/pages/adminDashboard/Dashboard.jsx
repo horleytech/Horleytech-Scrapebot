@@ -141,19 +141,6 @@ const parseApiJsonSafe = async (response) => {
     throw new Error(`Invalid JSON response from server: ${trimmed.slice(0, 180)}`);
   }
 };
-const postJsonWithFallbackRoutes = async (routes = [], options = {}) => {
-  const attemptedErrors = [];
-  for (const route of routes) {
-    try {
-      const response = await fetch(`${BASE_URL}${route}`, options);
-      const parsedPayload = await parseApiJsonSafe(response);
-      return { response, parsedPayload, route };
-    } catch (error) {
-      attemptedErrors.push(`${route}: ${error.message}`);
-    }
-  }
-  throw new Error(attemptedErrors.join(' | ') || 'No API routes configured.');
-};
 const parseCompanyCsvText = (csvText = '') => {
   const safeText = normalizeCsvText(csvText);
   const lines = safeText.split(/\n/).map((line) => line.trimEnd()).filter(Boolean);
@@ -748,6 +735,7 @@ const AdminDashboard = () => {
           const storage = (product['Storage Capacity/Configuration'] || 'N/A').trim() || 'N/A';
           mappedRows.push({
             id: `${vendor.docId}-${index}-${smartMappedDeviceType}`,
+            raw: rawDescriptor,
             vendorName: vendor.vendorName,
             vendorLink: vendor.shareableLink,
             date: productDate || 'N/A',
@@ -802,65 +790,45 @@ const AdminDashboard = () => {
       .split(',')
       .map((token) => token.trim().toLowerCase())
       .filter(Boolean);
-    const rows = [];
-    const sourceRows = offlineVendors.flatMap((vendor) => (vendor.products || []).map((product, index) => ({ vendor, product, index })));
-    if (!offlineVendors.length && globalProductsCacheRows.length) {
-      globalProductsCacheRows.forEach((row, index) => {
-        if (selectedVendorFilter !== 'All' && row.vendorName !== selectedVendorFilter) return;
-        if (!isWithinDateRange(row.date, startDate, endDate)) return;
-        const haystack = [row.category, row.deviceType, row.condition, row.simType, row.storage].join(' ').toLowerCase();
+    return globalProductsCacheRows
+      .filter((row) => {
+        if (selectedVendorFilter !== 'All' && row.vendorName !== selectedVendorFilter) return false;
+        if (!isWithinDateRange(row.date, startDate, endDate)) return false;
+        const haystack = [
+          row.category,
+          row.brandSubCategory,
+          row.series,
+          row.deviceType,
+          row.condition,
+          row.simType,
+          row.storage,
+          row.raw,
+        ].join(' ').toLowerCase();
         const isExcluded = excludedTokens.some((phrase) => haystack.includes(phrase));
-        const cleanStatus = isExcluded ? 'excluded' : row.cleanStatus;
-        if (dataViewMode !== 'all' && cleanStatus !== dataViewMode) return;
-        rows.push({ ...row, id: row.id || `cache-${index}`, cleanStatus });
+        const cleanStatus = isExcluded ? 'excluded' : (row.cleanStatus || 'clean');
+        if (dataViewMode !== 'all' && cleanStatus !== dataViewMode) return false;
+        return true;
+      })
+      .map((row, index) => {
+        const haystack = [
+          row.category,
+          row.brandSubCategory,
+          row.series,
+          row.deviceType,
+          row.condition,
+          row.simType,
+          row.storage,
+          row.raw,
+        ].join(' ').toLowerCase();
+        const isExcluded = excludedTokens.some((phrase) => haystack.includes(phrase));
+        const cleanStatus = isExcluded ? 'excluded' : (row.cleanStatus || 'clean');
+        return {
+          ...row,
+          id: row.id || `cache-${index}`,
+          cleanStatus,
+        };
       });
-      return rows;
-    }
-    sourceRows.forEach(({ vendor, product, index }) => {
-      if (selectedVendorFilter !== 'All' && vendor.vendorName !== selectedVendorFilter) return;
-      const productDate = product.DatePosted || vendor.lastUpdated;
-      if (!isWithinDateRange(productDate, startDate, endDate)) return;
-      const rawDeviceType = (product['Device Type'] || 'Unknown Device').trim() || 'Unknown Device';
-      const rawDescriptor = `${rawDeviceType} ${product.Condition || ''} ${product['SIM Type/Model/Processor'] || ''}`.trim();
-      const mappedResult = smartMapDevice(rawDescriptor, officialTargets, masterDictionary);
-      const mappedDeviceType = mappedResult.standardName;
-      const rawCondition = mappedResult.condition;
-      const normalizedSim = mappedResult.sim;
-      const storage = (product['Storage Capacity/Configuration'] || 'N/A').trim() || 'N/A';
-      const category = (product.Category || 'Others').trim() || 'Others';
-      const brandSubCategory = inferBrandSubCategory(mappedDeviceType);
-      const series = inferSeries(mappedDeviceType);
-      const haystack = [
-        product.Category,
-        rawDeviceType,
-        mappedDeviceType,
-        product.Condition,
-        product['SIM Type/Model/Processor'],
-        product['Storage Capacity/Configuration'],
-      ].join(' ').toLowerCase();
-      const isExcluded = excludedTokens.some((phrase) => haystack.includes(phrase));
-      const cleanStatus = isExcluded ? 'excluded' : ((rawCondition === 'Unknown' || mappedResult.aiRequired) ? 'unclean' : 'clean');
-
-      if (dataViewMode !== 'all' && cleanStatus !== dataViewMode) return;
-      rows.push({
-        id: `${vendor.docId}-${index}-${mappedDeviceType}`,
-        vendorName: vendor.vendorName,
-        vendorLink: vendor.shareableLink,
-        date: productDate || 'N/A',
-        category,
-        brandSubCategory,
-        series,
-        deviceType: mappedDeviceType,
-        condition: rawCondition,
-        cleanStatus,
-        simType: normalizedSim,
-        storage,
-        price: product['Regular price'] || 'N/A',
-        priceValue: parseNairaValue(product['Regular price']),
-      });
-    });
-    return rows;
-  }, [offlineVendors, globalProductsCacheRows, startDate, endDate, masterDictionary, officialTargets, selectedVendorFilter, dataViewMode, excludedPhrases]);
+  }, [globalProductsCacheRows, startDate, endDate, selectedVendorFilter, dataViewMode, excludedPhrases]);
   const filteredProductRows = useMemo(() => {
     const queryText = productSearchQuery.trim().toLowerCase();
     return normalizedProductRows.filter((row) => {
@@ -1273,49 +1241,82 @@ const AdminDashboard = () => {
   };
 
   const runTwoLayerAIJudge = async () => {
-    const candidates = normalizedProductRows.filter((row) => row.cleanStatus !== 'clean' || row.deviceType === 'Unknown Device');
+    const candidateSet = new Set();
+    offlineVendors.forEach((vendor) => {
+      (vendor.products || []).forEach((product) => {
+        const rawDeviceType = (product['Device Type'] || 'Unknown Device').trim() || 'Unknown Device';
+        const rawDescriptor = `${rawDeviceType} ${product.Condition || ''} ${product['SIM Type/Model/Processor'] || ''}`.trim();
+        if (!rawDescriptor) return;
+        const mappingKey = normalizeDictionaryKey(rawDescriptor);
+        const mapped = masterDictionary[mappingKey];
+        const inferredDeviceType = mapped?.standardName || rawDeviceType;
+        const inferredCondition = mapped?.condition || 'Unknown';
+        const cleanStatus = inferredCondition === 'Unknown' ? 'unclean' : 'clean';
+        if (inferredDeviceType === 'Unknown Device' || cleanStatus === 'unclean') {
+          candidateSet.add(rawDescriptor);
+        }
+      });
+    });
+
+    const candidates = Array.from(candidateSet);
     if (!candidates.length) {
       alert('No unclean rows detected for AI judge.');
       return;
     }
 
-    setIsResolvingAI(true);
+    setIsResolvingAI(`Judging 0 / ${candidates.length}`);
     try {
-      const payload = candidates.map((row) => ({ raw: `${row.deviceType} ${row.condition} ${row.simType} ${row.storage}`.trim() }));
-      const { response, parsedPayload } = await postJsonWithFallbackRoutes([
-        '/api/admin/extract-detailed-schema',
-        '/api/v1/admin/extract-detailed-schema',
-      ], {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Accept: 'application/json', 'x-user-role': 'admin' },
-        body: JSON.stringify({ rows: payload, payload, inputs: payload, data: payload }),
-      });
-      const data = Array.isArray(parsedPayload)
-        ? parsedPayload
-        : (Array.isArray(parsedPayload?.data) ? parsedPayload.data : []);
-      if (!response.ok || !data.length) throw new Error(parsedPayload?.error || parsedPayload?.message || 'AI judge failed');
-
       const mergedMappings = {};
-      data.forEach((item) => {
-        const raw = String(item?.raw || '').trim();
-        if (!raw) return;
-        const key = normalizeDictionaryKey(raw);
-        mergedMappings[key] = {
-          standardName: item.deviceType || 'Unknown Device',
-          condition: item.condition || 'Unknown',
-          sim: item.sim || 'Unknown',
-          isOthers: Boolean(item.isOthers),
-          category: item.category || 'Others',
-          brand: item.brand || 'Others',
-          series: item.series || 'Others',
-          deviceType: item.deviceType || 'Unknown Device',
-        };
-      });
+      const chunkSize = 50;
+      let processed = 0;
+      let hadFailure = false;
+
+      for (let i = 0; i < candidates.length; i += chunkSize) {
+        const chunk = candidates.slice(i, i + chunkSize);
+
+        try {
+          const response = await fetch(`${BASE_URL}/api/admin/extract-detailed-schema`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Accept: 'application/json', 'x-user-role': 'admin' },
+            body: JSON.stringify({ rows: chunk }),
+          });
+          const parsedPayload = await parseApiJsonSafe(response);
+          const data = Array.isArray(parsedPayload?.data) ? parsedPayload.data : [];
+
+          if (!response.ok) {
+            throw new Error(parsedPayload?.error || parsedPayload?.message || `AI judge failed (${response.status})`);
+          }
+
+          data.forEach((item) => {
+            const raw = String(item?.raw || '').trim();
+            if (!raw) return;
+            const key = normalizeDictionaryKey(raw);
+            mergedMappings[key] = {
+              standardName: item.deviceType || 'Unknown Device',
+              condition: item.condition || 'Unknown',
+              sim: item.sim || 'Unknown',
+              isOthers: Boolean(item.isOthers),
+              category: item.category || 'Others',
+              brand: item.brand || 'Others',
+              series: item.series || 'Others',
+              deviceType: item.deviceType || 'Unknown Device',
+            };
+          });
+        } catch (error) {
+          hadFailure = true;
+          alert(`❌ AI Judge stopped at ${processed}/${candidates.length}: ${error.message}`);
+          break;
+        }
+
+        processed += chunk.length;
+        setIsResolvingAI(`Judging ${processed} / ${candidates.length}`);
+      }
 
       if (Object.keys(mergedMappings).length) {
-        setMasterDictionary((prev) => ({ ...prev, ...mergedMappings }));
+        const updatedDictionary = { ...masterDictionary, ...mergedMappings };
+        setMasterDictionary(updatedDictionary);
         localStorage.setItem(MASTER_DICTIONARY_STORAGE_KEY, JSON.stringify({
-          dictionary: { ...masterDictionary, ...mergedMappings },
+          dictionary: updatedDictionary,
           officialTargets,
         }));
         await setDoc(doc(db, 'horleyTech_Settings', 'customMappings'), {
@@ -1324,7 +1325,9 @@ const AdminDashboard = () => {
         }, { merge: true });
       }
 
-      alert(`✅ Two-Layer AI Judge processed ${data.length} records.`);
+      if (!hadFailure) {
+        alert(`✅ Two-Layer AI Judge processed ${candidates.length} descriptors.`);
+      }
     } catch (error) {
       alert(`❌ ${error.message}`);
     } finally {
@@ -1831,7 +1834,7 @@ const AdminDashboard = () => {
                 <p className="text-xs font-bold uppercase tracking-wider text-gray-500">Dictionary Mappings: {Object.keys(masterDictionary).length}</p>
                 <div className="flex items-center gap-2">
                   <button type="button" onClick={syncMasterDictionary} disabled={syncingDictionary} className="px-4 py-2.5 rounded-2xl text-xs font-black uppercase tracking-wider border border-gray-100 bg-white/80 hover:bg-white disabled:opacity-50">{syncingDictionary ? 'Syncing...' : 'Sync Master Dictionary'}</button>
-                  <button type="button" onClick={runTwoLayerAIJudge} disabled={isResolvingAI} className="px-4 py-2.5 rounded-2xl text-xs font-black uppercase tracking-wider border border-gray-100 bg-white/80 hover:bg-white disabled:opacity-50">{isResolvingAI ? 'Judging...' : 'Run Two-Layer AI Judge'}</button>
+                  <button type="button" onClick={runTwoLayerAIJudge} disabled={Boolean(isResolvingAI)} className="px-4 py-2.5 rounded-2xl text-xs font-black uppercase tracking-wider border border-gray-100 bg-white/80 hover:bg-white disabled:opacity-50">{isResolvingAI ? (typeof isResolvingAI === 'string' ? isResolvingAI : 'Judging...') : 'Run Two-Layer AI Judge'}</button>
                 </div>
               </div>
               <div className="space-y-3">
