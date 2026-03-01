@@ -229,6 +229,20 @@ const getCsvValueByAliases = (row = {}, aliases = []) => {
   return entry ? entry[1] : '';
 };
 
+const extractLaptopSpecs = (raw) => {
+  const normalized = String(raw || '').toLowerCase();
+  const ramMatch = normalized.match(/\b(\d{1,3})\s*gb\s*(ram)?\b/);
+  const storageMatch = normalized.match(/\b(\d{1,2}(?:\.\d+)?)\s*(tb|gb|ssd)\b/);
+  const ram = ramMatch ? `${ramMatch[1]}GB` : 'Unknown';
+
+  if (!storageMatch) return { ram, storage: 'Unknown' };
+  const storageUnit = storageMatch[2] === 'ssd' ? 'GB' : storageMatch[2].toUpperCase();
+  return {
+    ram,
+    storage: `${storageMatch[1]}${storageUnit}`,
+  };
+};
+
 const smartMapDevice = (rawString, officialTargets = [], customMappings = {}) => {
   const original = String(rawString || '').trim();
   if (!original) {
@@ -237,11 +251,15 @@ const smartMapDevice = (rawString, officialTargets = [], customMappings = {}) =>
       condition: 'Unknown',
       sim: 'Unknown',
       isOthers: true,
+      aiRequired: true,
     };
   }
 
   const mappingKey = normalizeDictionaryKey(original);
-  const mappedSeed = customMappings?.[mappingKey] || original;
+  const mappingEntry = customMappings?.[mappingKey];
+  const mappedSeed = typeof mappingEntry === 'object'
+    ? (mappingEntry.standardName || mappingEntry.deviceType || original)
+    : (mappingEntry || original);
 
   const normalizedRaw = String(mappedSeed || '')
     .toLowerCase()
@@ -252,14 +270,16 @@ const smartMapDevice = (rawString, officialTargets = [], customMappings = {}) =>
     .trim();
 
   const samsungSuffixGuard = (targetNormalized) => {
-    const samsungBaseMatch = targetNormalized.match(/\bs(\d{1,3})\b/);
+    const samsungBaseMatch = targetNormalized.match(/\b(?:samsung\s+galaxy\s+|galaxy\s+|samsung\s+)?s(\d{1,3})\b/);
     if (!samsungBaseMatch) return true;
     const modelToken = `s${samsungBaseMatch[1]}`;
-    if (!normalizedRaw.includes(modelToken)) return false;
+    const hasExactBase = new RegExp(`\\b${modelToken}\\b`, 'i').test(normalizedRaw)
+      || new RegExp(`\\b(?:samsung\\s+|galaxy\\s+|samsung\\s+galaxy\\s+)${modelToken}\\b`, 'i').test(normalizedRaw);
+    if (!hasExactBase) return false;
 
-    const targetHasUltra = /\bultra\b|\bu\b/.test(targetNormalized);
+    const targetHasUltra = /\bultra\b/.test(targetNormalized);
     const targetHasPlus = /\bplus\b/.test(targetNormalized);
-    const rawHasUltra = /\bultra\b|\bu\b/.test(normalizedRaw);
+    const rawHasUltra = /\bultra\b/.test(normalizedRaw);
     const rawHasPlus = /\bplus\b/.test(normalizedRaw);
 
     if (!targetHasUltra && rawHasUltra) return false;
@@ -279,20 +299,24 @@ const smartMapDevice = (rawString, officialTargets = [], customMappings = {}) =>
     .filter((target) => normalizedRaw.includes(target.normalized) && samsungSuffixGuard(target.normalized))
     .sort((a, b) => b.normalized.length - a.normalized.length)[0]?.raw || mappedSeed;
 
+  const normalizedStandardName = String(standardName || '').trim();
+  const laptopSpecs = extractLaptopSpecs(original);
+
   const result = {
-    standardName: standardName || 'Unknown Device',
+    standardName: normalizedStandardName || 'Unknown Device',
     condition: 'Unknown',
     sim: 'Unknown',
     isOthers: false,
+    aiRequired: false,
+    laptopSpecs,
   };
 
-  if (result && result.standardName !== 'Unknown Device') {
-    result.condition = standardizeCondition(original);
-    result.sim = normalizeSimType(original);
+  result.condition = standardizeCondition(original);
+  result.sim = normalizeSimType(original);
 
-    if (result.condition === 'Unknown') {
-      result.isOthers = true;
-    }
+  if (result.standardName === 'Unknown Device' || result.condition === 'Unknown') {
+    result.isOthers = true;
+    result.aiRequired = true;
   }
 
   return result;
@@ -392,7 +416,7 @@ const AdminDashboard = () => {
   const [productCategoryFilter, setProductCategoryFilter] = useState('All');
   const [productConditionFilter, setProductConditionFilter] = useState('All');
   const [selectedVendorFilter, setSelectedVendorFilter] = useState('All');
-  const [productSortMode, setProductSortMode] = useState('hierarchy');
+  const [productSortMode, setProductSortMode] = useState('highest_price');
   const [dataViewMode, setDataViewMode] = useState('all');
   const [excludedPhrases, setExcludedPhrases] = useState('');
   const [masterDictionary, setMasterDictionary] = useState({});
@@ -405,6 +429,8 @@ const AdminDashboard = () => {
   const [companyCsvUrl, setCompanyCsvUrl] = useState(FALLBACK_COMPANY_PRICING_CSV);
   const [loadingCompanyCsv, setLoadingCompanyCsv] = useState(false);
   const [companyCsvRows, setCompanyCsvRows] = useState([]);
+  const [savedPricingSessions, setSavedPricingSessions] = useState([]);
+  const [expandedVariationCounts, setExpandedVariationCounts] = useState({});
   const [pricingVendor, setPricingVendor] = useState('All');
   const [marginType, setMarginType] = useState('amount');
   const [marginValue, setMarginValue] = useState('0');
@@ -693,6 +719,15 @@ const AdminDashboard = () => {
   }, []);
 
   useEffect(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem('admin-pricing-sessions-v1') || '[]');
+      if (Array.isArray(saved)) setSavedPricingSessions(saved);
+    } catch (error) {
+      console.error('Failed to load pricing sessions:', error);
+    }
+  }, []);
+
+  useEffect(() => {
     const loadGlobalCache = async () => {
       try {
         const cacheRef = doc(db, 'horleyTech_Settings', 'globalProductsCache');
@@ -859,7 +894,7 @@ const AdminDashboard = () => {
       ].join(' ').toLowerCase();
 
       const isExcluded = excludedTokens.some((phrase) => haystack.includes(phrase));
-      const cleanStatus = isExcluded ? 'excluded' : (rawCondition === 'Unknown' ? 'unclean' : 'clean');
+      const cleanStatus = isExcluded ? 'excluded' : ((rawCondition === 'Unknown' || mappedResult.aiRequired) ? 'unclean' : 'clean');
 
       if (dataViewMode !== 'all' && cleanStatus !== dataViewMode) return;
 
@@ -957,22 +992,10 @@ const AdminDashboard = () => {
 
     if (productSortMode === 'highest_price') {
       rows.sort((a, b) => b.totalAccumulatedPrice - a.totalAccumulatedPrice);
-    } else if (productSortMode === 'highest_demand') {
-      rows.sort((a, b) => b.stockCount - a.stockCount);
+    } else if (productSortMode === 'lowest_price') {
+      rows.sort((a, b) => a.totalAccumulatedPrice - b.totalAccumulatedPrice);
     } else {
-      rows.sort((a, b) => {
-        const categoryDiff = a.category.localeCompare(b.category);
-        if (categoryDiff !== 0) return categoryDiff;
-        const deviceDiff = extractDeviceVersion(b.deviceType) - extractDeviceVersion(a.deviceType);
-        if (deviceDiff !== 0) return deviceDiff;
-        const tierDiff = getDeviceTierWeight(b.deviceType) - getDeviceTierWeight(a.deviceType);
-        if (tierDiff !== 0) return tierDiff;
-        const conditionDiff = getConditionRank(a.condition) - getConditionRank(b.condition);
-        if (conditionDiff !== 0) return conditionDiff;
-        const simDiff = getSimRank(a.simType) - getSimRank(b.simType);
-        if (simDiff !== 0) return simDiff;
-        return getStorageRank(b.storage) - getStorageRank(a.storage);
-      });
+      rows.sort((a, b) => b.totalAccumulatedPrice - a.totalAccumulatedPrice);
     }
 
     return rows;
@@ -1177,7 +1200,7 @@ const AdminDashboard = () => {
     if (!category) return;
     setActiveTab('products');
     setProductCategoryFilter(category);
-    setProductSortMode('hierarchy');
+    setProductSortMode('highest_price');
   };
 
   const handleConditionChartClick = (entry) => {
@@ -1185,7 +1208,7 @@ const AdminDashboard = () => {
     if (!condition) return;
     setActiveTab('products');
     setProductConditionFilter(condition);
-    setProductSortMode('hierarchy');
+    setProductSortMode('highest_price');
   };
 
   const toggleAdvancedTools = async (vendor) => {
@@ -1353,6 +1376,61 @@ const AdminDashboard = () => {
     }
   };
 
+  const runTwoLayerAIJudge = async () => {
+    const candidates = normalizedProductRows.filter((row) => row.cleanStatus !== 'clean' || row.deviceType === 'Unknown Device');
+    if (!candidates.length) {
+      alert('No unclean rows detected for AI judge.');
+      return;
+    }
+
+    setIsResolvingAI(true);
+    try {
+      const payload = candidates.map((row) => ({ raw: `${row.deviceType} ${row.condition} ${row.simType} ${row.storage}`.trim() }));
+      const response = await fetch(`${BASE_URL}/api/admin/extract-detailed-schema`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json', 'x-user-role': 'admin' },
+        body: JSON.stringify({ rows: payload }),
+      });
+      const data = await response.json();
+      if (!response.ok || !Array.isArray(data)) throw new Error(data?.error || 'AI judge failed');
+
+      const mergedMappings = {};
+      data.forEach((item) => {
+        const raw = String(item?.raw || '').trim();
+        if (!raw) return;
+        const key = normalizeDictionaryKey(raw);
+        mergedMappings[key] = {
+          standardName: item.deviceType || 'Unknown Device',
+          condition: item.condition || 'Unknown',
+          sim: item.sim || 'Unknown',
+          isOthers: Boolean(item.isOthers),
+          category: item.category || 'Others',
+          brand: item.brand || 'Others',
+          series: item.series || 'Others',
+          deviceType: item.deviceType || 'Unknown Device',
+        };
+      });
+
+      if (Object.keys(mergedMappings).length) {
+        setMasterDictionary((prev) => ({ ...prev, ...mergedMappings }));
+        localStorage.setItem(MASTER_DICTIONARY_STORAGE_KEY, JSON.stringify({
+          dictionary: { ...masterDictionary, ...mergedMappings },
+          officialTargets,
+        }));
+        await setDoc(doc(db, 'horleyTech_Settings', 'customMappings'), {
+          mappings: mergedMappings,
+          updatedAt: new Date().toISOString(),
+        }, { merge: true });
+      }
+
+      alert(`✅ Two-Layer AI Judge processed ${data.length} records.`);
+    } catch (error) {
+      alert(`❌ ${error.message}`);
+    } finally {
+      setIsResolvingAI(false);
+    }
+  };
+
   const pricingResults = useMemo(() => {
     const margin = Number(marginValue) || 0;
     const vendorRows = normalizedProductRows.filter((row) => row.vendorName === pricingVendor);
@@ -1400,10 +1478,12 @@ const AdminDashboard = () => {
   }, [companyCsvRows, pricingVendor, marginType, marginValue, normalizedProductRows, officialTargets]);
 
   const exportPricingTxt = () => {
-    const lines = pricingResults.map((item) => {
-      if (marginType === 'percentage') return `${item.companyPrice}: ${item.adjustmentPercent}`;
-      return `${item.companyPrice}: ${item.adjustment}`;
-    });
+    const lines = pricingResults
+      .filter((item) => Number.isFinite(item.companyPrice) && item.companyPrice > 0)
+      .map((item) => {
+        if (marginType === 'percentage') return `${item.companyPrice}: ${item.adjustmentPercent}%`;
+        return `${item.companyPrice}: ${item.adjustment}`;
+      });
     const blob = new Blob([lines.join('\n')], { type: 'text/plain;charset=utf-8;' });
     const link = document.createElement('a');
     link.href = URL.createObjectURL(blob);
@@ -1411,6 +1491,25 @@ const AdminDashboard = () => {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+  };
+
+  const savePricingSession = () => {
+    if (!pricingResults.length) {
+      alert('No pricing result to save.');
+      return;
+    }
+    const session = {
+      id: `${Date.now()}`,
+      createdAt: new Date().toISOString(),
+      pricingVendor,
+      marginType,
+      marginValue,
+      rows: pricingResults,
+    };
+    const updated = [session, ...savedPricingSessions].slice(0, 20);
+    setSavedPricingSessions(updated);
+    localStorage.setItem('admin-pricing-sessions-v1', JSON.stringify(updated));
+    alert('✅ Pricing session saved.');
   };
 
   const openChatForVendor = async (vendor) => {
@@ -1607,7 +1706,7 @@ const AdminDashboard = () => {
               type="button"
               onClick={() => {
                 setActiveTab('products');
-                setProductSortMode('highest_demand');
+                setProductSortMode('highest_price');
               }}
               className="group text-left bg-gradient-to-br from-teal-50 via-white to-emerald-50 border border-teal-200/70 rounded-2xl p-5 shadow-sm hover:shadow-md transition-all"
             >
@@ -1621,7 +1720,7 @@ const AdminDashboard = () => {
                 if (analytics.mostTrackedDevice && analytics.mostTrackedDevice !== 'N/A') {
                   setActiveTab('products');
                   setProductSearchQuery(analytics.mostTrackedDevice);
-                  setProductSortMode('hierarchy');
+                  setProductSortMode('highest_price');
                 }
               }}
               className="group text-left bg-gradient-to-br from-orange-50 via-white to-amber-50 border border-orange-200/70 rounded-2xl p-5 shadow-sm hover:shadow-md transition-all"
@@ -1836,9 +1935,8 @@ const AdminDashboard = () => {
                     <option value="excluded">Excluded</option>
                   </select>
                   <select value={productSortMode} onChange={(e) => setProductSortMode(e.target.value)} className="px-4 py-3 rounded-2xl border border-gray-100 bg-white/80 text-sm outline-none focus:ring-2 focus:ring-gray-300">
-                    <option value="hierarchy">Standard Hierarchy</option>
                     <option value="highest_price">Highest Total Price</option>
-                    <option value="highest_demand">Highest Demand</option>
+                    <option value="lowest_price">Lowest Total Price</option>
                   </select>
                 </div>
               </div>
@@ -1859,7 +1957,10 @@ const AdminDashboard = () => {
 
               <div className="mb-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 bg-white/70 backdrop-blur-xl rounded-2xl border border-gray-100 shadow-sm p-4">
                 <p className="text-xs font-bold uppercase tracking-wider text-gray-500">Dictionary Mappings: {Object.keys(masterDictionary).length}</p>
-                <button type="button" onClick={syncMasterDictionary} disabled={syncingDictionary} className="px-4 py-2.5 rounded-2xl text-xs font-black uppercase tracking-wider border border-gray-100 bg-white/80 hover:bg-white disabled:opacity-50">{syncingDictionary ? 'Syncing...' : 'Sync Master Dictionary'}</button>
+                <div className="flex items-center gap-2">
+                  <button type="button" onClick={syncMasterDictionary} disabled={syncingDictionary} className="px-4 py-2.5 rounded-2xl text-xs font-black uppercase tracking-wider border border-gray-100 bg-white/80 hover:bg-white disabled:opacity-50">{syncingDictionary ? 'Syncing...' : 'Sync Master Dictionary'}</button>
+                  <button type="button" onClick={runTwoLayerAIJudge} disabled={isResolvingAI} className="px-4 py-2.5 rounded-2xl text-xs font-black uppercase tracking-wider border border-gray-100 bg-white/80 hover:bg-white disabled:opacity-50">{isResolvingAI ? 'Judging...' : 'Run Two-Layer AI Judge'}</button>
+                </div>
               </div>
 
               <div className="space-y-3">
@@ -1919,7 +2020,10 @@ const AdminDashboard = () => {
                                                                       <tr className="text-[10px] uppercase text-gray-500"><th className="py-1">Vendor</th><th className="py-1">Price</th><th className="py-1">Date</th><th className="py-1">Link</th></tr>
                                                                     </thead>
                                                                     <tbody>
-                                                                      {variation.vendors.map((item) => (
+                                                                      {variation.vendors
+                                                                        .sort((a, b) => (productSortMode === 'lowest_price' ? a.priceValue - b.priceValue : b.priceValue - a.priceValue))
+                                                                        .slice(0, expandedVariationCounts[variationKey] || 3)
+                                                                        .map((item) => (
                                                                         <tr key={item.id} className="border-t border-gray-100">
                                                                           <td className="py-2 text-xs font-semibold">{item.vendorName}</td>
                                                                           <td className="py-2 text-xs">{item.price}</td>
@@ -1929,6 +2033,15 @@ const AdminDashboard = () => {
                                                                       ))}
                                                                     </tbody>
                                                                   </table>
+                                                                  {variation.vendors.length > (expandedVariationCounts[variationKey] || 3) && (
+                                                                    <button
+                                                                      type="button"
+                                                                      onClick={() => setExpandedVariationCounts((prev) => ({ ...prev, [variationKey]: (prev[variationKey] || 3) + 3 }))}
+                                                                      className="mt-2 px-3 py-2 rounded-xl border border-gray-100 bg-white/80 text-[11px] font-black uppercase tracking-wider text-gray-700 hover:bg-white"
+                                                                    >
+                                                                      + Load Next 3
+                                                                    </button>
+                                                                  )}
                                                                 </div>
                                                               )}
                                                             </div>
@@ -1971,8 +2084,8 @@ const AdminDashboard = () => {
                     ) : activeTab === 'pricing' ? (
             <div className="bg-white/70 backdrop-blur-xl border border-gray-100 rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] p-6 space-y-5">
               <div>
-                <h2 className="text-2xl font-black tracking-tight text-gray-900">Pricing Engine</h2>
-                <p className="text-sm text-gray-500">Load company CSV, compare to a selected vendor, and export adjustments.</p>
+                <h2 className="text-2xl font-black tracking-tight text-gray-900">WordPress Pricing Session Manager</h2>
+                <p className="text-sm text-gray-500">Mirror global rows, apply margin logic, save sessions, and export strict TXT adjustments.</p>
               </div>
               <div className="grid grid-cols-1 lg:grid-cols-4 gap-3">
                 <input value={companyCsvUrl} onChange={(e) => setCompanyCsvUrl(e.target.value)} placeholder="Company CSV URL" className="lg:col-span-2 px-4 py-3 rounded-2xl border border-gray-100 bg-white/80 text-sm outline-none focus:ring-2 focus:ring-gray-300" />
@@ -1983,34 +2096,62 @@ const AdminDashboard = () => {
                   <option value="percentage">Percentage</option>
                 </select>
                 <input value={marginValue} onChange={(e) => setMarginValue(e.target.value)} placeholder="Margin value" className="px-4 py-3 rounded-2xl border border-gray-100 bg-white/80 text-sm outline-none focus:ring-2 focus:ring-gray-300" />
+                <button onClick={savePricingSession} className="px-4 py-3 rounded-2xl text-xs font-black uppercase tracking-wider border border-gray-100 bg-white/80 hover:bg-white">Save Session</button>
                 <button onClick={exportPricingTxt} className="px-4 py-3 rounded-2xl text-xs font-black uppercase tracking-wider border border-gray-100 bg-white/80 hover:bg-white">Export to TXT</button>
               </div>
               <div className="overflow-x-auto border border-gray-100 rounded-2xl">
-                <table className="w-full text-left min-w-[1100px]">
+                <table className="w-full text-left min-w-[1250px]">
                   <thead className="bg-gray-50 text-xs uppercase text-gray-500">
                     <tr>
+                      <th className="px-3 py-2">Category</th>
+                      <th className="px-3 py-2">Brand</th>
                       <th className="px-3 py-2">Device</th>
+                      <th className="px-3 py-2">Condition</th>
+                      <th className="px-3 py-2">SIM</th>
+                      <th className="px-3 py-2">Storage</th>
                       <th className="px-3 py-2">Company Price</th>
                       <th className="px-3 py-2">Vendor Price</th>
-                      <th className="px-3 py-2">Target</th>
-                      <th className="px-3 py-2">Adjustment</th>
+                      <th className="px-3 py-2">Target Price</th>
+                      <th className="px-3 py-2">Adjustment Amount</th>
+                      <th className="px-3 py-2">Adjustment %</th>
                     </tr>
                   </thead>
                   <tbody>
                     {pricingResults.map((row, index) => (
                       <tr key={`pricing-${index}`} className="border-t border-gray-100 text-sm">
+                        <td className="px-3 py-2">{row.Category || row.category || 'Others'}</td>
+                        <td className="px-3 py-2">{row.Brand || row.brand || 'Others'}</td>
                         <td className="px-3 py-2 font-semibold">{row.mappedDevice}</td>
+                        <td className="px-3 py-2">{row.Condition || row.condition || 'Unknown'}</td>
+                        <td className="px-3 py-2">{row['SIM Type/Model/Processor'] || row.sim || 'Unknown'}</td>
+                        <td className="px-3 py-2">{row['Storage Capacity/Configuration'] || row.storage || 'N/A'}</td>
                         <td className="px-3 py-2">{formatNaira(row.companyPrice)}</td>
                         <td className="px-3 py-2">{formatNaira(row.vendorPrice)}</td>
                         <td className="px-3 py-2">{formatNaira(row.target)}</td>
-                        <td className="px-3 py-2">{marginType === 'percentage' ? `${row.adjustmentPercent}%` : formatNaira(row.adjustment)}</td>
+                        <td className="px-3 py-2">{formatNaira(row.adjustment)}</td>
+                        <td className="px-3 py-2">{row.adjustmentPercent}%</td>
                       </tr>
                     ))}
                     {!pricingResults.length && (
-                      <tr><td className="px-3 py-4 text-sm text-gray-500" colSpan={5}>No matched rows. Load CSV and choose a valid vendor.</td></tr>
+                      <tr><td className="px-3 py-4 text-sm text-gray-500" colSpan={11}>No matched rows. Load CSV and choose a valid vendor.</td></tr>
                     )}
                   </tbody>
                 </table>
+              </div>
+              <div className="border border-gray-100 rounded-2xl p-4 bg-white/60">
+                <p className="text-xs font-black uppercase tracking-wider text-gray-500 mb-3">Saved Sessions</p>
+                {savedPricingSessions.length ? (
+                  <div className="space-y-2 max-h-52 overflow-y-auto">
+                    {savedPricingSessions.map((session) => (
+                      <div key={session.id} className="flex items-center justify-between border border-gray-100 rounded-xl px-3 py-2 bg-white/80">
+                        <div>
+                          <p className="text-sm font-bold text-gray-800">{session.pricingVendor || 'All Vendors'} • {session.marginType} {session.marginValue}</p>
+                          <p className="text-xs text-gray-500">{new Date(session.createdAt).toLocaleString()} • {session.rows?.length || 0} rows</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : <p className="text-sm text-gray-500">No saved sessions yet.</p>}
               </div>
             </div>
 ) : activeTab === 'backups' ? (
