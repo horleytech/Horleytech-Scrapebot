@@ -790,75 +790,26 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
 });
 
 app.post('/api/admin/extract-detailed-schema', async (req, res) => {
-  const rows = Array.isArray(req.body?.rows) ? req.body.rows : [];
-
-  if (!rows.length) {
-    return res.status(400).json({ success: false, error: 'rows array is required.' });
-  }
-
-  if (!process.env.OPENAI_API_KEY) {
-    return res.status(500).json({ success: false, error: 'OPENAI_API_KEY is not configured.' });
-  }
-
-  const normalizedRows = rows
-    .map((row) => {
-      if (typeof row === 'string') return row.trim();
-      if (row && typeof row === 'object') return String(row.raw || row.value || '').trim();
-      return '';
-    })
-    .filter(Boolean);
-
-  if (!normalizedRows.length) {
-    return res.status(400).json({ success: false, error: 'rows must include at least one valid descriptor.' });
-  }
+  const rows = req.body?.rows || req.body?.payload || req.body?.inputs || req.body?.data;
+  if (!Array.isArray(rows)) return res.status(400).json({ success: false, error: 'Rows array required.' });
 
   try {
-    const systemPrompt = `
-You are an elite Two-Layer Boolean Judge for an e-commerce product normalization pipeline.
-You will receive an array of messy product descriptor strings.
-
-Return a valid JSON object ONLY with this shape:
-{
-  "data": [
-    {
-      "raw": "original descriptor string",
-      "category": "normalized category",
-      "brand": "normalized brand",
-      "series": "normalized series",
-      "deviceType": "normalized device model",
-      "condition": "Brand New | Grade A UK Used | Unknown",
-      "sim": "Physical SIM | ESIM | Physical SIM + ESIM | Unknown",
-      "isOthers": true
-    }
-  ]
-}
-
-Strict rules:
-1) condition MUST be exactly one of: "Brand New", "Grade A UK Used", "Unknown".
-2) sim MUST be exactly one of: "Physical SIM", "ESIM", "Physical SIM + ESIM", "Unknown".
-3) Preserve each input value in "raw" exactly as provided.
-4) If uncertain, classify category/brand/series/deviceType as "Others" or "Unknown Device" and set isOthers to true.
-5) Output pure JSON object only. No markdown.
-`.trim();
+    const systemPrompt = `You are a strict Two-Layer AI Judge. Given an array of objects with a "raw" string, extract details. You MUST return a JSON object with a single root key called "data" containing an array of objects. Each object must strictly have: - "raw": The exact original string - "category", "brand", "series": Standard classifications - "deviceType": The standard clean device name - "condition": STRICTLY evaluate to "Brand New", "Grade A UK Used", or "Unknown" - "sim": STRICTLY evaluate to "Physical SIM", "ESIM", "Physical SIM + ESIM", or "Unknown" - "isOthers": true if unknown/obscure, else false;`;
 
     const aiResponse = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
-      response_format: { type: 'json_object' },
+      response_format: { type: "json_object" },
       messages: [
         { role: 'system', content: systemPrompt },
-        { role: 'user', content: JSON.stringify({ rows: normalizedRows }) },
+        { role: 'user', content: JSON.stringify(rows) }
       ],
       temperature: 0,
     });
-
-    const content = aiResponse?.choices?.[0]?.message?.content || '{"data":[]}';
-    const parsed = JSON.parse(content);
-    const data = Array.isArray(parsed?.data) ? parsed.data : [];
-
-    return res.json({ success: true, data });
+    const parsed = JSON.parse(aiResponse.choices[0].message.content || '{}');
+    return res.json({ success: true, data: parsed.data || [] });
   } catch (error) {
-    console.error('❌ extract-detailed-schema error:', error);
-    return res.status(500).json({ success: false, error: error.message || 'AI judge failed.' });
+    console.error('❌ AI Judge Error:', error);
+    return res.status(500).json({ success: false, error: error.message });
   }
 });
 
