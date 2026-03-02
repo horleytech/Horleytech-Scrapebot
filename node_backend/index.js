@@ -7,6 +7,7 @@ import morgan from 'morgan';
 import compression from 'compression';
 import cors from 'cors';
 import { fileURLToPath } from 'url';
+import { createRequire } from 'module';
 import OpenAI from 'openai';
 import { processChatFile } from './fileProcessor.js';
 import { saveVendorsToFirebase } from './dataProcessor.js';
@@ -22,6 +23,8 @@ import {
 } from './backup.js';
 
 dotenv.config();
+
+const require = createRequire(import.meta.url);
 
 const PM2_LOG_PATH = '/root/.pm2/logs/index-out.log';
 const OFFLINE_COLLECTION = 'horleyTech_OfflineInventories';
@@ -792,6 +795,8 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
 
 const normalizeMappingKey = (value) => String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
 
+const { getFirestore } = require('firebase-admin/firestore');
+
 const fetchUnknownVendorsList = async () => {
   const firestore = getAdminFirestore();
   const snapshot = await firestore.collection(OFFLINE_COLLECTION).get();
@@ -843,93 +848,98 @@ const runOpenAIExtraction = async (rows = [], signal) => {
 };
 
 app.post('/api/admin/trigger-background-sync', async (req, res) => {
-  res.status(200).json({ message: 'Background sync started' });
+// 1. Return 200 OK instantly so frontend doesn't hang
+res.status(200).json({ message: 'Background sync started' });
 
-  const firestore = getAdminFirestore();
+const db = getFirestore();
+try {
+// 2. Fetch the current brain
+const mapDoc = await db.collection('horleyTech_Settings').doc('customMappings').get();
+const mappings = mapDoc.exists ? (mapDoc.data().mappings || {}) : {};
 
-  try {
-    const candidates = await fetchUnknownVendorsList();
-
-    if (!candidates || candidates.length === 0) {
-      await firestore.collection(SETTINGS_COLLECTION).doc('syncStatus').set({
-        isSyncing: false,
-        progress: 'No new items',
-        justFinished: true,
-      }, { merge: true });
-      return;
+// 3. Scan all offline vendors for messy unknown strings
+const vendorsSnap = await db.collection('horleyTech_OfflineInventories').get();
+const unknownsSet = new Set();
+vendorsSnap.docs.forEach(docSnap => {
+  const products = docSnap.data().products || [];
+  products.forEach(p => {
+    const raw = String(p.raw || p.rawString || p['Device Type'] || '').trim();
+    if (!raw) return;
+    const key = raw.toLowerCase().replace(/[^a-z0-9]/g, '');
+    // If it's not in the brain, or mapped as Unknown, flag it for AI
+    if (!mappings[key] || mappings[key].condition === 'Unknown' || mappings[key].deviceType === 'Unknown Device') {
+       unknownsSet.add(raw);
     }
+  });
+});
+const candidates = Array.from(unknownsSet);
+if (candidates.length === 0) {
+  await db.collection('horleyTech_Settings').doc('syncStatus').set({ isSyncing: false, progress: 'No new items', justFinished: true }, { merge: true });
+  return;
+}
+// 4. THE AI LOOP
+for (let i = 0; i < candidates.length; i += 20) {
 
-    for (let i = 0; i < candidates.length; i += 20) {
-      const statusCheck = await firestore.collection(SETTINGS_COLLECTION).doc('syncStatus').get();
-      if (statusCheck.exists && statusCheck.data().cancelRequested === true) {
-        console.log('Background sync stopped by Admin.');
-        await firestore.collection(SETTINGS_COLLECTION).doc('syncStatus').set({
-          isSyncing: false,
-          progress: 'Stopped by Admin',
-          cancelRequested: false,
-          justFinished: true,
-        }, { merge: true });
-        return;
-      }
-
-      const currentProgress = `Backend AI Judging ${Math.min(i + 20, candidates.length)} / ${candidates.length}`;
-      await firestore.collection(SETTINGS_COLLECTION).doc('syncStatus').set({
-        isSyncing: true,
-        progress: currentProgress,
-      }, { merge: true });
-
-      const chunk = candidates.slice(i, i + 20);
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 15000);
-
-      try {
-        const data = await runOpenAIExtraction(chunk, controller.signal);
-        clearTimeout(timeoutId);
-
-        if (data && data.length > 0) {
-          const chunkMappings = {};
-          data.forEach((item) => {
-            const raw = String(item?.raw || '').trim();
-            if (!raw) return;
-            const key = normalizeMappingKey(raw);
-            chunkMappings[key] = {
-              standardName: item.deviceType || 'Unknown Device',
-              condition: item.condition || 'Unknown',
-              sim: item.sim || 'Unknown',
-              isOthers: Boolean(item.isOthers),
-              brand: item.brand || 'Others',
-            };
-          });
-
-          if (Object.keys(chunkMappings).length > 0) {
-            await firestore.collection(SETTINGS_COLLECTION).doc('customMappings').set({
-              mappings: chunkMappings,
-              updatedAt: new Date().toISOString(),
-            }, { merge: true });
-          }
-        }
-      } catch (err) {
-        clearTimeout(timeoutId);
-        if (err.name === 'AbortError' || err.code === 'UND_ERR_ABORTED') {
-          console.warn(`Chunk ${i} timed out after 15s. Background skipping to next batch.`);
-        } else {
-          console.error(`Backend Chunk ${i} failed:`, err);
-        }
-      }
-    }
-
-    await firestore.collection(SETTINGS_COLLECTION).doc('syncStatus').set({
-      isSyncing: false,
-      progress: 'Sync Complete',
-      justFinished: true,
-    }, { merge: true });
-  } catch (error) {
-    console.error('Fatal Background Sync Error:', error);
-    await firestore.collection(SETTINGS_COLLECTION).doc('syncStatus').set({
-      isSyncing: false,
-      progress: 'Error during sync',
-    }, { merge: true });
+  // 🛑 EMERGENCY STOP CHECK
+  const statusCheck = await db.collection('horleyTech_Settings').doc('syncStatus').get();
+  if (statusCheck.exists && statusCheck.data().cancelRequested === true) {
+    console.log("Background sync stopped by Admin.");
+    await db.collection('horleyTech_Settings').doc('syncStatus').set({ isSyncing: false, progress: 'Stopped by Admin', cancelRequested: false, justFinished: true }, { merge: true });
+    return;
   }
+  // Update Firebase Progress
+  await db.collection('horleyTech_Settings').doc('syncStatus').set({
+    isSyncing: true,
+    progress: `Backend AI Judging ${Math.min(i + 20, candidates.length)} / ${candidates.length}`
+  }, { merge: true });
+  const chunk = candidates.slice(i, i + 20);
+  const payload = chunk.map(raw => ({ raw }));
+
+  // Note: Assumes `openai` is already initialized at the top of the file
+  try {
+    // Directly query OpenAI from the backend loop
+    const completion = await openai.chat.completions.create({
+        model: "gpt-4o-mini",
+        response_format: { type: "json_object" },
+        messages: [
+            { role: "system", content: "You are an expert mobile device product detail extractor. You must output JSON with a 'data' array containing objects with properties: raw, brand, series, category, deviceType, condition, sim, isOthers." },
+            { role: "user", content: `Extract data for these products: ${JSON.stringify(payload)}. Always return valid JSON with a 'data' array.` }
+        ],
+        temperature: 0.1,
+    });
+    const parsed = JSON.parse(completion.choices[0].message.content);
+    const data = Array.isArray(parsed.data) ? parsed.data : [];
+    if (data.length > 0) {
+      const chunkMappings = {};
+      data.forEach(item => {
+        const raw = String(item?.raw || '').trim();
+        if (!raw) return;
+        const key = raw.toLowerCase().replace(/[^a-z0-9]/g, '');
+        chunkMappings[key] = {
+          standardName: item.deviceType || 'Unknown Device',
+          condition: item.condition || 'Unknown',
+          sim: item.sim || 'Unknown',
+          isOthers: Boolean(item.isOthers),
+          category: item.category || 'Others',
+          brand: item.brand || 'Others',
+          series: item.series || 'Others',
+          deviceType: item.deviceType || 'Unknown Device'
+        };
+      });
+      if (Object.keys(chunkMappings).length > 0) {
+        await db.collection('horleyTech_Settings').doc('customMappings').set({ mappings: chunkMappings, updatedAt: new Date().toISOString() }, { merge: true });
+      }
+    }
+  } catch (err) {
+    console.error(`Backend Chunk ${i} failed:`, err.message);
+  }
+}
+// 5. Job Complete
+await db.collection('horleyTech_Settings').doc('syncStatus').set({ isSyncing: false, progress: 'Sync Complete', justFinished: true }, { merge: true });
+} catch (error) {
+console.error('Fatal Background Sync Error:', error);
+await db.collection('horleyTech_Settings').doc('syncStatus').set({ isSyncing: false, progress: 'Error during sync' }, { merge: true });
+}
 });
 
 app.post('/api/admin/extract-detailed-schema', async (req, res) => {
