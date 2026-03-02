@@ -1336,8 +1336,11 @@ const AdminDashboard = () => {
   };
 
   const nukeAndRebuildDictionary = async () => {
-    const confirmed = window.confirm('⚠️ This will wipe customMappings and global product cache chunks. Continue?');
-    if (!confirmed) return;
+    const confirmText = window.prompt('⚠️ DANGER: This will PERMANENTLY DELETE the entire AI Dictionary. You will have to pay the AI to relearn everything.\n\nType "NUKE" to confirm:');
+    if (confirmText !== 'NUKE') {
+      alert('Canceled. Your dictionary is safe.');
+      return;
+    }
 
     try {
       setSyncingDictionary(true);
@@ -1386,11 +1389,19 @@ const AdminDashboard = () => {
       const companyPrice = parseNairaValue(companyPriceRaw);
       const requiresConditionMatch = condition !== 'Unknown';
       const requiresSimMatch = simType !== 'Unknown';
-      const vendorMatch = vendorRows
+      // Find ALL matching identical items from this vendor
+      const allVendorMatches = vendorRows
         .filter((item) => item.deviceType === mappedDevice)
-        .find((item) => (!storage || item.storage === storage)
+        .filter((item) => (!storage || item.storage === storage)
           && (!requiresSimMatch || item.simType === simType)
           && (!requiresConditionMatch || item.condition === condition));
+
+      // Sort them by date (Newest / Latest first) and pick the top one
+      const vendorMatch = allVendorMatches.sort((a, b) => {
+        const timeA = new Date(a.date).getTime() || 0;
+        const timeB = new Date(b.date).getTime() || 0;
+        return timeB - timeA;
+      })[0];
 
       const hasVendorMatch = Boolean(vendorMatch);
       const shouldCalculate = pricingVendor !== 'All' && hasVendorMatch;
@@ -1881,7 +1892,14 @@ const AdminDashboard = () => {
               <div className="mb-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 bg-white/70 backdrop-blur-xl rounded-2xl border border-gray-100 shadow-sm p-4">
                 <p className="text-xs font-bold uppercase tracking-wider text-gray-500">Dictionary Mappings: {Object.keys(masterDictionary).length}</p>
                 <div className="flex items-center gap-2">
-                  <button type="button" onClick={runMasterAutoSync} disabled={syncingDictionary} className="px-4 py-2.5 rounded-2xl text-xs font-black uppercase tracking-wider border border-gray-100 bg-white/80 hover:bg-white disabled:opacity-50">{syncingDictionary ? syncProgress || 'Syncing...' : 'Master Sync & AI Clean'}</button>
+                  <button
+                    type="button"
+                    onClick={runMasterAutoSync}
+                    disabled={syncingDictionary}
+                    className={`px-4 py-2.5 rounded-2xl text-xs font-black uppercase tracking-wider border border-gray-100 transition-all ${syncingDictionary ? 'bg-gray-200 text-gray-500 opacity-60 cursor-not-allowed' : 'bg-white/80 hover:bg-white'}`}
+                  >
+                    {syncingDictionary ? syncProgress || 'Syncing...' : 'Master Sync & AI Clean'}
+                  </button>
                   <button type="button" onClick={nukeAndRebuildDictionary} className="px-4 py-2.5 rounded-2xl text-xs font-black uppercase tracking-wider border border-red-200 text-red-700 bg-red-50 hover:bg-red-100">⚠️ Nuke & Rebuild Dictionary</button>
                 </div>
               </div>
