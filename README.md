@@ -1,246 +1,204 @@
-# 🚀 Horleytech Scrapebot
+# HorleyTech Scrapebot — Enterprise E‑Commerce PIM Ecosystem
 
-![Platform](https://img.shields.io/badge/Platform-Full--Stack-blue)
-![Frontend](https://img.shields.io/badge/Frontend-React%20%2B%20Vite-61DAFB)
-![Backend](https://img.shields.io/badge/Backend-Node.js%20%2B%20Express-339933)
-![Database](https://img.shields.io/badge/Database-Firebase%20Firestore-FFCA28)
-![AI](https://img.shields.io/badge/AI-GPT--4o--mini%20%2B%20DALL--E%202-purple)
-![Deploy](https://img.shields.io/badge/Deploy-Vercel%20%2B%20PM2%20%2B%20Nginx-black)
-
-**Horleytech Scrapebot** is an AI-powered full-stack platform that automates how electronics inventory is captured, structured, analyzed, and recovered.
-
-It ingests unstructured WhatsApp vendor messages through secure webhooks, converts them into structured product records using OpenAI, and powers a production-ready admin dashboard for inventory operations, analytics, chat workflows, and one-click disaster recovery.
+A modern, AI-first Product Information Management (PIM) and vendor intelligence platform built for scale, resilience, and operational clarity. Designed for engineering teams, operators, and stakeholders who need high-confidence catalog normalization and pricing intelligence across noisy real-world vendor data.
 
 ---
 
-## 📌 Table of Contents
+## ✨ System Architecture
 
-- [System Architecture](#-system-architecture)
-- [Core Features](#-core-features)
-- [AI Workflow (WhatsApp → Inventory)](#-ai-workflow-whatsapp--inventory)
-- [Environment Variables (.env)](#-environment-variables-env)
-- [Local Development](#-local-development)
-- [Deployment & Hosting](#-deployment--hosting)
-- [Disaster Recovery (Google Workspace)](#-disaster-recovery-google-workspace)
-- [Security Notes](#-security-notes)
-- [Operational Notes](#-operational-notes)
+The platform is built around a **centralized AI knowledge core** and a **Firebase-backed persistence layer** that keeps product intelligence durable and continuously improving.
 
----
+### High-Level Flow
 
-## 🧱 System Architecture
+1. **Vendor data ingestion** (messy strings, mixed formatting, shorthand naming).
+2. **AI Gatekeeper normalization** (strict JSON extraction from unstructured device strings).
+3. **Global Brain persistence** in Firebase (`customMappings`).
+4. **Aggressive chunked save strategy** during AI processing (every 20 rows).
+5. **Global products cache rebuild** for downstream analytics, search, and pricing.
+6. **Nightly Ghost Admin sweep** to auto-learn and enrich unseen vendor strings.
 
-### Frontend (Vercel)
-- **Framework:** React + Vite
-- **Styling:** Tailwind CSS
-- **Data Visualization:** Recharts
-- **Primary Responsibility:** Admin dashboard, vendor operations UI, backup restore controls, analytics, and messaging workflows
+### Core Data Backbone
 
-### Backend (Ubuntu + PM2 + Nginx)
-- **Runtime:** Node.js
-- **Framework:** Express
-- **Process Manager:** PM2
-- **Edge/Web Layer:** Nginx reverse proxy with SSL termination
-- **Primary Responsibility:** Webhook ingestion, AI parsing, database write orchestration, audit logging, backup/restore API
-
-### Database
-- **Service:** Firebase Firestore
-- **Access Mode:** Firebase Admin SDK (server-side God-Mode)
-- **Credential Source:** local `node_backend/firebase-credentials.json` file
-
-### AI Integrations
-- **Text Structuring:** OpenAI **GPT-4o-mini** for parsing raw WhatsApp inventory text into structured JSON
-- **Image Generation:** OpenAI **DALL·E 2** for professional product image generation
+- **Firebase Firestore** as source of truth.
+- **`horleyTech_Settings/customMappings`** as the canonical, ever-growing global dictionary.
+- **Chronological product + vendor history** powering dynamic pricing and business intelligence.
 
 ---
 
-## 🌟 Core Features
+## 🚀 Core Features
 
-### 1) 🤖 AI Auto-Scraper (WhatsApp Webhook)
-- Receives inbound WhatsApp payloads through `/api/webhook/whatsapp`
-- Validates webhook requests via `x-api-key` + `WEBHOOK_SECRET`
-- Uses GPT-4o-mini to extract key product fields:
-  - Device Type
-  - Condition
-  - Price
-  - Storage/Configuration
-- Automatically enriches and writes structured inventory data into Firestore
+### 1) 🧠 100% Pure AI Dictionary (No Local Guessing)
 
-### 2) 📊 Advanced Admin Dashboard
-- Bulk inventory editing for high-volume operations
-- Dynamic visual analytics (e.g., price variance and action heatmaps)
-- Unified inbox workflow for vendor communication and operational messaging
+We fully removed local regex/heuristic guessing from the canonical mapping path.
 
-### 3) 🧾 Audit Trail + Undo System
-- Every write action is tracked in `horleyTech_AuditLogs`
-- Admins can inspect historical changes
-- “Undo” / restore-action endpoint lets admins instantly roll back specific updates or full collection snapshots
+- No brittle local rule chains.
+- No fragmented vendor-specific hacks.
+- One centralized intelligence layer: **Global Brain = `customMappings`**.
 
-### 4) ☁️ Disaster Recovery (Automated)
-- Scheduled backup job runs every **Sunday at 2:00 AM (Africa/Lagos)**
-- Firestore inventory snapshot is exported as JSON
-- Backup is uploaded to a Google Workspace Shared Drive
-- Backup metadata is persisted in `horleyTech_Backups`
+This yields consistent normalization behavior across admin workflows, automation scripts, and nightly sync jobs.
 
-### 5) ♻️ One-Click Restore
-- Admin UI can list available Drive backups
-- Restore endpoint pulls a selected backup, validates payload, wipes current inventory collection, and rehydrates records in batches
+### 2) ⚖️ Two-Layer AI Judge (OpenAI `gpt-4o-mini`)
 
-### 6) 🧠 Smart Vendor Onboarding
-- Generates vendor-specific `wa.me` onboarding links
-- Includes pre-filled formatting instructions for cleaner AI ingestion
-- Supports embedded YouTube tutorial guidance for rapid vendor enablement
+Messy vendor inputs like:
 
----
+- `Brand NewESIM 17PM`
+- `Uk used iphn 13pm dual`
+- `iphone16prm bn esim`
 
-## 🔄 AI Workflow (WhatsApp → Inventory)
+are parsed into strict structured JSON (example):
 
-1. Vendor sends inventory text via WhatsApp.
-2. WhatsApp webhook posts payload to backend endpoint.
-3. Backend validates request with secret header.
-4. GPT-4o-mini normalizes raw text into strict JSON schema.
-5. Backend enriches entries with metadata (timestamp/group context).
-6. Structured product records are saved into Firestore vendor documents.
-7. Dashboard updates become immediately available for admins.
+- **Condition:** `Brand New`
+- **SIM:** `ESIM`
+- **Device Type:** `iPhone 17 Pro Max`
 
----
+This strict extraction standard enables deterministic downstream logic for filtering, analytics, and pricing.
 
-## 🔐 Environment Variables (.env)
+### 3) 💾 Aggressive Save Architecture (Crash-Safe Progress)
 
-Create a `.env` file (typically in the project root for runtime) and define the following keys:
+The AI processing loop runs in **chunks of 20 items** and saves each successful chunk immediately.
 
-```env
-# Server
-PORT=8000
+- Progress is persisted continuously.
+- Browser freeze/crash/network blip does not wipe completed work.
+- Operational risk is minimized during long normalization runs.
 
-# OpenAI
-OPENAI_API_KEY=your_openai_api_key
+### 4) 👻 Ghost Admin Nightly Sweeper
 
-# Webhook Security
-WEBHOOK_SECRET=your_internal_webhook_secret
+A Node.js cron worker (`cronTasks.js`) runs every day at **2:00 AM** to:
 
-# Google Workspace / Drive Backup
-GOOGLE_DRIVE_FOLDER_ID=your_shared_drive_folder_id
-GOOGLE_SERVICE_ACCOUNT_EMAIL=service-account@project.iam.gserviceaccount.com
-GOOGLE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
+- find newly observed vendor strings,
+- send unseen candidates to the AI Judge,
+- merge validated outputs into the Global Brain silently.
 
-# Firebase (frontend/client config if externalized)
-FIREBASE_API_KEY=your_firebase_web_api_key
-FIREBASE_AUTH_DOMAIN=your_project.firebaseapp.com
-FIREBASE_PROJECT_ID=your_project_id
-FIREBASE_STORAGE_BUCKET=your_project.appspot.com
-FIREBASE_MESSAGING_SENDER_ID=your_sender_id
-FIREBASE_APP_ID=your_web_app_id
-```
+Result: the system self-improves overnight without manual admin babysitting.
 
-### Firebase Admin Credential Requirement (Backend)
-The backend expects a local service account file:
+### 5) 📈 Smart Pricing Engine
 
-```bash
-node_backend/firebase-credentials.json
-```
+The pricing engine aligns uploaded company pricing CSVs with the latest chronological vendor duplicate data to compute dynamic margins.
 
-This file is required for privileged Firestore admin operations (backup, restore, audit-aware writes). Never commit this file to version control.
+- Vendor recency is respected.
+- Margin strategy remains data-driven.
+- Pricing decisions stay synchronized with market behavior.
+
+### 6) ☢️ Nuke & Rebuild Protocol
+
+For controlled recovery and reset operations, the platform includes a safeguarded destructive flow requiring explicit typed confirmation:
+
+- operator must type **`NUKE`** before dictionary wipe,
+- rebuild pipeline then reconstructs clean global mappings safely.
+
+This prevents accidental destructive actions while preserving emergency reset capability.
 
 ---
 
-## 🛠️ Local Development
+## 🔐 How the AI Gatekeeper Works
 
-### Prerequisites
+The AI Gatekeeper is the normalization firewall between raw vendor noise and production-grade product records.
+
+### Pipeline
+
+1. Collect unclean/unknown strings from inventory.
+2. Batch into fixed-size payloads (20 rows per request).
+3. Send to extraction endpoint backed by OpenAI `gpt-4o-mini`.
+4. Validate strict response shape.
+5. Merge valid mappings into `customMappings`.
+6. Re-map inventory using updated dictionary.
+7. Persist clean global cache for platform-wide usage.
+
+### Reliability Controls
+
+- Chunked persistence after each AI response.
+- Timeout/abort guards in fetch loops.
+- Non-blocking failure handling (bad chunk doesn’t kill full pipeline).
+- Merge-safe writes to Firestore.
+
+---
+
+## ⏰ Cron Automation (Ghost Admin)
+
+Automation is handled by `cronTasks.js` with a daily 2:00 AM schedule.
+
+### Responsibilities
+
+- scan for fresh vendor strings not yet mastered,
+- submit to AI Judge for normalization,
+- merge back into global dictionary,
+- keep daytime admin dashboards cleaner and faster.
+
+### Why It Matters
+
+- Reduces manual intervention.
+- Increases dictionary coverage daily.
+- Keeps AI enrichment continuous and compounding.
+
+---
+
+## 🛠️ Setup / Run Instructions
+
+> The exact commands can vary by environment, but this is the recommended baseline.
+
+### 1) Prerequisites
+
 - Node.js 18+
-- npm or pnpm
-- Firebase project + service account JSON
+- npm or yarn
+- Firebase project credentials
 - OpenAI API key
 
-### Install
+### 2) Install Dependencies
 
 ```bash
 npm install
 ```
 
-### Run Frontend (Vite)
+### 3) Configure Environment
+
+Create/update your `.env` with required keys (example names):
+
+```bash
+VITE_BASE_URL=http://localhost:3000
+VITE_MASTER_DICTIONARY_CSV=<master_dictionary_csv_url>
+FIREBASE_API_KEY=<firebase_key>
+FIREBASE_PROJECT_ID=<firebase_project>
+OPENAI_API_KEY=<openai_key>
+```
+
+### 4) Run Frontend
 
 ```bash
 npm run dev
 ```
 
-### Run Backend (Express)
+### 5) Run Backend / API Services
 
 ```bash
-npm run start:be
+npm run start
 ```
 
-### Build Frontend
+### 6) Run Cron Worker
+
+If cron is isolated in your deployment model, run it as a separate process:
 
 ```bash
-npm run build
+node cronTasks.js
 ```
 
 ---
 
-## 🚢 Deployment & Hosting
+## 🧩 Operational Notes for Teams
 
-### Frontend
-- Hosted on **Vercel**
-- Built with Vite and deployed as static SPA assets
-
-### Backend
-- Hosted on **Ubuntu Server**
-- Managed by **PM2** for uptime and process supervision
-- Exposed via **Nginx reverse proxy** with SSL enabled
-
-Typical production flow:
-1. Deploy backend code to Ubuntu host
-2. Place `firebase-credentials.json` in `node_backend/`
-3. Set `.env` secrets on server
-4. Start/reload backend via PM2
-5. Route HTTPS traffic through Nginx to Node process
+- Treat `customMappings` as the canonical intelligence asset.
+- Prefer additive merge writes over destructive overwrites during active sync.
+- Keep AI extraction schema strict and versioned.
+- Monitor nightly cron logs for coverage growth and anomalies.
 
 ---
 
-## 🧯 Disaster Recovery (Google Workspace)
+## 📣 Stakeholder Snapshot
 
-The platform includes built-in disaster recovery with automated and operator-triggered restore paths.
+This ecosystem is engineered for **enterprise reliability** and **AI-native catalog operations**:
 
-### Automated Weekly Backup
-- Triggered by `node-cron`
-- Schedule: `0 2 * * 0` (Sunday, 2:00 AM, Africa/Lagos)
-- Exports Firestore collection snapshot to JSON
-- Uploads backup file to configured Google Shared Drive folder
-- Records backup metadata in Firestore for traceability
+- Consistent normalization from chaotic inputs.
+- Durable progress under real-world browser/network instability.
+- Autonomous overnight learning loop.
+- Pricing intelligence grounded in live vendor chronology.
 
-### One-Click Restore
-- Admin users can fetch recent backups from Google Drive
-- Selecting a backup triggers:
-  - Download of backup payload
-  - Validation of required fields
-  - Atomic-ish collection replacement (batched delete + batched reinsert)
-- Enables rapid rollback after data corruption, accidental edits, or operational incidents
-
----
-
-## 🔒 Security Notes
-
-- Use `WEBHOOK_SECRET` to protect ingestion endpoints.
-- Keep `firebase-credentials.json` out of Git (`.gitignore` required).
-- Scope Google Drive service account permissions to minimum required access.
-- Store all secrets in environment variables (never hardcode credentials).
-- Limit admin routes behind role-based checks and secured network paths.
-
----
-
-## 📘 Operational Notes
-
-- PM2 logs can be exposed through backend log endpoints for quick diagnostics.
-- Audit metadata and backup metadata collections are initialized automatically at startup.
-- If Google Drive variables are missing, backup still runs locally but skips remote upload.
-
----
-
-## 👨‍💻 Maintainers
-
-Built for production-grade electronics inventory automation with AI-first workflows, admin governance, and recovery resilience.
-
-If you’re extending this platform, prioritize:
-- strict data schemas,
-- robust auditability,
-- and safe rollback mechanisms.
+A polished, compounding data engine—built for scale. 🍏
