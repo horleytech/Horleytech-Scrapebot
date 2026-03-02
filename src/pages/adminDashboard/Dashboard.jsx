@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Outlet, useLocation, Link } from 'react-router-dom';
-import { collection, getDocs, doc, writeBatch, query, orderBy, updateDoc, setDoc, getDoc } from 'firebase/firestore';
+import { collection, getDocs, doc, writeBatch, query, orderBy, updateDoc, setDoc, getDoc, onSnapshot } from 'firebase/firestore';
 import { IoMdChatboxes } from 'react-icons/io';
 import {
   PieChart, Pie, Cell, Tooltip, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, LineChart, Line, Legend,
@@ -353,8 +353,7 @@ const AdminDashboard = () => {
   const queueRef = useRef([]);
   const [bulkMetaDataValue, setBulkMetaDataValue] = useState('Electronics');
   const [globalProductsCacheRows, setGlobalProductsCacheRows] = useState([]);
-  const [syncingDictionary, setSyncingDictionary] = useState(false);
-  const [syncProgress, setSyncProgress] = useState('');
+  const [syncJobState, setSyncJobState] = useState({ isSyncing: false, progress: '' });
   const [companyCsvUrl, setCompanyCsvUrl] = useState(FALLBACK_COMPANY_PRICING_CSV);
   const [loadingCompanyCsv, setLoadingCompanyCsv] = useState(false);
   const [companyCsvRows, setCompanyCsvRows] = useState([]);
@@ -591,6 +590,20 @@ const AdminDashboard = () => {
       setUploadRestoreLoading(false);
     }
   };
+
+  const fetchCustomMappings = async () => {
+    try {
+      const mappingsSnap = await getDoc(doc(db, 'horleyTech_Settings', 'customMappings'));
+      if (!mappingsSnap.exists()) return;
+      const mappingsData = mappingsSnap.data() || {};
+      const firebaseMappings = mappingsData.mappings || {};
+      if (firebaseMappings && typeof firebaseMappings === 'object') {
+        setMasterDictionary(firebaseMappings);
+      }
+    } catch (error) {
+      console.error('Failed to load Firebase custom mappings:', error);
+    }
+  };
   useEffect(() => {
     if (location.pathname === '/dashboard' || location.pathname === '/dashboard/') {
       fetchInventory();
@@ -610,20 +623,25 @@ const AdminDashboard = () => {
     }
   }, [activeTab]);
   useEffect(() => {
-    const loadCustomMappingsFromFirebase = async () => {
-      try {
-        const mappingsSnap = await getDoc(doc(db, 'horleyTech_Settings', 'customMappings'));
-        if (!mappingsSnap.exists()) return;
-        const mappingsData = mappingsSnap.data() || {};
-        const firebaseMappings = mappingsData.mappings || {};
-        if (firebaseMappings && typeof firebaseMappings === 'object') {
-          setMasterDictionary(firebaseMappings);
+    fetchCustomMappings();
+  }, []);
+
+  useEffect(() => {
+    const unsubscribe = onSnapshot(doc(db, 'horleyTech_Settings', 'syncStatus'), (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        setSyncJobState({
+          isSyncing: Boolean(data.isSyncing),
+          progress: data.progress || '',
+        });
+
+        if (data.isSyncing === false && data.justFinished === true) {
+          fetchCustomMappings();
+          setDoc(doc(db, 'horleyTech_Settings', 'syncStatus'), { justFinished: false }, { merge: true });
         }
-      } catch (error) {
-        console.error('Failed to load Firebase custom mappings:', error);
       }
-    };
-    loadCustomMappingsFromFirebase();
+    });
+    return () => unsubscribe();
   }, []);
   useEffect(() => {
     const loadAdminPreferences = async () => {
@@ -698,188 +716,39 @@ const AdminDashboard = () => {
   };
 
   const runMasterAutoSync = async () => {
-    const csvUrl = normalizeGoogleSheetCsvUrl(import.meta.env.VITE_MASTER_DICTIONARY_CSV || FALLBACK_MASTER_DICTIONARY_CSV);
-    setSyncingDictionary(true);
-    setSyncProgress('Syncing master dictionary...');
+    if (syncJobState.isSyncing) return;
     try {
-      const customMappingsSnap = await getDoc(doc(db, 'horleyTech_Settings', 'customMappings'));
-      const firebaseMappings = customMappingsSnap.exists()
-        ? (customMappingsSnap.data()?.mappings || {})
-        : {};
-
-      setSyncProgress('Fetching master dictionary CSV...');
-      const response = await fetch(csvUrl, { headers: { Accept: 'text/csv,text/plain,*/*' } });
-      if (!response.ok) throw new Error(`Unable to fetch CSV (${response.status})`);
-      const csvText = await response.text();
-      const parsed = parseMasterDictionaryCsv(csvText);
-      const activeDictionary = { ...parsed.dictionary, ...firebaseMappings };
-
-      setMasterDictionary(activeDictionary);
-      setOfficialTargets(parsed.officialTargets);
-
-      setSyncProgress('Mapping offline vendor inventory...');
-      const initiallyMappedRows = [];
-      const uncleanCandidates = new Set();
-      offlineVendors.forEach((vendor) => {
-        (vendor.products || []).forEach((product, index) => {
-          const rawDeviceType = (product['Device Type'] || 'Unknown Device').trim() || 'Unknown Device';
-          const rawDescriptor = `${rawDeviceType} ${product.Condition || ''} ${product['SIM Type/Model/Processor'] || ''}`.trim();
-          const mappedResult = smartMapDevice(rawDescriptor, parsed.officialTargets, activeDictionary);
-          const smartMappedDeviceType = mappedResult.standardName;
-          const productDate = product.DatePosted || vendor.lastUpdated;
-          const category = (product.Category || 'Others').trim() || 'Others';
-          const rawCondition = mappedResult.condition;
-          const normalizedSim = mappedResult.sim;
-          const cleanStatus = (rawCondition === 'Unknown' || normalizedSim === 'Unknown' || smartMappedDeviceType === 'Unknown Device') ? 'unclean' : 'clean';
-          const storageRaw = String(product['Storage Capacity/Configuration'] || 'N/A').trim();
-          const storage = storageRaw !== 'N/A' ? storageRaw.toUpperCase() : 'N/A';
-          if (rawCondition === 'Unknown' || mappedResult.sim === 'Unknown' || smartMappedDeviceType === 'Unknown Device') {
-            uncleanCandidates.add(rawDescriptor);
-          }
-          initiallyMappedRows.push({
-            id: `${vendor.docId}-${index}-${smartMappedDeviceType}`,
-            raw: rawDescriptor,
-            vendorName: vendor.vendorName,
-            vendorLink: vendor.shareableLink,
-            date: productDate || 'N/A',
-            category,
-            brandSubCategory: inferBrandSubCategory(smartMappedDeviceType),
-            series: inferSeries(smartMappedDeviceType),
-            deviceType: smartMappedDeviceType,
-            condition: rawCondition,
-            cleanStatus,
-            simType: normalizedSim,
-            storage,
-            price: product['Regular price'] || 'N/A',
-            priceValue: parseNairaValue(product['Regular price']),
-          });
-        });
-      });
-
-      const candidates = Array.from(uncleanCandidates);
-      if (candidates.length > 0) {
-        setSyncProgress(`AI Judging 0 / ${candidates.length}`);
-        for (let i = 0; i < candidates.length; i += 20) {
-          const chunk = candidates.slice(i, i + 20);
-          const payload = chunk.map((raw) => ({ raw }));
-          
-          // 15-Second Timeout Guard
-          const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 15000);
-          try {
-            const response = await fetch(`${BASE_URL}/api/admin/extract-detailed-schema`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json', Accept: 'application/json', 'x-user-role': 'admin' },
-              body: JSON.stringify({ rows: payload }),
-              signal: controller.signal // Attach the abort signal
-            });
-            
-            clearTimeout(timeoutId); // Clear timeout if successful
-
-            const parsedPayload = await parseApiJsonSafe(response);
-            const data = Array.isArray(parsedPayload)
-              ? parsedPayload
-              : (Array.isArray(parsedPayload?.data) ? parsedPayload.data : []);
-
-            if (!response.ok || !data.length) throw new Error(parsedPayload?.error || 'AI chunk failed');
-            const chunkMappings = {};
-            data.forEach((item) => {
-              const raw = String(item?.raw || '').trim();
-              if (!raw) return;
-              const key = normalizeDictionaryKey(raw);
-              chunkMappings[key] = {
-                standardName: item.deviceType || 'Unknown Device',
-                condition: item.condition || 'Unknown',
-                sim: item.sim || 'Unknown',
-                isOthers: Boolean(item.isOthers),
-                category: item.category || 'Others',
-                brand: item.brand || 'Others',
-                series: item.series || 'Others',
-                deviceType: item.deviceType || 'Unknown Device',
-              };
-            });
-            if (Object.keys(chunkMappings).length > 0) {
-              Object.assign(activeDictionary, chunkMappings);
-              await setDoc(doc(db, 'horleyTech_Settings', 'customMappings'), {
-                mappings: chunkMappings,
-                updatedAt: new Date().toISOString(),
-              }, { merge: true });
-              setMasterDictionary((prev) => ({ ...prev, ...chunkMappings }));
-            }
-            
-            setSyncProgress(`AI Judging ${Math.min(i + 20, candidates.length)} / ${candidates.length}`);
-          } catch (err) {
-            clearTimeout(timeoutId);
-            if (err.name === 'AbortError') {
-              console.warn(`Chunk ${i} timed out after 15s. Skipping to next batch.`);
-            } else {
-              console.error(`Chunk ${i} failed:`, err);
-            }
-            // Loop continues to the next batch automatically without breaking the pipeline
-          }
-        }
-      }
-
-      const finalDictionary = { ...activeDictionary };
-      setMasterDictionary(finalDictionary);
-      await setDoc(doc(db, 'horleyTech_Settings', 'customMappings'), {
-        mappings: finalDictionary,
-        updatedAt: new Date().toISOString(),
+      await setDoc(doc(db, 'horleyTech_Settings', 'syncStatus'), {
+        isSyncing: true,
+        progress: 'Initializing Backend Engine...',
+        cancelRequested: false,
+        startedAt: new Date().toISOString(),
       }, { merge: true });
 
-      setSyncProgress('Re-mapping inventory with AI improvements...');
-      const finalMappedRows = initiallyMappedRows.map((row, index) => {
-        const baseMapped = smartMapDevice(row.raw, parsed.officialTargets, finalDictionary);
-        if (row.condition !== 'Unknown' && row.simType !== 'Unknown' && row.deviceType !== 'Unknown Device') {
-          return row;
-        }
-        const remappedDeviceType = baseMapped.standardName;
-        const remappedCondition = baseMapped.condition;
-        return {
-          ...row,
-          id: `${row.vendorName}-${index}-${remappedDeviceType}`,
-          brandSubCategory: inferBrandSubCategory(remappedDeviceType),
-          series: inferSeries(remappedDeviceType),
-          deviceType: remappedDeviceType,
-          condition: remappedCondition,
-          cleanStatus: (remappedCondition === 'Unknown' || baseMapped.sim === 'Unknown' || remappedDeviceType === 'Unknown Device') ? 'unclean' : 'clean',
-          simType: baseMapped.sim,
-        };
+      await fetch(`${BASE_URL}/api/admin/trigger-background-sync`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-user-role': 'admin' },
       });
-
-      const fullyCleanRows = finalMappedRows.filter((row) => row.condition !== 'Unknown' && row.simType !== 'Unknown' && row.deviceType !== 'Unknown Device');
-      const cacheRef = doc(db, 'horleyTech_Settings', 'globalProductsCache');
-      const chunkSize = 1500;
-      const chunks = [];
-      for (let i = 0; i < fullyCleanRows.length; i += chunkSize) {
-        chunks.push(fullyCleanRows.slice(i, i + chunkSize));
-      }
-      setSyncProgress(`Caching ${fullyCleanRows.length} products in ${chunks.length} chunks...`);
-      await Promise.all(
-        chunks.map((chunk, index) => setDoc(doc(db, 'horleyTech_Settings', `cache_chunk_${index}`), {
-          products: chunk,
-          chunkIndex: index,
-          syncedAt: new Date().toISOString(),
-        }, { merge: true }))
-      );
-      await setDoc(cacheRef, {
-        cache_metadata: true,
-        syncedAt: new Date().toISOString(),
-        totalItems: fullyCleanRows.length,
-        totalChunks: chunks.length,
-        officialTargets: parsed.officialTargets,
-      }, { merge: true });
-      setGlobalProductsCacheRows(fullyCleanRows);
-      setSyncProgress('');
-      alert(`✅ Master Sync complete. Dictionary: ${Object.keys(finalDictionary).length} mappings. Cached ${fullyCleanRows.length} products.`);
-    } catch (error) {
-      console.error('Master dictionary sync failed:', error);
-      alert(`❌ Failed to sync dictionary: ${error.message}`);
-    } finally {
-      setSyncProgress('');
-      setSyncingDictionary(false);
+    } catch (err) {
+      alert(`Failed to trigger background sync: ${err.message}`);
+      await setDoc(doc(db, 'horleyTech_Settings', 'syncStatus'), { isSyncing: false, progress: 'Failed to start' }, { merge: true });
     }
   };
+
+  const stopMasterSync = async () => {
+    const confirmText = window.prompt('⚠️ Type "STOP" to halt the background sync:');
+    if (confirmText !== 'STOP') return;
+
+    try {
+      await setDoc(doc(db, 'horleyTech_Settings', 'syncStatus'), {
+        cancelRequested: true,
+        progress: 'Halting backend engine...',
+      }, { merge: true });
+    } catch (err) {
+      alert(`Failed to send stop signal: ${err.message}`);
+    }
+  };
+
   const filteredOffline = useMemo(
     () => offlineVendors.filter((v) => !searchQuery || v.vendorName?.toLowerCase().includes(searchQuery.toLowerCase())),
     [offlineVendors, searchQuery]
@@ -1350,8 +1219,6 @@ const AdminDashboard = () => {
     }
 
     try {
-      setSyncingDictionary(true);
-      setSyncProgress('Nuking dictionary & cache...');
       await Promise.all([
         setDoc(doc(db, 'horleyTech_Settings', 'customMappings'), {
           mappings: {},
@@ -1374,8 +1241,6 @@ const AdminDashboard = () => {
     } catch (error) {
       alert(`❌ Failed to nuke dictionary: ${error.message}`);
     } finally {
-      setSyncProgress('');
-      setSyncingDictionary(false);
     }
   };
 
@@ -1898,15 +1763,24 @@ const AdminDashboard = () => {
               </div>
               <div className="mb-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 bg-white/70 backdrop-blur-xl rounded-2xl border border-gray-100 shadow-sm p-4">
                 <p className="text-xs font-bold uppercase tracking-wider text-gray-500">Dictionary Mappings: {Object.keys(masterDictionary).length}</p>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-3">
                   <button
                     type="button"
                     onClick={runMasterAutoSync}
-                    disabled={syncingDictionary}
-                    className={`px-4 py-2.5 rounded-2xl text-xs font-black uppercase tracking-wider border border-gray-100 transition-all ${syncingDictionary ? 'bg-gray-200 text-gray-500 opacity-60 cursor-not-allowed' : 'bg-white/80 hover:bg-white'}`}
+                    disabled={syncJobState.isSyncing}
+                    className={`px-4 py-2 rounded-lg font-medium transition-all ${syncJobState.isSyncing ? 'bg-gray-300 text-gray-500 cursor-not-allowed' : 'bg-blue-600 text-white hover:bg-blue-700 shadow-sm'}`}
                   >
-                    {syncingDictionary ? syncProgress || 'Syncing...' : 'Master Sync & AI Clean'}
+                    {syncJobState.isSyncing ? (syncJobState.progress || 'Syncing...') : 'Master Sync & AI Clean'}
                   </button>
+                  {syncJobState.isSyncing && (
+                    <button
+                      type="button"
+                      onClick={stopMasterSync}
+                      className="px-4 py-2 bg-red-100 text-red-600 hover:bg-red-200 rounded-lg font-medium transition-all shadow-sm border border-red-200"
+                    >
+                      🛑 Stop Process
+                    </button>
+                  )}
                   <button type="button" onClick={nukeAndRebuildDictionary} className="px-4 py-2.5 rounded-2xl text-xs font-black uppercase tracking-wider border border-red-200 text-red-700 bg-red-50 hover:bg-red-100">⚠️ Nuke & Rebuild Dictionary</button>
                 </div>
               </div>
