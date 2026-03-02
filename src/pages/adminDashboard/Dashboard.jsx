@@ -762,12 +762,20 @@ const AdminDashboard = () => {
         for (let i = 0; i < candidates.length; i += 20) {
           const chunk = candidates.slice(i, i + 20);
           const payload = chunk.map((raw) => ({ raw }));
+          
+          // 15-Second Timeout Guard
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 15000);
           try {
             const response = await fetch(`${BASE_URL}/api/admin/extract-detailed-schema`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json', Accept: 'application/json', 'x-user-role': 'admin' },
               body: JSON.stringify({ rows: payload }),
+              signal: controller.signal // Attach the abort signal
             });
+            
+            clearTimeout(timeoutId); // Clear timeout if successful
+
             const parsedPayload = await parseApiJsonSafe(response);
             const data = Array.isArray(parsedPayload)
               ? parsedPayload
@@ -790,25 +798,24 @@ const AdminDashboard = () => {
                 deviceType: item.deviceType || 'Unknown Device',
               };
             });
-            // 🛡️ CRITICAL GUARD: Only save if the chunk actually contains valid mapped data
             if (Object.keys(chunkMappings).length > 0) {
               Object.assign(activeDictionary, chunkMappings);
-
               await setDoc(doc(db, 'horleyTech_Settings', 'customMappings'), {
                 mappings: chunkMappings,
                 updatedAt: new Date().toISOString(),
               }, { merge: true });
-
               setMasterDictionary((prev) => ({ ...prev, ...chunkMappings }));
-            } else {
-              console.warn(`Chunk ${i} returned no valid mappings. Skipping save to protect database.`);
             }
-
-            // Always update progress so the UI doesn't freeze
+            
             setSyncProgress(`AI Judging ${Math.min(i + 20, candidates.length)} / ${candidates.length}`);
           } catch (err) {
-            console.error(`Chunk ${i} failed:`, err);
-            // Do not break the entire pipeline if one chunk fails
+            clearTimeout(timeoutId);
+            if (err.name === 'AbortError') {
+              console.warn(`Chunk ${i} timed out after 15s. Skipping to next batch.`);
+            } else {
+              console.error(`Chunk ${i} failed:`, err);
+            }
+            // Loop continues to the next batch automatically without breaking the pipeline
           }
         }
       }
@@ -1615,10 +1622,10 @@ const AdminDashboard = () => {
   return (
     <AdminDashboardLayout notificationCount={unreadMessages.length} onNotificationClick={() => setNotificationOpen(true)}>
       {location.pathname === '/dashboard' || location.pathname === '/dashboard/' ? (
-        <div className="p-6">
+        <div className="p-6 cursor-default select-none">
           {/* Analytics Hub Top Row */}
           <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6 gap-4 mb-6">
-            <button type="button" onClick={() => setActiveTab('offline')} className="group text-left bg-gradient-to-br from-white to-slate-50 border border-slate-200/80 rounded-2xl p-5 shadow-sm hover:shadow-md transition-all">
+            <button type="button" onClick={() => setActiveTab('offline')} className="group text-left bg-gradient-to-br from-white to-slate-50 border border-slate-200/80 rounded-2xl p-5 shadow-sm hover:shadow-md transition-all cursor-pointer">
               <p className="text-[11px] font-extrabold text-slate-500 uppercase tracking-[0.15em]">Total Vendors</p>
               <p className="text-3xl font-black text-[#12141B] mt-3 leading-none">{analytics.totalVendors}</p>
               <p className="text-xs text-slate-400 mt-2">Registered storefronts</p>
@@ -1629,13 +1636,13 @@ const AdminDashboard = () => {
                 setActiveTab('products');
                 setProductSortMode('highest_price');
               }}
-              className="group text-left bg-gradient-to-br from-emerald-50 via-white to-green-50 border border-emerald-200/70 rounded-2xl p-5 shadow-sm hover:shadow-md transition-all"
+              className="group text-left bg-gradient-to-br from-emerald-50 via-white to-green-50 border border-emerald-200/70 rounded-2xl p-5 shadow-sm hover:shadow-md transition-all cursor-pointer"
             >
               <p className="text-[11px] font-extrabold text-emerald-700 uppercase tracking-[0.15em]">Inventory Value</p>
               <p className="text-[clamp(1.2rem,2.1vw,2rem)] font-black text-emerald-700 mt-3 leading-tight break-words">{formatNaira(analytics.totalInventoryValue)}</p>
               <p className="text-xs text-emerald-600/80 mt-2">~ {formatCompactNaira(analytics.totalInventoryValue)}</p>
             </button>
-            <button type="button" onClick={() => setActiveTab('offline')} className="group text-left bg-gradient-to-br from-blue-50 via-white to-indigo-50 border border-blue-200/70 rounded-2xl p-5 shadow-sm hover:shadow-md transition-all">
+            <button type="button" onClick={() => setActiveTab('offline')} className="group text-left bg-gradient-to-br from-blue-50 via-white to-indigo-50 border border-blue-200/70 rounded-2xl p-5 shadow-sm hover:shadow-md transition-all cursor-pointer">
               <p className="text-[11px] font-extrabold text-blue-700 uppercase tracking-[0.15em]">Store Views</p>
               <p className="text-3xl font-black text-blue-700 mt-3 leading-none">{analytics.totalStoreViews}</p>
               <p className="text-xs text-blue-600/80 mt-2">Traffic this period</p>
@@ -1646,7 +1653,7 @@ const AdminDashboard = () => {
                 setActiveTab('products');
                 setProductSortMode('highest_price');
               }}
-              className="group text-left bg-gradient-to-br from-teal-50 via-white to-emerald-50 border border-teal-200/70 rounded-2xl p-5 shadow-sm hover:shadow-md transition-all"
+              className="group text-left bg-gradient-to-br from-teal-50 via-white to-emerald-50 border border-teal-200/70 rounded-2xl p-5 shadow-sm hover:shadow-md transition-all cursor-pointer"
             >
               <p className="text-[11px] font-extrabold text-teal-700 uppercase tracking-[0.15em]">WA Orders</p>
               <p className="text-3xl font-black text-teal-700 mt-3 leading-none">{analytics.totalWhatsAppOrders}</p>
@@ -1661,7 +1668,7 @@ const AdminDashboard = () => {
                   setProductSortMode('highest_price');
                 }
               }}
-              className="group text-left bg-gradient-to-br from-orange-50 via-white to-amber-50 border border-orange-200/70 rounded-2xl p-5 shadow-sm hover:shadow-md transition-all"
+              className="group text-left bg-gradient-to-br from-orange-50 via-white to-amber-50 border border-orange-200/70 rounded-2xl p-5 shadow-sm hover:shadow-md transition-all cursor-pointer"
             >
               <p className="text-[11px] font-extrabold text-orange-700 uppercase tracking-[0.15em]">Top Device</p>
               <p className="text-lg font-black text-[#12141B] mt-3 leading-tight break-words">{analytics.mostTrackedDevice}</p>
@@ -1673,7 +1680,7 @@ const AdminDashboard = () => {
                 setActiveTab('offline');
                 setSearchQuery(analytics.topVendor === 'N/A' ? '' : analytics.topVendor);
               }}
-              className="group text-left bg-gradient-to-br from-violet-50 via-white to-purple-50 border border-violet-200/70 rounded-2xl p-5 shadow-sm hover:shadow-md transition-all"
+              className="group text-left bg-gradient-to-br from-violet-50 via-white to-purple-50 border border-violet-200/70 rounded-2xl p-5 shadow-sm hover:shadow-md transition-all cursor-pointer"
             >
               <p className="text-[11px] font-extrabold text-violet-700 uppercase tracking-[0.15em]">Star Vendor</p>
               <p className="text-lg font-black text-[#12141B] mt-3 leading-tight break-all">{analytics.topVendor}</p>
@@ -1712,13 +1719,13 @@ const AdminDashboard = () => {
                       type="date"
                       value={startDate}
                       onChange={(e) => setStartDate(e.target.value)}
-                      className="px-4 py-2.5 rounded-xl border border-gray-100 bg-white/80 text-sm outline-none focus:ring-2 focus:ring-gray-300"
+                      className="px-4 py-2.5 rounded-xl border border-gray-100 bg-white/80 text-sm outline-none focus:ring-2 focus:ring-gray-300 cursor-text select-text"
                     />
                     <input
                       type="date"
                       value={endDate}
                       onChange={(e) => setEndDate(e.target.value)}
-                      className="px-4 py-2.5 rounded-xl border border-gray-100 bg-white/80 text-sm outline-none focus:ring-2 focus:ring-gray-300"
+                      className="px-4 py-2.5 rounded-xl border border-gray-100 bg-white/80 text-sm outline-none focus:ring-2 focus:ring-gray-300 cursor-text select-text"
                     />
                   </div>
                   <select
@@ -1737,7 +1744,7 @@ const AdminDashboard = () => {
                     value={selectedVendorFilter}
                     onChange={(e) => setSelectedVendorFilter(e.target.value || 'All')}
                     placeholder="Search vendor"
-                    className="px-4 py-2.5 rounded-2xl text-xs font-black border border-gray-100 bg-white/70 backdrop-blur-xl shadow-sm text-gray-700"
+                    className="px-4 py-2.5 rounded-2xl text-xs font-black border border-gray-100 bg-white/70 backdrop-blur-xl shadow-sm text-gray-700 cursor-text select-text"
                   />
                 </div>
               </div>
@@ -1852,22 +1859,22 @@ const AdminDashboard = () => {
                     value={productSearchQuery}
                     onChange={(e) => setProductSearchQuery(e.target.value)}
                     placeholder="Search category, device, series, vendor..."
-                    className="px-4 py-3 rounded-2xl border border-gray-100 bg-white/80 text-sm outline-none focus:ring-2 focus:ring-gray-300"
+                    className="px-4 py-3 rounded-2xl border border-gray-100 bg-white/80 text-sm outline-none focus:ring-2 focus:ring-gray-300 cursor-text select-text"
                   />
-                  <select value={productCategoryFilter} onChange={(e) => setProductCategoryFilter(e.target.value)} className="px-4 py-3 rounded-2xl border border-gray-100 bg-white/80 text-sm outline-none focus:ring-2 focus:ring-gray-300">
+                  <select value={productCategoryFilter} onChange={(e) => setProductCategoryFilter(e.target.value)} className="px-4 py-3 rounded-2xl border border-gray-100 bg-white/80 text-sm outline-none focus:ring-2 focus:ring-gray-300 cursor-text select-text">
                     {uniqueGlobalCategories.map((category) => <option key={category} value={category}>{category}</option>)}
                   </select>
-                  <select value={productConditionFilter} onChange={(e) => setProductConditionFilter(e.target.value)} className="px-4 py-3 rounded-2xl border border-gray-100 bg-white/80 text-sm outline-none focus:ring-2 focus:ring-gray-300">
+                  <select value={productConditionFilter} onChange={(e) => setProductConditionFilter(e.target.value)} className="px-4 py-3 rounded-2xl border border-gray-100 bg-white/80 text-sm outline-none focus:ring-2 focus:ring-gray-300 cursor-text select-text">
                     {uniqueGlobalConditions.map((condition) => <option key={condition} value={condition}>{condition}</option>)}
                   </select>
-                  <input type="text" list="vendor-search-list" value={selectedVendorFilter} onChange={(e) => setSelectedVendorFilter(e.target.value || 'All')} placeholder="Search vendor" className="px-4 py-3 rounded-2xl border border-gray-100 bg-white/80 text-sm outline-none focus:ring-2 focus:ring-gray-300" />
-                  <select value={dataViewMode} onChange={(e) => setDataViewMode(e.target.value)} className="px-4 py-3 rounded-2xl border border-gray-100 bg-white/80 text-sm outline-none focus:ring-2 focus:ring-gray-300">
+                  <input type="text" list="vendor-search-list" value={selectedVendorFilter} onChange={(e) => setSelectedVendorFilter(e.target.value || 'All')} placeholder="Search vendor" className="px-4 py-3 rounded-2xl border border-gray-100 bg-white/80 text-sm outline-none focus:ring-2 focus:ring-gray-300 cursor-text select-text" />
+                  <select value={dataViewMode} onChange={(e) => setDataViewMode(e.target.value)} className="px-4 py-3 rounded-2xl border border-gray-100 bg-white/80 text-sm outline-none focus:ring-2 focus:ring-gray-300 cursor-text select-text">
                     <option value="all">All</option>
                     <option value="clean">Clean</option>
                     <option value="unclean">Unclean</option>
                     <option value="excluded">Excluded</option>
                   </select>
-                  <select value={productSortMode} onChange={(e) => setProductSortMode(e.target.value)} className="px-4 py-3 rounded-2xl border border-gray-100 bg-white/80 text-sm outline-none focus:ring-2 focus:ring-gray-300">
+                  <select value={productSortMode} onChange={(e) => setProductSortMode(e.target.value)} className="px-4 py-3 rounded-2xl border border-gray-100 bg-white/80 text-sm outline-none focus:ring-2 focus:ring-gray-300 cursor-text select-text">
                     <option value="highest_price">Highest Total Price</option>
                     <option value="lowest_price">Lowest Total Price</option>
                   </select>
@@ -1880,13 +1887,13 @@ const AdminDashboard = () => {
                     value={excludedPhrases}
                     onChange={(e) => setExcludedPhrases(e.target.value)}
                     placeholder="Phrases to Exclude (comma separated)"
-                    className="flex-1 px-4 py-3 rounded-2xl border border-gray-100 bg-white/80 text-sm outline-none focus:ring-2 focus:ring-gray-300"
+                    className="flex-1 px-4 py-3 rounded-2xl border border-gray-100 bg-white/80 text-sm outline-none focus:ring-2 focus:ring-gray-300 cursor-text select-text"
                   />
                   <button type="button" onClick={saveExcludedPhrasesFilter} className="px-3 py-2 rounded-2xl text-[11px] font-black uppercase tracking-wider border border-gray-100 bg-white/80 hover:bg-white whitespace-nowrap">Save Filter</button>
                 </div>
                 <div className="grid grid-cols-2 gap-3">
-                  <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="px-4 py-3 rounded-2xl border border-gray-100 bg-white/80 text-sm outline-none focus:ring-2 focus:ring-gray-300" />
-                  <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="px-4 py-3 rounded-2xl border border-gray-100 bg-white/80 text-sm outline-none focus:ring-2 focus:ring-gray-300" />
+                  <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="px-4 py-3 rounded-2xl border border-gray-100 bg-white/80 text-sm outline-none focus:ring-2 focus:ring-gray-300 cursor-text select-text" />
+                  <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="px-4 py-3 rounded-2xl border border-gray-100 bg-white/80 text-sm outline-none focus:ring-2 focus:ring-gray-300 cursor-text select-text" />
                 </div>
               </div>
               <div className="mb-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 bg-white/70 backdrop-blur-xl rounded-2xl border border-gray-100 shadow-sm p-4">
@@ -2011,14 +2018,14 @@ const AdminDashboard = () => {
                 <p className="text-sm text-gray-500">Mirror global rows, apply margin logic, save sessions, and export strict TXT adjustments.</p>
               </div>
               <div className="grid grid-cols-1 lg:grid-cols-4 gap-3">
-                <input value={companyCsvUrl} onChange={(e) => setCompanyCsvUrl(e.target.value)} placeholder="Company CSV URL" className="lg:col-span-2 px-4 py-3 rounded-2xl border border-gray-100 bg-white/80 text-sm outline-none focus:ring-2 focus:ring-gray-300" />
-                <input type="text" list="vendor-search-list" value={pricingVendor} onChange={(e) => setPricingVendor(e.target.value)} placeholder="Vendor" className="px-4 py-3 rounded-2xl border border-gray-100 bg-white/80 text-sm outline-none focus:ring-2 focus:ring-gray-300" />
+                <input value={companyCsvUrl} onChange={(e) => setCompanyCsvUrl(e.target.value)} placeholder="Company CSV URL" className="lg:col-span-2 px-4 py-3 rounded-2xl border border-gray-100 bg-white/80 text-sm outline-none focus:ring-2 focus:ring-gray-300 cursor-text select-text" />
+                <input type="text" list="vendor-search-list" value={pricingVendor} onChange={(e) => setPricingVendor(e.target.value)} placeholder="Vendor" className="px-4 py-3 rounded-2xl border border-gray-100 bg-white/80 text-sm outline-none focus:ring-2 focus:ring-gray-300 cursor-text select-text" />
                 <button onClick={loadCompanyCsv} disabled={loadingCompanyCsv} className="px-4 py-3 rounded-2xl text-xs font-black uppercase tracking-wider border border-gray-100 bg-white/80 hover:bg-white disabled:opacity-50">{loadingCompanyCsv ? 'Loading...' : 'Load Company CSV'}</button>
-                <select value={marginType} onChange={(e) => setMarginType(e.target.value)} className="px-4 py-3 rounded-2xl border border-gray-100 bg-white/80 text-sm outline-none focus:ring-2 focus:ring-gray-300">
+                <select value={marginType} onChange={(e) => setMarginType(e.target.value)} className="px-4 py-3 rounded-2xl border border-gray-100 bg-white/80 text-sm outline-none focus:ring-2 focus:ring-gray-300 cursor-text select-text">
                   <option value="amount">Amount</option>
                   <option value="percentage">Percentage</option>
                 </select>
-                <input value={marginValue} onChange={(e) => setMarginValue(e.target.value)} placeholder="Margin value" className="px-4 py-3 rounded-2xl border border-gray-100 bg-white/80 text-sm outline-none focus:ring-2 focus:ring-gray-300" />
+                <input value={marginValue} onChange={(e) => setMarginValue(e.target.value)} placeholder="Margin value" className="px-4 py-3 rounded-2xl border border-gray-100 bg-white/80 text-sm outline-none focus:ring-2 focus:ring-gray-300 cursor-text select-text" />
                 <button onClick={savePricingSession} className="px-4 py-3 rounded-2xl text-xs font-black uppercase tracking-wider border border-gray-100 bg-white/80 hover:bg-white">Save Session</button>
                 <button onClick={exportPricingTxt} className="px-4 py-3 rounded-2xl text-xs font-black uppercase tracking-wider border border-gray-100 bg-white/80 hover:bg-white">Export to TXT</button>
               </div>
@@ -2169,8 +2176,8 @@ const AdminDashboard = () => {
               <div className="bg-emerald-50 border border-emerald-100 rounded-xl p-4">
                 <h3 className="text-sm font-black text-emerald-800 uppercase tracking-wider mb-3">Onboard Vendor</h3>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                  <input value={onboardVendorName} onChange={(e) => setOnboardVendorName(e.target.value)} placeholder="Vendor's Name" className="w-full p-3 border rounded-[8px] focus:ring-2 focus:ring-emerald-500 outline-none" />
-                  <input value={botNumber} onChange={(e) => setBotNumber(e.target.value)} placeholder="Your Admin Bot Number" className="w-full p-3 border rounded-[8px] focus:ring-2 focus:ring-emerald-500 outline-none" />
+                  <input value={onboardVendorName} onChange={(e) => setOnboardVendorName(e.target.value)} placeholder="Vendor's Name" className="w-full p-3 border rounded-[8px] focus:ring-2 focus:ring-emerald-500 outline-none cursor-text select-text" />
+                  <input value={botNumber} onChange={(e) => setBotNumber(e.target.value)} placeholder="Your Admin Bot Number" className="w-full p-3 border rounded-[8px] focus:ring-2 focus:ring-emerald-500 outline-none cursor-text select-text" />
                   <button onClick={generateOnboardingLink} className="bg-emerald-600 text-white px-4 py-3 rounded-[8px] font-bold hover:bg-emerald-700 transition-colors">Generate & Copy Link</button>
                 </div>
                 <div className="mt-3 p-3 rounded-lg border border-emerald-100 bg-emerald-50 text-emerald-900 text-xs">
@@ -2184,7 +2191,7 @@ const AdminDashboard = () => {
                     value={tutorialVideoUrl}
                     onChange={(e) => setTutorialVideoUrl(e.target.value)}
                     placeholder="Paste YouTube link"
-                    className="border border-gray-200 rounded-lg px-3 py-2 text-sm"
+                    className="border border-gray-200 rounded-lg px-3 py-2 text-sm cursor-text select-text"
                   />
                   <button
                     onClick={saveTutorialVideo}
@@ -2244,12 +2251,12 @@ const AdminDashboard = () => {
               <div className="flex flex-col xl:flex-row gap-4 mb-6">
                 <div className="flex-1 relative">
                   <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400">🔍</span>
-                  <input type="text" placeholder="Search for a WhatsApp Vendor..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full pl-12 pr-4 py-4 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm shadow-sm font-medium" />
+                  <input type="text" placeholder="Search for a WhatsApp Vendor..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full pl-12 pr-4 py-4 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm shadow-sm font-medium cursor-text select-text" />
                 </div>
                 <div className="flex gap-3 flex-wrap items-center">
                   <button onClick={() => bulkUpdateStatus('suspended')} disabled={!selectedVendorIds.length || bulkUpdating} className="bg-red-600 text-white px-6 py-2 rounded-xl text-xs font-black uppercase tracking-wider hover:bg-red-700 disabled:opacity-50 shadow-md transition-all">Suspend</button>
                   <button onClick={() => bulkUpdateStatus('active')} disabled={!selectedVendorIds.length || bulkUpdating} className="bg-emerald-600 text-white px-6 py-2 rounded-xl text-xs font-black uppercase tracking-wider hover:bg-emerald-700 disabled:opacity-50 shadow-md transition-all">Activate</button>
-                  <input value={bulkMetaDataValue} onChange={(e) => setBulkMetaDataValue(e.target.value)} placeholder="Meta Data" className="px-3 py-2 rounded-xl border border-gray-200 bg-white/80 text-xs font-semibold" />
+                  <input value={bulkMetaDataValue} onChange={(e) => setBulkMetaDataValue(e.target.value)} placeholder="Meta Data" className="px-3 py-2 rounded-xl border border-gray-200 bg-white/80 text-xs font-semibold cursor-text select-text" />
                   <button onClick={bulkAssignMetaData} disabled={!selectedVendorIds.length || bulkUpdating} className="bg-blue-600 text-white px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider hover:bg-blue-700 disabled:opacity-50 shadow-md transition-all">Assign Meta Data</button>
                   <button onClick={handleExport} className="bg-gray-800 text-white px-6 py-2 rounded-xl text-xs font-black uppercase tracking-wider hover:bg-black shadow-md transition-all">Export</button>
                 </div>
@@ -2364,9 +2371,9 @@ const AdminDashboard = () => {
               <button onClick={() => setBulkEditOpen(false)} className="text-gray-400 hover:text-red-500 text-xl">✕</button>
             </div>
             <div className="p-5 grid grid-cols-1 gap-3">
-              <input value={bulkCondition} onChange={(e) => setBulkCondition(e.target.value)} placeholder="Condition (e.g. Used)" className="border border-gray-200 rounded-lg px-3 py-2 text-sm" />
-              <input value={bulkCategory} onChange={(e) => setBulkCategory(e.target.value)} placeholder="Category (e.g. Smartphones)" className="border border-gray-200 rounded-lg px-3 py-2 text-sm" />
-              <input value={bulkPrice} onChange={(e) => setBulkPrice(e.target.value)} placeholder="Price (e.g. ₦350,000)" className="border border-gray-200 rounded-lg px-3 py-2 text-sm" />
+              <input value={bulkCondition} onChange={(e) => setBulkCondition(e.target.value)} placeholder="Condition (e.g. Used)" className="border border-gray-200 rounded-lg px-3 py-2 text-sm cursor-text select-text" />
+              <input value={bulkCategory} onChange={(e) => setBulkCategory(e.target.value)} placeholder="Category (e.g. Smartphones)" className="border border-gray-200 rounded-lg px-3 py-2 text-sm cursor-text select-text" />
+              <input value={bulkPrice} onChange={(e) => setBulkPrice(e.target.value)} placeholder="Price (e.g. ₦350,000)" className="border border-gray-200 rounded-lg px-3 py-2 text-sm cursor-text select-text" />
             </div>
             <div className="p-5 border-t bg-gray-50 flex justify-end gap-3">
               <button onClick={() => setBulkEditOpen(false)} className="px-4 py-2 rounded-lg border border-gray-200 font-bold text-gray-600">Cancel</button>
@@ -2393,7 +2400,7 @@ const AdminDashboard = () => {
                     <p className="text-sm font-black text-[#1A1C23]">{message.vendorId}</p>
                     <p className="text-[10px] font-bold text-gray-400 uppercase">{formatTimelineDate(message.timestamp)}</p>
                   </div>
-                  <p className="text-sm text-gray-700 font-medium">{message.text}</p>
+                  <p className="text-sm text-gray-700 font-medium cursor-text select-text">{message.text}</p>
                   <button 
                     onClick={() => {
                       setNotificationOpen(false);
@@ -2433,7 +2440,7 @@ const AdminDashboard = () => {
                   <div key={message.id} className={`flex ${mine ? 'justify-end' : 'justify-start'}`}>
                     <div className={`max-w-[80%] rounded-2xl px-5 py-3 shadow-sm ${mine ? 'bg-blue-600 text-white rounded-br-none' : 'bg-white border border-gray-200 text-gray-800 rounded-bl-none'}`}>
                       <p className={`text-[10px] font-black uppercase tracking-widest mb-1 ${mine ? 'text-blue-200' : 'text-gray-400'}`}>{mine ? 'You (Admin)' : chatVendor.vendorName}</p>
-                      <p className="text-sm whitespace-pre-wrap font-medium leading-relaxed">{message.text}</p>
+                      <p className="text-sm whitespace-pre-wrap font-medium leading-relaxed cursor-text select-text">{message.text}</p>
                       <p className={`text-[9px] font-bold mt-2 ${mine ? 'text-right text-blue-300' : 'text-left text-gray-400'}`}>{formatTimelineDate(message.timestamp)}</p>
                     </div>
                   </div>
@@ -2449,7 +2456,7 @@ const AdminDashboard = () => {
               <textarea 
                 value={chatInput} 
                 onChange={(e) => setChatInput(e.target.value)} 
-                className="flex-1 border border-gray-200 rounded-xl p-4 text-sm font-medium focus:ring-2 focus:ring-blue-500 outline-none resize-none shadow-sm" 
+                className="flex-1 border border-gray-200 rounded-xl p-4 text-sm font-medium focus:ring-2 focus:ring-blue-500 outline-none resize-none shadow-sm cursor-text select-text" 
                 placeholder="Type your reply to the vendor..." 
                 rows={2}
                 onKeyDown={(e) => {
