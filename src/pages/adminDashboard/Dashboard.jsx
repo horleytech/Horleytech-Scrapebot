@@ -757,29 +757,29 @@ const AdminDashboard = () => {
       });
 
       const candidates = Array.from(uncleanCandidates);
-      const newAiMappings = {};
-      if (candidates.length) {
+      if (candidates.length > 0) {
         setSyncProgress(`AI Judging 0 / ${candidates.length}`);
-        const aiBatchSize = 20;
-        let aiProcessed = 0;
-        for (let i = 0; i < candidates.length; i += aiBatchSize) {
-          const chunk = candidates.slice(i, i + aiBatchSize);
+        for (let i = 0; i < candidates.length; i += 20) {
+          const chunk = candidates.slice(i, i + 20);
+          const payload = chunk.map((raw) => ({ raw }));
           try {
-            const aiResponse = await fetch(`${BASE_URL}/api/admin/extract-detailed-schema`, {
+            const response = await fetch(`${BASE_URL}/api/admin/extract-detailed-schema`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json', Accept: 'application/json', 'x-user-role': 'admin' },
-              body: JSON.stringify({ rows: chunk }),
+              body: JSON.stringify({ rows: payload }),
             });
-            const parsedPayload = await parseApiJsonSafe(aiResponse);
-            if (!aiResponse.ok) {
-              throw new Error(parsedPayload?.error || parsedPayload?.message || `AI judge failed (${aiResponse.status})`);
-            }
-            const aiData = Array.isArray(parsedPayload?.data) ? parsedPayload.data : [];
-            aiData.forEach((item) => {
+            const parsedPayload = await parseApiJsonSafe(response);
+            const data = Array.isArray(parsedPayload)
+              ? parsedPayload
+              : (Array.isArray(parsedPayload?.data) ? parsedPayload.data : []);
+
+            if (!response.ok || !data.length) throw new Error(parsedPayload?.error || 'AI chunk failed');
+            const chunkMappings = {};
+            data.forEach((item) => {
               const raw = String(item?.raw || '').trim();
               if (!raw) return;
               const key = normalizeDictionaryKey(raw);
-              newAiMappings[key] = {
+              chunkMappings[key] = {
                 standardName: item.deviceType || 'Unknown Device',
                 condition: item.condition || 'Unknown',
                 sim: item.sim || 'Unknown',
@@ -790,17 +790,23 @@ const AdminDashboard = () => {
                 deviceType: item.deviceType || 'Unknown Device',
               };
             });
-          } catch (error) {
-            console.error(`AI judge batch failed (${i} - ${i + chunk.length}):`, error);
-          } finally {
-            aiProcessed += chunk.length;
-            setSyncProgress(`AI Judging ${Math.min(aiProcessed, candidates.length)} / ${candidates.length}`);
-            await new Promise((resolve) => window.setTimeout(resolve, 0));
+            // ⚠️ CRITICAL: AGGRESSIVE SAVE TO FIREBASE & LOCAL MEMORY ⚠️
+            Object.assign(activeDictionary, chunkMappings);
+            await setDoc(doc(db, 'horleyTech_Settings', 'customMappings'), {
+              mappings: chunkMappings,
+              updatedAt: new Date().toISOString(),
+            }, { merge: true });
+
+            setMasterDictionary((prev) => ({ ...prev, ...chunkMappings }));
+            setSyncProgress(`AI Judging ${Math.min(i + 20, candidates.length)} / ${candidates.length}`);
+          } catch (err) {
+            console.error(`Chunk ${i} failed:`, err);
+            // Do not break the entire pipeline if one chunk fails
           }
         }
       }
 
-      const finalDictionary = { ...activeDictionary, ...newAiMappings };
+      const finalDictionary = { ...activeDictionary };
       setMasterDictionary(finalDictionary);
       await setDoc(doc(db, 'horleyTech_Settings', 'customMappings'), {
         mappings: finalDictionary,
