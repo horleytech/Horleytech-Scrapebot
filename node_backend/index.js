@@ -848,16 +848,13 @@ const runOpenAIExtraction = async (rows = [], signal) => {
 };
 
 app.post('/api/admin/trigger-background-sync', async (req, res) => {
-  // 1. Instantly return 200 OK so the frontend doesn't hang
   res.status(200).json({ message: 'Background sync started' });
 const db = getFirestore();
 try {
 console.log('🔄 Background Sync: Initializing...');
 
-// 2. Fetch the current brain
 const mapDoc = await db.collection('horleyTech_Settings').doc('customMappings').get();
 const mappings = mapDoc.exists ? (mapDoc.data().mappings || {}) : {};
-// 3. Scan all offline vendors for messy unknown strings
 const vendorsSnap = await db.collection('horleyTech_OfflineInventories').get();
 const unknownsSet = new Set();
 vendorsSnap.docs.forEach(docSnap => {
@@ -866,37 +863,39 @@ vendorsSnap.docs.forEach(docSnap => {
     const raw = String(p.raw || p.rawString || p['Device Type'] || '').trim();
     if (!raw) return;
     const key = raw.toLowerCase().replace(/[^a-z0-9]/g, '');
-    // If it's not in the brain, or mapped as Unknown, flag it for AI
     if (!mappings[key] || mappings[key].condition === 'Unknown' || mappings[key].deviceType === 'Unknown Device') {
        unknownsSet.add(raw);
     }
   });
 });
-// Convert the Set of strings directly to an array of objects
 const candidates = Array.from(unknownsSet).map(str => ({ raw: str }));
 console.log(`🔄 Background Sync: Found ${candidates.length} candidates for AI evaluation.`);
 if (candidates.length === 0) {
   await db.collection('horleyTech_Settings').doc('syncStatus').set({ isSyncing: false, progress: 'No new items', justFinished: true }, { merge: true });
   return;
 }
-// 4. THE AI LOOP
+// OPTIMIZATION: Accumulate mappings to reduce database writes by 80%
+let accumulatedMappings = {};
+let accumulatedCount = 0;
 for (let i = 0; i < candidates.length; i += 20) {
-  
-  // 🛑 EMERGENCY STOP CHECK
-  const statusCheck = await db.collection('horleyTech_Settings').doc('syncStatus').get();
-  if (statusCheck.exists && statusCheck.data().cancelRequested === true) {
-    console.log("🛑 Background sync stopped by Admin.");
-    await db.collection('horleyTech_Settings').doc('syncStatus').set({ isSyncing: false, progress: 'Stopped by Admin', cancelRequested: false, justFinished: true }, { merge: true });
-    return; 
+  const isFifthChunk = ((i / 20) % 5 === 0);
+  const isLastChunk = (i + 20 >= candidates.length);
+  // 🛑 EMERGENCY STOP CHECK & UI UPDATE (Only every 5 chunks to save Firebase Read/Write costs)
+  if (isFifthChunk || isLastChunk) {
+    const statusCheck = await db.collection('horleyTech_Settings').doc('syncStatus').get();
+    if (statusCheck.exists && statusCheck.data().cancelRequested === true) {
+      console.log("🛑 Background sync stopped by Admin.");
+      await db.collection('horleyTech_Settings').doc('syncStatus').set({ isSyncing: false, progress: 'Stopped by Admin', cancelRequested: false, justFinished: true }, { merge: true });
+      return;
+    }
+
+    const progressText = `Backend AI Judging ${Math.min(i + 20, candidates.length)} / ${candidates.length}`;
+    console.log(progressText);
+    await db.collection('horleyTech_Settings').doc('syncStatus').set({ isSyncing: true, progress: progressText }, { merge: true });
   }
-  // Update Firebase Progress (UI moves here!)
-  const progressText = `Backend AI Judging ${Math.min(i + 20, candidates.length)} / ${candidates.length}`;
-  console.log(progressText);
-  await db.collection('horleyTech_Settings').doc('syncStatus').set({ isSyncing: true, progress: progressText }, { merge: true });
   const chunk = candidates.slice(i, i + 20);
-  
+
   try {
-    // Note: Assumes `openai` is initialized
     const completion = await openai.chat.completions.create({
         model: "gpt-4o-mini",
         response_format: { type: "json_object" },
@@ -909,12 +908,11 @@ for (let i = 0; i < candidates.length; i += 20) {
     const parsed = JSON.parse(completion.choices[0].message.content);
     const data = Array.isArray(parsed.data) ? parsed.data : [];
     if (data.length > 0) {
-      const chunkMappings = {};
       data.forEach(item => {
         const raw = String(item?.raw || '').trim();
         if (!raw) return;
         const key = raw.toLowerCase().replace(/[^a-z0-9]/g, '');
-        chunkMappings[key] = {
+        accumulatedMappings[key] = {
           standardName: item.deviceType || 'Unknown Device',
           condition: item.condition || 'Unknown',
           sim: item.sim || 'Unknown',
@@ -925,16 +923,20 @@ for (let i = 0; i < candidates.length; i += 20) {
           deviceType: item.deviceType || 'Unknown Device'
         };
       });
-      if (Object.keys(chunkMappings).length > 0) {
-        await db.collection('horleyTech_Settings').doc('customMappings').set({ mappings: chunkMappings, updatedAt: new Date().toISOString() }, { merge: true });
-        console.log(`✅ Chunk ${i} - Saved ${Object.keys(chunkMappings).length} mapped items.`);
-      }
+      accumulatedCount += data.length;
     }
   } catch (err) {
     console.error(`❌ Backend Chunk ${i} failed:`, err.message);
   }
+  // OPTIMIZED AGGRESSIVE SAVE: Only write to Firebase every 100 items (or on the last chunk)
+  if ((isFifthChunk || isLastChunk) && Object.keys(accumulatedMappings).length > 0) {
+    await db.collection('horleyTech_Settings').doc('customMappings').set({ mappings: accumulatedMappings, updatedAt: new Date().toISOString() }, { merge: true });
+    console.log(`✅ Database Checkpoint - Bulk Saved ${accumulatedCount} mapped items.`);
+    // Reset accumulators after save
+    accumulatedMappings = {};
+    accumulatedCount = 0;
+  }
 }
-// 5. Job Complete
 console.log('🎉 Background Sync: Complete!');
 await db.collection('horleyTech_Settings').doc('syncStatus').set({ isSyncing: false, progress: 'Sync Complete', justFinished: true }, { merge: true });
 } catch (error) {
