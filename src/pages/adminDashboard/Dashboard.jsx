@@ -738,12 +738,15 @@ const AdminDashboard = () => {
   const stopMasterSync = async () => {
     const confirmText = window.prompt('⚠️ Type "STOP" to halt the background sync:');
     if (confirmText !== 'STOP') return;
-
     try {
+      // Instantly unlock the UI on the frontend, and tell the backend to die if it's running
       await setDoc(doc(db, 'horleyTech_Settings', 'syncStatus'), {
+        isSyncing: false, // Force Unlock
         cancelRequested: true,
-        progress: 'Halting backend engine...',
+        progress: 'Stopped by Admin',
+        justFinished: true,
       }, { merge: true });
+      alert('Forcefully stopped and unlocked.');
     } catch (err) {
       alert(`Failed to send stop signal: ${err.message}`);
     }
