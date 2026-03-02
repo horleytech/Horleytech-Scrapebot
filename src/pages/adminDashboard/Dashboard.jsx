@@ -790,14 +790,21 @@ const AdminDashboard = () => {
                 deviceType: item.deviceType || 'Unknown Device',
               };
             });
-            // ⚠️ CRITICAL: AGGRESSIVE SAVE TO FIREBASE & LOCAL MEMORY ⚠️
-            Object.assign(activeDictionary, chunkMappings);
-            await setDoc(doc(db, 'horleyTech_Settings', 'customMappings'), {
-              mappings: chunkMappings,
-              updatedAt: new Date().toISOString(),
-            }, { merge: true });
+            // 🛡️ CRITICAL GUARD: Only save if the chunk actually contains valid mapped data
+            if (Object.keys(chunkMappings).length > 0) {
+              Object.assign(activeDictionary, chunkMappings);
 
-            setMasterDictionary((prev) => ({ ...prev, ...chunkMappings }));
+              await setDoc(doc(db, 'horleyTech_Settings', 'customMappings'), {
+                mappings: chunkMappings,
+                updatedAt: new Date().toISOString(),
+              }, { merge: true });
+
+              setMasterDictionary((prev) => ({ ...prev, ...chunkMappings }));
+            } else {
+              console.warn(`Chunk ${i} returned no valid mappings. Skipping save to protect database.`);
+            }
+
+            // Always update progress so the UI doesn't freeze
             setSyncProgress(`AI Judging ${Math.min(i + 20, candidates.length)} / ${candidates.length}`);
           } catch (err) {
             console.error(`Chunk ${i} failed:`, err);
