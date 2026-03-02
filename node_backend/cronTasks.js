@@ -2,6 +2,8 @@ import cron from 'node-cron';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import admin from 'firebase-admin';
+import OpenAI from 'openai';
 import { runBackup, getAdminFirestore } from './backup.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -9,6 +11,9 @@ const __dirname = path.dirname(__filename);
 
 const OFFLINE_COLLECTION = 'horleyTech_OfflineInventories';
 const SETTINGS_COLLECTION = 'horleyTech_Settings';
+const AI_BATCH_SIZE = 20;
+
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 const normalizeMappingKey = (value) => String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
 
@@ -157,6 +162,121 @@ export const exportMappingsToJsonl = async () => {
   };
 };
 
+const chunkArray = (arr = [], size = AI_BATCH_SIZE) => {
+  const chunks = [];
+  for (let i = 0; i < arr.length; i += size) {
+    chunks.push(arr.slice(i, i + size));
+  }
+  return chunks;
+};
+
+const runTwoLayerJudge = async (rows = []) => {
+  const systemPrompt = 'You are a strict Two-Layer AI Judge. Given an array of objects with a "raw" string, extract details. You MUST return a JSON object with a single root key called "data" containing an array of objects. Each object must strictly have: "raw", "category", "brand", "series", "deviceType", "condition", "sim", and "isOthers". "condition" must be one of "Brand New", "Grade A UK Used", or "Unknown". "sim" must be one of "Physical SIM", "ESIM", "Physical SIM + ESIM", or "Unknown".';
+
+  const aiResponse = await openai.chat.completions.create({
+    model: 'gpt-4o-mini',
+    response_format: { type: 'json_object' },
+    messages: [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: JSON.stringify(rows) },
+    ],
+    temperature: 0,
+  });
+
+  const parsed = JSON.parse(aiResponse.choices?.[0]?.message?.content || '{}');
+  return Array.isArray(parsed.data) ? parsed.data : [];
+};
+
+export const runNightlyUnknownSweeper = async () => {
+  if (!process.env.OPENAI_API_KEY) {
+    console.warn('⚠️ OPENAI_API_KEY missing. Nightly unknown sweeper skipped.');
+    return { success: false, judged: 0, skipped: true };
+  }
+
+  const firestore = getAdminFirestore();
+  if (!admin.apps.length) {
+    console.warn('⚠️ Firebase admin app unavailable. Nightly unknown sweeper skipped.');
+    return { success: false, judged: 0, skipped: true };
+  }
+
+  const mappingsRef = firestore.collection(SETTINGS_COLLECTION).doc('customMappings');
+  const mappingsSnap = await mappingsRef.get();
+  const existingMappings = mappingsSnap.exists ? (mappingsSnap.data()?.mappings || {}) : {};
+
+  const vendorSnapshot = await firestore.collection(OFFLINE_COLLECTION).get();
+  const unknownCandidates = new Set();
+
+  vendorSnapshot.docs.forEach((docSnap) => {
+    const vendorData = docSnap.data() || {};
+    const products = Array.isArray(vendorData.products) ? vendorData.products : [];
+    products.forEach((product) => {
+      const condition = String(product?.Condition || product?.condition || '').trim();
+      const deviceType = String(product?.['Device Type'] || product?.deviceType || '').trim();
+      const isUnknownCondition = condition.toLowerCase() === 'unknown';
+      const isUnknownDevice = !deviceType || deviceType.toLowerCase() === 'unknown device';
+      if (!isUnknownCondition && !isUnknownDevice) return;
+
+      const rawString = [
+        product?.raw,
+        product?.rawString,
+        product?.['Device Type'],
+        product?.deviceType,
+        product?.['SIM Type/Model/Processor'],
+        product?.Condition,
+      ].filter(Boolean).join(' ').trim();
+
+      if (!rawString) return;
+      unknownCandidates.add(rawString);
+    });
+  });
+
+  const candidateRows = Array.from(unknownCandidates).map((raw) => ({ raw }));
+  if (!candidateRows.length) {
+    return { success: true, judged: 0, updatedMappings: 0 };
+  }
+
+  const chunks = chunkArray(candidateRows, AI_BATCH_SIZE);
+  const newAiMappings = {};
+
+  for (const chunk of chunks) {
+    try {
+      const judgedRows = await runTwoLayerJudge(chunk);
+      judgedRows.forEach((item) => {
+        const raw = String(item?.raw || '').trim();
+        if (!raw) return;
+        const key = normalizeMappingKey(raw);
+        if (!key) return;
+        newAiMappings[key] = {
+          standardName: item.deviceType || 'Unknown Device',
+          condition: item.condition || 'Unknown',
+          sim: item.sim || 'Unknown',
+          isOthers: Boolean(item.isOthers),
+          category: item.category || 'Others',
+          brand: item.brand || 'Others',
+          series: item.series || 'Others',
+          deviceType: item.deviceType || 'Unknown Device',
+        };
+      });
+    } catch (error) {
+      console.error('❌ Nightly sweeper AI chunk failed:', error.message);
+    }
+  }
+
+  const mergedMappings = { ...existingMappings, ...newAiMappings };
+  await mappingsRef.set({
+    mappings: mergedMappings,
+    updatedAt: new Date().toISOString(),
+    sweeperLastRunAt: new Date().toISOString(),
+    sweeperCandidateCount: candidateRows.length,
+  }, { merge: true });
+
+  return {
+    success: true,
+    judged: candidateRows.length,
+    updatedMappings: Object.keys(newAiMappings).length,
+  };
+};
+
 export const initializeCronTasks = () => {
   cron.schedule('0 0 * * 0', async () => {
     console.log('🗂️ Running weekly automated backup...');
@@ -171,6 +291,16 @@ export const initializeCronTasks = () => {
   cron.schedule('0 0 1 * *', async () => {
     console.log('📦 Running monthly mapping JSONL export...');
     await exportMappingsToJsonl();
+  }, { timezone: 'Africa/Lagos' });
+
+  cron.schedule('0 2 * * *', async () => {
+    console.log('👻 Running nightly unknown mapping sweeper...');
+    try {
+      const result = await runNightlyUnknownSweeper();
+      console.log('✅ Nightly unknown mapping sweeper finished:', result);
+    } catch (error) {
+      console.error('❌ Nightly unknown mapping sweeper failed:', error.message);
+    }
   }, { timezone: 'Africa/Lagos' });
 
   console.log('⏰ Autonomous cron tasks initialized.');

@@ -13,7 +13,6 @@ const COLLECTIONS = {
   backups: 'horleyTech_Backups',
 };
 const CHART_COLORS = ['#16a34a', '#2563eb', '#f59e0b', '#7c3aed', '#ef4444', '#14b8a6', '#f97316'];
-const MASTER_DICTIONARY_STORAGE_KEY = 'admin-master-dictionary-v1';
 const FALLBACK_MASTER_DICTIONARY_CSV = 'https://example.com/master-dictionary.csv';
 const FALLBACK_COMPANY_PRICING_CSV = 'https://example.com/company-pricing.csv';
 const toCsv = (rows) => {
@@ -246,71 +245,44 @@ const smartMapDevice = (rawString, officialTargets = [], customMappings = {}) =>
       aiRequired: true,
     };
   }
+
   const mappingKey = normalizeDictionaryKey(original);
   const mappingEntry = customMappings?.[mappingKey];
-  const mappedSeed = typeof mappingEntry === 'object'
-    ? (mappingEntry.standardName || mappingEntry.deviceType || original)
-    : (mappingEntry || original);
+  if (mappingEntry) {
+    if (typeof mappingEntry === 'object') {
+      return {
+        standardName: mappingEntry.deviceType || mappingEntry.standardName || 'Unknown Device',
+        condition: mappingEntry.condition || 'Unknown',
+        sim: mappingEntry.sim || 'Unknown',
+        isOthers: Boolean(mappingEntry.isOthers),
+        aiRequired: false,
+        laptopSpecs: extractLaptopSpecs(original),
+      };
+    }
 
-  const normalizedRaw = String(mappedSeed || '')
-    .toLowerCase()
-    .replace(/\+/g, ' plus ')
-    .replace(/\bpm\b/g, ' pro max ')
-    .replace(/[^a-z0-9\s]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-  const samsungSuffixGuard = (targetNormalized) => {
-    const samsungBaseMatch = targetNormalized.match(/\b(?:samsung\s+galaxy\s+|galaxy\s+|samsung\s+)?s(\d{1,3})\b/);
-    if (!samsungBaseMatch) return true;
-    const modelToken = `s${samsungBaseMatch[1]}`;
-    const hasExactBase = new RegExp(`\\b${modelToken}\\b`, 'i').test(normalizedRaw)
-      || new RegExp(`\\b(?:samsung\\s+|galaxy\\s+|samsung\\s+galaxy\\s+)${modelToken}\\b`, 'i').test(normalizedRaw);
-    if (!hasExactBase) return false;
+    return {
+      standardName: String(mappingEntry || '').trim() || 'Unknown Device',
+      condition: 'Unknown',
+      sim: 'Unknown',
+      isOthers: false,
+      aiRequired: false,
+      laptopSpecs: extractLaptopSpecs(original),
+    };
+  }
 
-    const targetHasUltra = /\bultra\b/.test(targetNormalized);
-    const targetHasPlus = /\bplus\b/.test(targetNormalized);
-    const rawHasUltra = /\bultra\b/.test(normalizedRaw);
-    const rawHasPlus = /\bplus\b/.test(normalizedRaw);
-    if (!targetHasUltra && rawHasUltra) return false;
-    if (!targetHasPlus && rawHasPlus) return false;
-    return true;
-  };
-  const normalizedTargets = officialTargets
-    .map((target) => ({
-      raw: target,
-      normalized: String(target || '').toLowerCase().replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim(),
-    }))
-    .filter((target) => target.normalized);
-  const exact = normalizedTargets.find((target) => normalizedRaw === target.normalized);
-  const standardName = exact?.raw || normalizedTargets
-    .filter((target) => normalizedRaw.includes(target.normalized) && samsungSuffixGuard(target.normalized))
-    .sort((a, b) => b.normalized.length - a.normalized.length)[0]?.raw || mappedSeed;
-
-  const normalizedStandardName = String(standardName || '').trim();
-  const laptopSpecs = extractLaptopSpecs(original);
-
-  const result = {
-    standardName: normalizedStandardName || 'Unknown Device',
+  return {
+    standardName: 'Unknown Device',
     condition: 'Unknown',
     sim: 'Unknown',
-    isOthers: false,
-    aiRequired: false,
-    laptopSpecs,
+    isOthers: true,
+    aiRequired: true,
+    laptopSpecs: extractLaptopSpecs(original),
   };
-
-  result.condition = standardizeCondition(original);
-  result.sim = normalizeSimType(original);
-
-  if (result.standardName === 'Unknown Device' || result.condition === 'Unknown') {
-    result.isOthers = true;
-    result.aiRequired = true;
-  }
-  return result;
 };
 const getConditionRank = (condition) => {
-  const standardized = standardizeCondition(condition);
-  if (standardized === 'Brand New') return 0;
-  if (standardized === 'Grade A UK Used') return 1;
+  const normalized = String(condition || '').trim();
+  if (normalized === 'Brand New') return 0;
+  if (normalized === 'Grade A UK Used') return 1;
   return 2;
 };
 const extractDeviceVersion = (deviceType) => {
@@ -340,22 +312,6 @@ const getStorageRank = (storage) => {
   const value = Number(match[1]) || 0;
   const unit = match[2];
   return unit === 'tb' ? value * 1024 : value;
-};
-const standardizeCondition = (raw) => {
-  const normalized = String(raw || '').toLowerCase();
-  if (/(used|open\s*box|uk)/i.test(normalized)) return 'Grade A UK Used';
-  if (/(new|pristine|sealed)/i.test(normalized)) return 'Brand New';
-  return 'Unknown';
-};
-const normalizeSimType = (raw) => {
-  const normalized = String(raw || '').toLowerCase();
-  const hasEsim = /\besim\b/i.test(normalized);
-  const hasPhysical = /\bphysical\b/i.test(normalized);
-  const hasDual = /\bdual\b/i.test(normalized);
-  if ((hasPhysical && hasEsim) || hasDual) return 'Physical SIM + ESIM';
-  if (hasEsim) return 'ESIM';
-  if (hasPhysical) return 'Physical SIM';
-  return 'Unknown';
 };
 const inferBrandSubCategory = (deviceType) => {
   const normalized = String(deviceType || '').toLowerCase();
@@ -403,7 +359,6 @@ const AdminDashboard = () => {
   const [loadingCompanyCsv, setLoadingCompanyCsv] = useState(false);
   const [companyCsvRows, setCompanyCsvRows] = useState([]);
   const [savedPricingSessions, setSavedPricingSessions] = useState([]);
-  const [expandedVariationCounts, setExpandedVariationCounts] = useState({});
   const [pricingVendor, setPricingVendor] = useState('All');
   const [marginType, setMarginType] = useState('amount');
   const [marginValue, setMarginValue] = useState('0');
@@ -655,17 +610,20 @@ const AdminDashboard = () => {
     }
   }, [activeTab]);
   useEffect(() => {
-    try {
-      const cached = localStorage.getItem(MASTER_DICTIONARY_STORAGE_KEY);
-      if (!cached) return;
-      const parsed = JSON.parse(cached);
-      if (parsed && typeof parsed === 'object') {
-        setMasterDictionary(parsed.dictionary || parsed);
-        setOfficialTargets(Array.isArray(parsed.officialTargets) ? parsed.officialTargets : []);
+    const loadCustomMappingsFromFirebase = async () => {
+      try {
+        const mappingsSnap = await getDoc(doc(db, 'horleyTech_Settings', 'customMappings'));
+        if (!mappingsSnap.exists()) return;
+        const mappingsData = mappingsSnap.data() || {};
+        const firebaseMappings = mappingsData.mappings || {};
+        if (firebaseMappings && typeof firebaseMappings === 'object') {
+          setMasterDictionary(firebaseMappings);
+        }
+      } catch (error) {
+        console.error('Failed to load Firebase custom mappings:', error);
       }
-    } catch (error) {
-      console.error('Failed to load cached master dictionary:', error);
-    }
+    };
+    loadCustomMappingsFromFirebase();
   }, []);
   useEffect(() => {
     const loadAdminPreferences = async () => {
@@ -744,17 +702,20 @@ const AdminDashboard = () => {
     setSyncingDictionary(true);
     setSyncProgress('Syncing master dictionary...');
     try {
+      const customMappingsSnap = await getDoc(doc(db, 'horleyTech_Settings', 'customMappings'));
+      const firebaseMappings = customMappingsSnap.exists()
+        ? (customMappingsSnap.data()?.mappings || {})
+        : {};
+
+      setSyncProgress('Fetching master dictionary CSV...');
       const response = await fetch(csvUrl, { headers: { Accept: 'text/csv,text/plain,*/*' } });
       if (!response.ok) throw new Error(`Unable to fetch CSV (${response.status})`);
       const csvText = await response.text();
       const parsed = parseMasterDictionaryCsv(csvText);
-      const baseDictionary = { ...masterDictionary, ...parsed.dictionary };
-      setMasterDictionary(baseDictionary);
+      const activeDictionary = { ...parsed.dictionary, ...firebaseMappings };
+
+      setMasterDictionary(activeDictionary);
       setOfficialTargets(parsed.officialTargets);
-      localStorage.setItem(MASTER_DICTIONARY_STORAGE_KEY, JSON.stringify({
-        dictionary: baseDictionary,
-        officialTargets: parsed.officialTargets,
-      }));
 
       setSyncProgress('Mapping offline vendor inventory...');
       const initiallyMappedRows = [];
@@ -763,15 +724,16 @@ const AdminDashboard = () => {
         (vendor.products || []).forEach((product, index) => {
           const rawDeviceType = (product['Device Type'] || 'Unknown Device').trim() || 'Unknown Device';
           const rawDescriptor = `${rawDeviceType} ${product.Condition || ''} ${product['SIM Type/Model/Processor'] || ''}`.trim();
-          const mappedResult = smartMapDevice(rawDescriptor, parsed.officialTargets, baseDictionary);
+          const mappedResult = smartMapDevice(rawDescriptor, parsed.officialTargets, activeDictionary);
           const smartMappedDeviceType = mappedResult.standardName;
           const productDate = product.DatePosted || vendor.lastUpdated;
           const category = (product.Category || 'Others').trim() || 'Others';
           const rawCondition = mappedResult.condition;
-          const cleanStatus = rawCondition === 'Unknown' ? 'unclean' : 'clean';
           const normalizedSim = mappedResult.sim;
-          const storage = (product['Storage Capacity/Configuration'] || 'N/A').trim() || 'N/A';
-          if (rawCondition === 'Unknown' || smartMappedDeviceType === 'Unknown Device') {
+          const cleanStatus = (rawCondition === 'Unknown' || normalizedSim === 'Unknown' || smartMappedDeviceType === 'Unknown Device') ? 'unclean' : 'clean';
+          const storageRaw = String(product['Storage Capacity/Configuration'] || 'N/A').trim();
+          const storage = storageRaw !== 'N/A' ? storageRaw.toUpperCase() : 'N/A';
+          if (rawCondition === 'Unknown' || mappedResult.sim === 'Unknown' || smartMappedDeviceType === 'Unknown Device') {
             uncleanCandidates.add(rawDescriptor);
           }
           initiallyMappedRows.push({
@@ -833,21 +795,22 @@ const AdminDashboard = () => {
           } finally {
             aiProcessed += chunk.length;
             setSyncProgress(`AI Judging ${Math.min(aiProcessed, candidates.length)} / ${candidates.length}`);
+            await new Promise((resolve) => window.setTimeout(resolve, 0));
           }
         }
       }
 
-      const finalDictionary = { ...baseDictionary, ...newAiMappings };
+      const finalDictionary = { ...activeDictionary, ...newAiMappings };
       setMasterDictionary(finalDictionary);
-      localStorage.setItem(MASTER_DICTIONARY_STORAGE_KEY, JSON.stringify({
-        dictionary: finalDictionary,
-        officialTargets: parsed.officialTargets,
-      }));
+      await setDoc(doc(db, 'horleyTech_Settings', 'customMappings'), {
+        mappings: finalDictionary,
+        updatedAt: new Date().toISOString(),
+      }, { merge: true });
 
       setSyncProgress('Re-mapping inventory with AI improvements...');
       const finalMappedRows = initiallyMappedRows.map((row, index) => {
         const baseMapped = smartMapDevice(row.raw, parsed.officialTargets, finalDictionary);
-        if (row.condition !== 'Unknown' && row.deviceType !== 'Unknown Device') {
+        if (row.condition !== 'Unknown' && row.simType !== 'Unknown' && row.deviceType !== 'Unknown Device') {
           return row;
         }
         const remappedDeviceType = baseMapped.standardName;
@@ -859,18 +822,19 @@ const AdminDashboard = () => {
           series: inferSeries(remappedDeviceType),
           deviceType: remappedDeviceType,
           condition: remappedCondition,
-          cleanStatus: remappedCondition === 'Unknown' ? 'unclean' : 'clean',
+          cleanStatus: (remappedCondition === 'Unknown' || baseMapped.sim === 'Unknown' || remappedDeviceType === 'Unknown Device') ? 'unclean' : 'clean',
           simType: baseMapped.sim,
         };
       });
 
+      const fullyCleanRows = finalMappedRows.filter((row) => row.condition !== 'Unknown' && row.simType !== 'Unknown' && row.deviceType !== 'Unknown Device');
       const cacheRef = doc(db, 'horleyTech_Settings', 'globalProductsCache');
       const chunkSize = 1500;
       const chunks = [];
-      for (let i = 0; i < finalMappedRows.length; i += chunkSize) {
-        chunks.push(finalMappedRows.slice(i, i + chunkSize));
+      for (let i = 0; i < fullyCleanRows.length; i += chunkSize) {
+        chunks.push(fullyCleanRows.slice(i, i + chunkSize));
       }
-      setSyncProgress(`Caching ${finalMappedRows.length} products in ${chunks.length} chunks...`);
+      setSyncProgress(`Caching ${fullyCleanRows.length} products in ${chunks.length} chunks...`);
       await Promise.all(
         chunks.map((chunk, index) => setDoc(doc(db, 'horleyTech_Settings', `cache_chunk_${index}`), {
           products: chunk,
@@ -881,17 +845,13 @@ const AdminDashboard = () => {
       await setDoc(cacheRef, {
         cache_metadata: true,
         syncedAt: new Date().toISOString(),
-        totalItems: finalMappedRows.length,
+        totalItems: fullyCleanRows.length,
         totalChunks: chunks.length,
         officialTargets: parsed.officialTargets,
       }, { merge: true });
-      await setDoc(doc(db, 'horleyTech_Settings', 'customMappings'), {
-        mappings: newAiMappings,
-        updatedAt: new Date().toISOString(),
-      }, { merge: true });
-      setGlobalProductsCacheRows(finalMappedRows);
+      setGlobalProductsCacheRows(fullyCleanRows);
       setSyncProgress('');
-      alert(`✅ Master Sync complete. Dictionary: ${Object.keys(finalDictionary).length} mappings. Cached ${finalMappedRows.length} products.`);
+      alert(`✅ Master Sync complete. Dictionary: ${Object.keys(finalDictionary).length} mappings. Cached ${fullyCleanRows.length} products.`);
     } catch (error) {
       console.error('Master dictionary sync failed:', error);
       alert(`❌ Failed to sync dictionary: ${error.message}`);
@@ -929,6 +889,8 @@ const AdminDashboard = () => {
         return true;
       })
       .map((row, index) => {
+        const storageRaw = String(row.storage || row['Storage Capacity/Configuration'] || 'N/A').trim();
+        const storage = storageRaw !== 'N/A' ? storageRaw.toUpperCase() : 'N/A';
         const haystack = [
           row.category,
           row.brandSubCategory,
@@ -936,7 +898,7 @@ const AdminDashboard = () => {
           row.deviceType,
           row.condition,
           row.simType,
-          row.storage,
+          storage,
           row.raw,
         ].join(' ').toLowerCase();
         const isExcluded = excludedTokens.some((phrase) => haystack.includes(phrase));
@@ -944,6 +906,7 @@ const AdminDashboard = () => {
         return {
           ...row,
           id: row.id || `cache-${index}`,
+          storage,
           cleanStatus,
         };
       });
@@ -1359,34 +1322,37 @@ const AdminDashboard = () => {
     }
   };
 
-  const cleanInvalidMappings = async () => {
+  const nukeAndRebuildDictionary = async () => {
+    const confirmed = window.confirm('⚠️ This will wipe customMappings and global product cache chunks. Continue?');
+    if (!confirmed) return;
+
     try {
-      const mappingRef = doc(db, 'horleyTech_Settings', 'customMappings');
-      const mappingSnap = await getDoc(mappingRef);
-      const mappings = mappingSnap.exists() ? (mappingSnap.data()?.mappings || {}) : {};
-      const cleanedMappings = {};
+      setSyncingDictionary(true);
+      setSyncProgress('Nuking dictionary & cache...');
+      await Promise.all([
+        setDoc(doc(db, 'horleyTech_Settings', 'customMappings'), {
+          mappings: {},
+          updatedAt: new Date().toISOString(),
+          nukedAt: new Date().toISOString(),
+        }, { merge: true }),
+        setDoc(doc(db, 'horleyTech_Settings', 'globalProductsCache'), {
+          cache_metadata: true,
+          syncedAt: new Date().toISOString(),
+          totalItems: 0,
+          totalChunks: 0,
+          officialTargets: [],
+        }, { merge: true }),
+      ]);
 
-      Object.entries(mappings).forEach(([key, value]) => {
-        if (!value || typeof value !== 'object') return;
-        const condition = value.condition || 'Unknown';
-        const deviceType = value.deviceType || value.standardName || 'Unknown Device';
-        if (condition === 'Unknown' || deviceType === 'Unknown Device') return;
-        cleanedMappings[key] = value;
-      });
-
-      await setDoc(mappingRef, {
-        mappings: cleanedMappings,
-        updatedAt: new Date().toISOString(),
-      });
-
-      setMasterDictionary(cleanedMappings);
-      localStorage.setItem(MASTER_DICTIONARY_STORAGE_KEY, JSON.stringify({
-        dictionary: cleanedMappings,
-        officialTargets,
-      }));
-      alert('✅ Cleaned invalid AI mappings.');
+      setMasterDictionary({});
+      setGlobalProductsCacheRows([]);
+      setOfficialTargets([]);
+      alert('✅ Dictionary nuked. Run Master Sync to rebuild with pure AI mappings.');
     } catch (error) {
-      alert(`❌ ${error.message}`);
+      alert(`❌ Failed to nuke dictionary: ${error.message}`);
+    } finally {
+      setSyncProgress('');
+      setSyncingDictionary(false);
     }
   };
 
@@ -1398,7 +1364,7 @@ const AdminDashboard = () => {
       const companyCondition = getCsvValueByAliases(row, ['Condition']) || 'Unknown';
       const companySim = getCsvValueByAliases(row, ['SIM Type/Model/Processor', 'sim type', 'model']);
       const companyRawDescriptor = `${companyDevice} ${companyCondition} ${companySim}`.trim();
-      const mappedResult = smartMapDevice(companyRawDescriptor, officialTargets);
+      const mappedResult = smartMapDevice(companyRawDescriptor, officialTargets, masterDictionary);
       const mappedDevice = mappedResult.standardName;
       const condition = mappedResult.condition;
       const storage = getCsvValueByAliases(row, ['Storage Capacity/Configuration', 'storage', 'configuration']);
@@ -1903,7 +1869,7 @@ const AdminDashboard = () => {
                 <p className="text-xs font-bold uppercase tracking-wider text-gray-500">Dictionary Mappings: {Object.keys(masterDictionary).length}</p>
                 <div className="flex items-center gap-2">
                   <button type="button" onClick={runMasterAutoSync} disabled={syncingDictionary} className="px-4 py-2.5 rounded-2xl text-xs font-black uppercase tracking-wider border border-gray-100 bg-white/80 hover:bg-white disabled:opacity-50">{syncingDictionary ? syncProgress || 'Syncing...' : 'Master Sync & AI Clean'}</button>
-                  <button type="button" onClick={cleanInvalidMappings} className="px-4 py-2.5 rounded-2xl text-xs font-black uppercase tracking-wider border border-red-200 text-red-700 bg-red-50 hover:bg-red-100">🧹 Clear Junk AI Cache</button>
+                  <button type="button" onClick={nukeAndRebuildDictionary} className="px-4 py-2.5 rounded-2xl text-xs font-black uppercase tracking-wider border border-red-200 text-red-700 bg-red-50 hover:bg-red-100">⚠️ Nuke & Rebuild Dictionary</button>
                 </div>
               </div>
               <div className="space-y-3">
@@ -1958,33 +1924,18 @@ const AdminDashboard = () => {
                                                               </button>
                                                               {variationExpanded && (
                                                                 <div className="px-3 pb-3">
-                                                                  <table className="w-full text-left">
-                                                                    <thead>
-                                                                      <tr className="text-[10px] uppercase text-gray-500"><th className="py-1">Vendor</th><th className="py-1">Price</th><th className="py-1">Date</th><th className="py-1">Link</th></tr>
-                                                                    </thead>
-                                                                    <tbody>
-                                                                      {variation.vendors
-                                                                        .sort((a, b) => (productSortMode === 'lowest_price' ? a.priceValue - b.priceValue : b.priceValue - a.priceValue))
-                                                                        .slice(0, expandedVariationCounts[variationKey] || 3)
-                                                                        .map((item) => (
-                                                                        <tr key={item.id} className="border-t border-gray-100">
-                                                                          <td className="py-2 text-xs font-semibold">{item.vendorName}</td>
-                                                                          <td className="py-2 text-xs">{item.price}</td>
-                                                                          <td className="py-2 text-xs">{formatTimelineDate(item.date)}</td>
-                                                                          <td className="py-2 text-xs"><Link to={item.vendorLink} target="_blank" rel="noopener noreferrer" className="text-blue-600 font-bold">Open ↗</Link></td>
-                                                                        </tr>
+                                                                  <div className="flex overflow-x-auto hide-scrollbar gap-4 snap-x snap-mandatory pb-2">
+                                                                    {variation.vendors
+                                                                      .sort((a, b) => (productSortMode === 'lowest_price' ? a.priceValue - b.priceValue : b.priceValue - a.priceValue))
+                                                                      .map((item) => (
+                                                                        <article key={item.id} className="min-w-[200px] snap-center bg-gray-50 border border-gray-100 rounded-xl p-3 shadow-sm flex-shrink-0">
+                                                                          <p className="text-xs font-bold text-gray-900">{item.vendorName}</p>
+                                                                          <p className="text-sm font-bold text-green-600 mt-1">{item.price}</p>
+                                                                          <p className="text-[11px] text-gray-500 mt-1">{formatTimelineDate(item.date)}</p>
+                                                                          <Link to={item.vendorLink} target="_blank" rel="noopener noreferrer" className="inline-block text-xs text-blue-600 font-bold mt-2">Open ↗</Link>
+                                                                        </article>
                                                                       ))}
-                                                                    </tbody>
-                                                                  </table>
-                                                                  {variation.vendors.length > (expandedVariationCounts[variationKey] || 3) && (
-                                                                    <button
-                                                                      type="button"
-                                                                      onClick={() => setExpandedVariationCounts((prev) => ({ ...prev, [variationKey]: (prev[variationKey] || 3) + 3 }))}
-                                                                      className="mt-2 px-3 py-2 rounded-xl border border-gray-100 bg-white/80 text-[11px] font-black uppercase tracking-wider text-gray-700 hover:bg-white"
-                                                                    >
-                                                                      + Load Next 3
-                                                                    </button>
-                                                                  )}
+                                                                  </div>
                                                                 </div>
                                                               )}
                                                             </div>
