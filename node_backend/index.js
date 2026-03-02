@@ -848,15 +848,15 @@ const runOpenAIExtraction = async (rows = [], signal) => {
 };
 
 app.post('/api/admin/trigger-background-sync', async (req, res) => {
-// 1. Return 200 OK instantly so frontend doesn't hang
-res.status(200).json({ message: 'Background sync started' });
-
+  // 1. Instantly return 200 OK so the frontend doesn't hang
+  res.status(200).json({ message: 'Background sync started' });
 const db = getFirestore();
 try {
+console.log('🔄 Background Sync: Initializing...');
+
 // 2. Fetch the current brain
 const mapDoc = await db.collection('horleyTech_Settings').doc('customMappings').get();
 const mappings = mapDoc.exists ? (mapDoc.data().mappings || {}) : {};
-
 // 3. Scan all offline vendors for messy unknown strings
 const vendorsSnap = await db.collection('horleyTech_OfflineInventories').get();
 const unknownsSet = new Set();
@@ -872,38 +872,37 @@ vendorsSnap.docs.forEach(docSnap => {
     }
   });
 });
-const candidates = Array.from(unknownsSet);
+// Convert the Set of strings directly to an array of objects
+const candidates = Array.from(unknownsSet).map(str => ({ raw: str }));
+console.log(`🔄 Background Sync: Found ${candidates.length} candidates for AI evaluation.`);
 if (candidates.length === 0) {
   await db.collection('horleyTech_Settings').doc('syncStatus').set({ isSyncing: false, progress: 'No new items', justFinished: true }, { merge: true });
   return;
 }
 // 4. THE AI LOOP
 for (let i = 0; i < candidates.length; i += 20) {
-
+  
   // 🛑 EMERGENCY STOP CHECK
   const statusCheck = await db.collection('horleyTech_Settings').doc('syncStatus').get();
   if (statusCheck.exists && statusCheck.data().cancelRequested === true) {
-    console.log("Background sync stopped by Admin.");
+    console.log("🛑 Background sync stopped by Admin.");
     await db.collection('horleyTech_Settings').doc('syncStatus').set({ isSyncing: false, progress: 'Stopped by Admin', cancelRequested: false, justFinished: true }, { merge: true });
-    return;
+    return; 
   }
-  // Update Firebase Progress
-  await db.collection('horleyTech_Settings').doc('syncStatus').set({
-    isSyncing: true,
-    progress: `Backend AI Judging ${Math.min(i + 20, candidates.length)} / ${candidates.length}`
-  }, { merge: true });
+  // Update Firebase Progress (UI moves here!)
+  const progressText = `Backend AI Judging ${Math.min(i + 20, candidates.length)} / ${candidates.length}`;
+  console.log(progressText);
+  await db.collection('horleyTech_Settings').doc('syncStatus').set({ isSyncing: true, progress: progressText }, { merge: true });
   const chunk = candidates.slice(i, i + 20);
-  const payload = chunk.map(raw => ({ raw }));
-
-  // Note: Assumes `openai` is already initialized at the top of the file
+  
   try {
-    // Directly query OpenAI from the backend loop
+    // Note: Assumes `openai` is initialized
     const completion = await openai.chat.completions.create({
         model: "gpt-4o-mini",
         response_format: { type: "json_object" },
         messages: [
-            { role: "system", content: "You are an expert mobile device product detail extractor. You must output JSON with a 'data' array containing objects with properties: raw, brand, series, category, deviceType, condition, sim, isOthers." },
-            { role: "user", content: `Extract data for these products: ${JSON.stringify(payload)}. Always return valid JSON with a 'data' array.` }
+            { role: "system", content: "You are an expert mobile device product detail extractor. You must output JSON with a 'data' array containing objects with properties: raw, brand, series, category, deviceType, condition, sim, isOthers. 'condition' strictly Brand New, Grade A UK Used, or Unknown. 'sim' strictly Physical SIM, ESIM, Physical SIM + ESIM, or Unknown." },
+            { role: "user", content: `Extract data for these products: ${JSON.stringify(chunk)}. Always return valid JSON with a 'data' array.` }
         ],
         temperature: 0.1,
     });
@@ -928,44 +927,18 @@ for (let i = 0; i < candidates.length; i += 20) {
       });
       if (Object.keys(chunkMappings).length > 0) {
         await db.collection('horleyTech_Settings').doc('customMappings').set({ mappings: chunkMappings, updatedAt: new Date().toISOString() }, { merge: true });
+        console.log(`✅ Chunk ${i} - Saved ${Object.keys(chunkMappings).length} mapped items.`);
       }
     }
   } catch (err) {
-    console.error(`Backend Chunk ${i} failed:`, err.message);
+    console.error(`❌ Backend Chunk ${i} failed:`, err.message);
   }
 }
 // 5. Job Complete
+console.log('🎉 Background Sync: Complete!');
 await db.collection('horleyTech_Settings').doc('syncStatus').set({ isSyncing: false, progress: 'Sync Complete', justFinished: true }, { merge: true });
 } catch (error) {
-console.error('Fatal Background Sync Error:', error);
+console.error('❌ Fatal Background Sync Error:', error);
 await db.collection('horleyTech_Settings').doc('syncStatus').set({ isSyncing: false, progress: 'Error during sync' }, { merge: true });
 }
-});
-
-app.post('/api/admin/extract-detailed-schema', async (req, res) => {
-  const rows = req.body?.rows || req.body?.payload || req.body?.inputs || req.body?.data;
-  if (!Array.isArray(rows)) return res.status(400).json({ success: false, error: 'Rows array required.' });
-
-  try {
-    const systemPrompt = `You are a strict Two-Layer AI Judge. Given an array of objects with a "raw" string, extract details. You MUST return a JSON object with a single root key called "data" containing an array of objects. Each object must strictly have: - "raw": The exact original string - "category", "brand", "series": Standard classifications - "deviceType": The standard clean device name - "condition": STRICTLY evaluate to "Brand New", "Grade A UK Used", or "Unknown" - "sim": STRICTLY evaluate to "Physical SIM", "ESIM", "Physical SIM + ESIM", or "Unknown" - "isOthers": true if unknown/obscure, else false;`;
-
-    const aiResponse = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
-      response_format: { type: "json_object" },
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: JSON.stringify(rows) }
-      ],
-      temperature: 0,
-    });
-    const parsed = JSON.parse(aiResponse.choices[0].message.content || '{}');
-    return res.json({ success: true, data: parsed.data || [] });
-  } catch (error) {
-    console.error('❌ AI Judge Error:', error);
-    return res.status(500).json({ success: false, error: error.message });
-  }
-});
-
-app.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
 });
