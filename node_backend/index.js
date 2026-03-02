@@ -789,6 +789,149 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
   }
 });
 
+
+const normalizeMappingKey = (value) => String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+
+const fetchUnknownVendorsList = async () => {
+  const firestore = getAdminFirestore();
+  const snapshot = await firestore.collection(OFFLINE_COLLECTION).get();
+  const unknownCandidates = new Set();
+
+  snapshot.docs.forEach((docSnap) => {
+    const vendorData = docSnap.data() || {};
+    const products = Array.isArray(vendorData.products) ? vendorData.products : [];
+
+    products.forEach((product) => {
+      const condition = String(product?.Condition || product?.condition || '').trim();
+      const deviceType = String(product?.['Device Type'] || product?.deviceType || '').trim();
+      const isUnknownCondition = condition.toLowerCase() === 'unknown';
+      const isUnknownDevice = !deviceType || deviceType.toLowerCase() === 'unknown device';
+      if (!isUnknownCondition && !isUnknownDevice) return;
+
+      const rawString = [
+        product?.raw,
+        product?.rawString,
+        product?.['Device Type'],
+        product?.deviceType,
+        product?.['SIM Type/Model/Processor'],
+        product?.Condition,
+      ].filter(Boolean).join(' ').trim();
+
+      if (!rawString) return;
+      unknownCandidates.add(rawString);
+    });
+  });
+
+  return Array.from(unknownCandidates).map((raw) => ({ raw }));
+};
+
+const runOpenAIExtraction = async (rows = [], signal) => {
+  const systemPrompt = `You are a strict Two-Layer AI Judge. Given an array of objects with a "raw" string, extract details. You MUST return a JSON object with a single root key called "data" containing an array of objects. Each object must strictly have: - "raw": The exact original string - "category", "brand", "series": Standard classifications - "deviceType": The standard clean device name - "condition": STRICTLY evaluate to "Brand New", "Grade A UK Used", or "Unknown" - "sim": STRICTLY evaluate to "Physical SIM", "ESIM", "Physical SIM + ESIM", or "Unknown" - "isOthers": true if unknown/obscure, else false;`;
+
+  const aiResponse = await openai.chat.completions.create({
+    model: 'gpt-4o-mini',
+    response_format: { type: 'json_object' },
+    messages: [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: JSON.stringify(rows) },
+    ],
+    temperature: 0,
+  }, { signal });
+
+  const parsed = JSON.parse(aiResponse.choices?.[0]?.message?.content || '{}');
+  return Array.isArray(parsed.data) ? parsed.data : [];
+};
+
+app.post('/api/admin/trigger-background-sync', async (req, res) => {
+  res.status(200).json({ message: 'Background sync started' });
+
+  const firestore = getAdminFirestore();
+
+  try {
+    const candidates = await fetchUnknownVendorsList();
+
+    if (!candidates || candidates.length === 0) {
+      await firestore.collection(SETTINGS_COLLECTION).doc('syncStatus').set({
+        isSyncing: false,
+        progress: 'No new items',
+        justFinished: true,
+      }, { merge: true });
+      return;
+    }
+
+    for (let i = 0; i < candidates.length; i += 20) {
+      const statusCheck = await firestore.collection(SETTINGS_COLLECTION).doc('syncStatus').get();
+      if (statusCheck.exists && statusCheck.data().cancelRequested === true) {
+        console.log('Background sync stopped by Admin.');
+        await firestore.collection(SETTINGS_COLLECTION).doc('syncStatus').set({
+          isSyncing: false,
+          progress: 'Stopped by Admin',
+          cancelRequested: false,
+          justFinished: true,
+        }, { merge: true });
+        return;
+      }
+
+      const currentProgress = `Backend AI Judging ${Math.min(i + 20, candidates.length)} / ${candidates.length}`;
+      await firestore.collection(SETTINGS_COLLECTION).doc('syncStatus').set({
+        isSyncing: true,
+        progress: currentProgress,
+      }, { merge: true });
+
+      const chunk = candidates.slice(i, i + 20);
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 15000);
+
+      try {
+        const data = await runOpenAIExtraction(chunk, controller.signal);
+        clearTimeout(timeoutId);
+
+        if (data && data.length > 0) {
+          const chunkMappings = {};
+          data.forEach((item) => {
+            const raw = String(item?.raw || '').trim();
+            if (!raw) return;
+            const key = normalizeMappingKey(raw);
+            chunkMappings[key] = {
+              standardName: item.deviceType || 'Unknown Device',
+              condition: item.condition || 'Unknown',
+              sim: item.sim || 'Unknown',
+              isOthers: Boolean(item.isOthers),
+              brand: item.brand || 'Others',
+            };
+          });
+
+          if (Object.keys(chunkMappings).length > 0) {
+            await firestore.collection(SETTINGS_COLLECTION).doc('customMappings').set({
+              mappings: chunkMappings,
+              updatedAt: new Date().toISOString(),
+            }, { merge: true });
+          }
+        }
+      } catch (err) {
+        clearTimeout(timeoutId);
+        if (err.name === 'AbortError' || err.code === 'UND_ERR_ABORTED') {
+          console.warn(`Chunk ${i} timed out after 15s. Background skipping to next batch.`);
+        } else {
+          console.error(`Backend Chunk ${i} failed:`, err);
+        }
+      }
+    }
+
+    await firestore.collection(SETTINGS_COLLECTION).doc('syncStatus').set({
+      isSyncing: false,
+      progress: 'Sync Complete',
+      justFinished: true,
+    }, { merge: true });
+  } catch (error) {
+    console.error('Fatal Background Sync Error:', error);
+    await firestore.collection(SETTINGS_COLLECTION).doc('syncStatus').set({
+      isSyncing: false,
+      progress: 'Error during sync',
+    }, { merge: true });
+  }
+});
+
 app.post('/api/admin/extract-detailed-schema', async (req, res) => {
   const rows = req.body?.rows || req.body?.payload || req.body?.inputs || req.body?.data;
   if (!Array.isArray(rows)) return res.status(400).json({ success: false, error: 'Rows array required.' });
