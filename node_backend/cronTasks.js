@@ -199,9 +199,7 @@ export const runNightlyUnknownSweeper = async () => {
     return { success: false, judged: 0, skipped: true };
   }
 
-  const mappingsRef = firestore.collection(SETTINGS_COLLECTION).doc('customMappings');
-  const mappingsSnap = await mappingsRef.get();
-  const existingMappings = mappingsSnap.exists ? (mappingsSnap.data()?.mappings || {}) : {};
+  const CAT_LIST = ['Smartphones', 'Smartwatches', 'Laptops', 'Sounds', 'Accessories', 'Tablets', 'Gaming', 'Others'];
 
   const vendorSnapshot = await firestore.collection(OFFLINE_COLLECTION).get();
   const unknownCandidates = new Set();
@@ -262,13 +260,21 @@ export const runNightlyUnknownSweeper = async () => {
     }
   }
 
-  const mergedMappings = { ...existingMappings, ...newAiMappings };
-  await mappingsRef.set({
-    mappings: mergedMappings,
-    updatedAt: new Date().toISOString(),
-    sweeperLastRunAt: new Date().toISOString(),
-    sweeperCandidateCount: candidateRows.length,
-  }, { merge: true });
+  // Categorical Sharding Checkpoint Save
+  const shardUpdates = {};
+  for (const [key, mapping] of Object.entries(newAiMappings)) {
+    const safeCat = CAT_LIST.includes(mapping.category) ? mapping.category : 'Others';
+    if (!shardUpdates[safeCat]) shardUpdates[safeCat] = {};
+    shardUpdates[safeCat][key] = mapping;
+  }
+  for (const [catName, mapData] of Object.entries(shardUpdates)) {
+    await firestore.collection('horleyTech_Settings').doc(`mappings_${catName}`).set({
+      mappings: mapData,
+      lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
+      sweeperLastRunAt: new Date().toISOString(),
+      sweeperCandidateCount: candidateRows.length,
+    }, { merge: true });
+  }
 
   return {
     success: true,
