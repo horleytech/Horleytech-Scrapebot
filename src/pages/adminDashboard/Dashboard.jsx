@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Outlet, useLocation, Link } from 'react-router-dom';
-import { collection, getDocs, doc, writeBatch, query, orderBy, updateDoc, setDoc, getDoc, onSnapshot } from 'firebase/firestore';
+import { collection, getDocs, doc, writeBatch, query, orderBy, updateDoc, setDoc, getDoc, onSnapshot, deleteDoc } from 'firebase/firestore';
 import { IoMdChatboxes } from 'react-icons/io';
 import {
   PieChart, Pie, Cell, Tooltip, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, LineChart, Line, Legend,
@@ -367,6 +367,8 @@ const AdminDashboard = () => {
   const [customMarginModalOpen, setCustomMarginModalOpen] = useState(false);
   const [customMarginType, setCustomMarginType] = useState('amount');
   const [customMarginValue, setCustomMarginValue] = useState('0');
+  const [saveSessionModalOpen, setSaveSessionModalOpen] = useState(false);
+  const [sessionNameInput, setSessionNameInput] = useState('');
   const [assignVendorModalOpen, setAssignVendorModalOpen] = useState(false);
   const [assignVendorValue, setAssignVendorValue] = useState('');
   const [startDate, setStartDate] = useState('');
@@ -675,20 +677,16 @@ const AdminDashboard = () => {
     loadAdminPreferences();
   }, []);
   useEffect(() => {
-    try {
-      const saved = JSON.parse(localStorage.getItem('admin-pricing-sessions-v1') || '[]');
-      if (Array.isArray(saved)) setSavedPricingSessions(saved);
-    } catch (error) {
-      console.error('Failed to load pricing sessions:', error);
-    }
-  }, []);
-  useEffect(() => {
-    try {
-      const saved = JSON.parse(localStorage.getItem('admin-pricing-sessions-v1') || '[]');
-      if (Array.isArray(saved)) setSavedPricingSessions(saved);
-    } catch (error) {
-      console.error('Failed to load pricing sessions:', error);
-    }
+    const fetchPricingSessions = async () => {
+      try {
+        const snapshot = await getDocs(collection(db, 'horleyTech_PricingSessions'));
+        const sessions = snapshot.docs.map((docSnap) => docSnap.data()).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+        setSavedPricingSessions(sessions);
+      } catch (error) {
+        console.error('Could not fetch pricing sessions:', error);
+      }
+    };
+    fetchPricingSessions();
   }, []);
 
   useEffect(() => {
@@ -1453,29 +1451,62 @@ const AdminDashboard = () => {
     document.body.removeChild(link);
   };
 
-  const savePricingSession = () => {
-    if (!pricingResults.length) {
-      alert('No pricing result to save.');
-      return;
-    }
+  const handleOpenSaveModal = () => {
+    if (!pricingResults.length) return alert('No pricing result to save.');
+    setSessionNameInput(`Session ${new Date().toLocaleDateString()}`);
+    setSaveSessionModalOpen(true);
+  };
+
+  const savePricingSessionToFirebase = async () => {
+    if (!sessionNameInput.trim()) return alert('Please enter a session name.');
+
     const session = {
-      id: `${Date.now()}`,
+      id: `session_${Date.now()}`,
+      name: sessionNameInput.trim(),
       createdAt: new Date().toISOString(),
       pricingVendor,
       marginType,
       marginValue,
-      rows: pricingResults,
+      companyCsvUrl,
+      overrides: pricingOverrides,
     };
-    const updated = [session, ...savedPricingSessions].slice(0, 20);
-    setSavedPricingSessions(updated);
-    localStorage.setItem('admin-pricing-sessions-v1', JSON.stringify(updated));
-    alert('✅ Pricing session saved.');
+
+    try {
+      await setDoc(doc(db, 'horleyTech_PricingSessions', session.id), session);
+
+      const updated = [session, ...savedPricingSessions];
+      setSavedPricingSessions(updated);
+      setSaveSessionModalOpen(false);
+      setSessionNameInput('');
+      alert('✅ Pricing session securely saved to Firebase.');
+    } catch (error) {
+      alert(`❌ Failed to save session: ${error.message}`);
+    }
   };
 
-  const deletePricingSession = (sessionId) => {
-    const updated = savedPricingSessions.filter((session) => session.id !== sessionId);
-    setSavedPricingSessions(updated);
-    localStorage.setItem('admin-pricing-sessions-v1', JSON.stringify(updated));
+  const loadPricingSession = (session) => {
+    if (!window.confirm(`Load session "${session.name}"? This will overwrite your current progress.`)) return;
+
+    setCompanyCsvUrl(session.companyCsvUrl || '');
+    setPricingVendor(session.pricingVendor || 'All');
+    setMarginType(session.marginType || 'amount');
+    setMarginValue(session.marginValue || '0');
+    setPricingOverrides(session.overrides || {});
+
+    if (session.companyCsvUrl) {
+      loadCompanyCsv();
+    }
+    alert(`✅ Loaded session: ${session.name}`);
+  };
+
+  const deletePricingSession = async (sessionId) => {
+    if (!window.confirm('Are you sure you want to delete this session permanently?')) return;
+    try {
+      await deleteDoc(doc(db, 'horleyTech_PricingSessions', sessionId));
+      setSavedPricingSessions((prev) => prev.filter((s) => s.id !== sessionId));
+    } catch (error) {
+      alert(`❌ Failed to delete session: ${error.message}`);
+    }
   };
 
   const openChatForVendor = async (vendor) => {
@@ -2041,7 +2072,7 @@ const AdminDashboard = () => {
                   <option value="percentage">Percentage</option>
                 </select>
                 <input value={marginValue} onChange={(e) => setMarginValue(e.target.value)} placeholder="Margin value" className="px-4 py-3 rounded-2xl border border-gray-100 bg-white/80 text-sm outline-none focus:ring-2 focus:ring-gray-300 cursor-text select-text" />
-                <button onClick={savePricingSession} className="px-4 py-3 rounded-2xl text-xs font-black uppercase tracking-wider border border-gray-100 bg-white/80 hover:bg-white">Save Session</button>
+                <button onClick={handleOpenSaveModal} className="px-4 py-3 rounded-2xl text-xs font-black uppercase tracking-wider border border-gray-100 bg-white/80 hover:bg-white">Save Session</button>
                 <button onClick={exportPricingTxt} className="px-4 py-3 rounded-2xl text-xs font-black uppercase tracking-wider border border-gray-100 bg-white/80 hover:bg-white">Export to TXT</button>
               </div>
               {selectedProducts.length > 0 && (
@@ -2158,6 +2189,19 @@ const AdminDashboard = () => {
                   </div>
                 </div>
               )}
+              {saveSessionModalOpen && (
+                <div className="fixed top-0 left-0 w-screen h-screen z-[99999] bg-black/60 flex items-center justify-center p-4 m-0" style={{ position: 'fixed' }}>
+                  <div className="w-full max-w-md rounded-2xl bg-white shadow-2xl p-6 space-y-4 relative">
+                    <h3 className="text-xl font-black text-gray-900">Name Your Session</h3>
+                    <p className="text-xs text-gray-500 font-bold mb-2">This will save your custom margins and vendor rules to the cloud.</p>
+                    <input autoFocus value={sessionNameInput} onChange={(e) => setSessionNameInput(e.target.value)} placeholder="e.g., iPhone Resell March 2026" className="w-full px-4 py-3 rounded-xl border border-gray-300 font-bold text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+                    <div className="flex justify-end gap-3 mt-4">
+                      <button type="button" onClick={() => setSaveSessionModalOpen(false)} className="px-4 py-3 rounded-xl border border-gray-200 font-bold text-gray-600 hover:bg-gray-50">Cancel</button>
+                      <button type="button" onClick={savePricingSessionToFirebase} className="px-4 py-3 rounded-xl bg-[#1A1C23] text-white text-sm font-black uppercase tracking-widest hover:bg-black">Save to Cloud</button>
+                    </div>
+                  </div>
+                </div>
+              )}
               {assignVendorModalOpen && (
                 <div className="fixed top-0 left-0 w-screen h-screen z-[99999] bg-black/60 flex items-center justify-center p-4 m-0" style={{ position: 'fixed' }}>
                   <div className="w-full max-w-md rounded-2xl bg-white shadow-2xl p-5 space-y-4 relative">
@@ -2175,21 +2219,24 @@ const AdminDashboard = () => {
                   </div>
                 </div>
               )}
-              <div className="border border-gray-100 rounded-2xl p-4 bg-white/60">
-                <p className="text-xs font-black uppercase tracking-wider text-gray-500 mb-3">Saved Sessions</p>
+              <div className="border border-gray-100 rounded-2xl p-4 bg-white/60 mt-6">
+                <p className="text-xs font-black uppercase tracking-wider text-gray-500 mb-3">Cloud Saved Sessions</p>
                 {savedPricingSessions.length ? (
                   <div className="space-y-2 max-h-52 overflow-y-auto">
                     {savedPricingSessions.map((session) => (
-                      <div key={session.id} className="flex items-center justify-between border border-gray-100 rounded-xl px-3 py-2 bg-white/80">
+                      <div key={session.id} className="flex items-center justify-between border border-gray-100 rounded-xl px-4 py-3 bg-white/80 hover:bg-white shadow-sm transition-all">
                         <div>
-                          <p className="text-sm font-bold text-gray-800">{session.pricingVendor || 'All Vendors'} • {session.marginType} {session.marginValue}</p>
-                          <p className="text-xs text-gray-500">{new Date(session.createdAt).toLocaleString()} • {session.rows?.length || 0} rows</p>
+                          <p className="text-sm font-black text-gray-900">{session.name}</p>
+                          <p className="text-xs font-bold text-gray-500 mt-0.5">{session.pricingVendor || 'All Vendors'} • {session.marginType} {session.marginValue} • {new Date(session.createdAt).toLocaleDateString()}</p>
                         </div>
-                        <button type="button" onClick={() => deletePricingSession(session.id)} className="text-xs font-black uppercase tracking-wider px-2.5 py-1.5 rounded-lg border border-red-200 bg-red-50 text-red-600 hover:bg-red-100">Delete</button>
+                        <div className="flex items-center gap-2">
+                          <button type="button" onClick={() => loadPricingSession(session)} className="text-xs font-black uppercase tracking-wider px-3 py-2 rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-100">Load</button>
+                          <button type="button" onClick={() => deletePricingSession(session.id)} className="text-xs font-black uppercase tracking-wider px-3 py-2 rounded-lg bg-red-50 text-red-600 hover:bg-red-100">Delete</button>
+                        </div>
                       </div>
                     ))}
                   </div>
-                ) : <p className="text-sm text-gray-500">No saved sessions yet.</p>}
+                ) : <p className="text-sm text-gray-500">No sessions saved to the cloud yet.</p>}
               </div>
             </div>
 ) : activeTab === 'backups' ? (
