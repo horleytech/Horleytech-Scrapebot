@@ -55,7 +55,27 @@ const upload = multer({
 });
 
 const app = express();
-app.use(cors());
+const allowedOrigins = [
+  'http://localhost:5173', // Local React Dev
+  'http://localhost:3000', // Alternative Local Dev
+  'https://scrapebot.horleytech.com', // Production Frontend
+  'https://www.scrapebot.horleytech.com', // Production Frontend (www)
+];
+app.use(cors({
+  origin: function (origin, callback) {
+    // allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.indexOf(origin) === -1) {
+      const msg = 'The CORS policy for this site does not allow access from the specified Origin.';
+      return callback(new Error(msg), false);
+    }
+    return callback(null, true);
+  },
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'x-api-key', 'x-user-role'],
+  credentials: true,
+  optionsSuccessStatus: 200, // some legacy browsers (IE11, various SmartTVs) choke on 204
+}));
 app.use(compression());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
