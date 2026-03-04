@@ -240,7 +240,7 @@ const smartMapDevice = (rawString, officialTargets = [], customMappings = {}) =>
     return {
       standardName: 'Unknown Device',
       condition: 'Unknown',
-      sim: 'Unknown',
+      specification: 'Unknown',
       isOthers: true,
       aiRequired: true,
     };
@@ -253,7 +253,7 @@ const smartMapDevice = (rawString, officialTargets = [], customMappings = {}) =>
       return {
         standardName: mappingEntry.deviceType || mappingEntry.standardName || 'Unknown Device',
         condition: mappingEntry.condition || 'Unknown',
-        sim: mappingEntry.sim || 'Unknown',
+        specification: mappingEntry.specification || mappingEntry.sim || 'Unknown',
         isOthers: Boolean(mappingEntry.isOthers),
         aiRequired: false,
         laptopSpecs: extractLaptopSpecs(original),
@@ -263,7 +263,7 @@ const smartMapDevice = (rawString, officialTargets = [], customMappings = {}) =>
     return {
       standardName: String(mappingEntry || '').trim() || 'Unknown Device',
       condition: 'Unknown',
-      sim: 'Unknown',
+      specification: 'Unknown',
       isOthers: false,
       aiRequired: false,
       laptopSpecs: extractLaptopSpecs(original),
@@ -273,7 +273,7 @@ const smartMapDevice = (rawString, officialTargets = [], customMappings = {}) =>
   return {
     standardName: 'Unknown Device',
     condition: 'Unknown',
-    sim: 'Unknown',
+    specification: 'Unknown',
     isOthers: true,
     aiRequired: true,
     laptopSpecs: extractLaptopSpecs(original),
@@ -828,10 +828,12 @@ const AdminDashboard = () => {
       tree[row.category][row.brandSubCategory] ??= {};
       tree[row.category][row.brandSubCategory][row.series] ??= {};
       tree[row.category][row.brandSubCategory][row.series][row.deviceType] ??= {};
-      const variationKey = `${row.condition}__${row.simType}__${row.storage}`;
+      // Use raw.specification if mapped, otherwise fallback to simType from older scraper runs
+      const specVal = row.specification || row.simType || 'Unknown';
+      const variationKey = `${row.condition}__${specVal}__${row.storage}`;
       tree[row.category][row.brandSubCategory][row.series][row.deviceType][variationKey] ??= {
         condition: row.condition,
-        simType: row.simType,
+        specification: specVal,
         storage: row.storage,
         totalAccumulatedPrice: 0,
         stockCount: 0,
@@ -908,7 +910,7 @@ const AdminDashboard = () => {
       keys.add(`brand:${row.category}__${row.brand}`);
       keys.add(`series:${row.category}__${row.brand}__${row.series}`);
       keys.add(`device:${row.category}__${row.brand}__${row.series}__${row.deviceType}`);
-      keys.add(`variation:${row.category}__${row.brand}__${row.series}__${row.deviceType}__${row.condition}__${row.simType}__${row.storage}`);
+      keys.add(`variation:${row.category}__${row.brand}__${row.series}__${row.deviceType}__${row.condition}__${row.specification || row.simType || 'Unknown'}__${row.storage}`);
     });
     return keys;
   }, [paginatedGroupedProducts]);
@@ -1253,22 +1255,22 @@ const AdminDashboard = () => {
     return companyCsvRows.map((row) => {
       const companyDevice = getCsvValueByAliases(row, ['Device Type', 'device', 'product', 'model']);
       const companyCondition = getCsvValueByAliases(row, ['Condition']) || 'Unknown';
-      const companySim = getCsvValueByAliases(row, ['SIM Type/Model/Processor', 'sim type', 'model']);
-      const companyRawDescriptor = `${companyDevice} ${companyCondition} ${companySim}`.trim();
+      const companySpec = getCsvValueByAliases(row, ['SIM Type/Model/Processor', 'sim type', 'model', 'processor']);
+      const companyRawDescriptor = `${companyDevice} ${companyCondition} ${companySpec}`.trim();
       const mappedResult = smartMapDevice(companyRawDescriptor, officialTargets, masterDictionary);
       const mappedDevice = mappedResult.standardName;
       const condition = mappedResult.condition;
       const storage = getCsvValueByAliases(row, ['Storage Capacity/Configuration', 'storage', 'configuration']);
-      const simType = mappedResult.sim;
+      const mappedSpec = mappedResult.specification;
       const companyPriceRaw = getCsvValueByAliases(row, ['Regular price', 'Company Price', 'price']);
       const companyPrice = parseNairaValue(companyPriceRaw);
       const requiresConditionMatch = condition !== 'Unknown';
-      const requiresSimMatch = simType !== 'Unknown';
+      const requiresSpecMatch = mappedSpec !== 'Unknown';
       // Find ALL matching identical items from this vendor
       const allVendorMatches = vendorRows
         .filter((item) => item.deviceType === mappedDevice)
         .filter((item) => (!storage || item.storage === storage)
-          && (!requiresSimMatch || item.simType === simType)
+          && (!requiresSpecMatch || (item.specification || item.simType) === mappedSpec)
           && (!requiresConditionMatch || item.condition === condition));
 
       // Sort them by date (Newest / Latest first) and pick the top one
@@ -1832,7 +1834,7 @@ const AdminDashboard = () => {
                                                             <div key={variationKey} className="rounded-xl border border-gray-100 bg-white">
                                                               <button type="button" onClick={() => toggleProductGroup(variationKey)} className="w-full px-3 py-2 text-left text-xs font-semibold text-gray-700 grid grid-cols-5 gap-2">
                                                                 <span>{variation.condition}</span>
-                                                                <span>{variation.simType}</span>
+                                                                <span>{variation.specification}</span>
                                                                 <span>{variation.storage}</span>
                                                                 <span>{formatNaira(variation.totalAccumulatedPrice)}</span>
                                                                 <span className="text-right">{variation.stockCount} in stock {variationExpanded ? '⌄' : '›'}</span>
@@ -1914,7 +1916,7 @@ const AdminDashboard = () => {
                       <th className="px-3 py-2">Brand</th>
                       <th className="px-3 py-2">Device</th>
                       <th className="px-3 py-2">Condition</th>
-                      <th className="px-3 py-2">SIM</th>
+                      <th className="px-3 py-2">Spec / Processor</th>
                       <th className="px-3 py-2">Storage</th>
                       <th className="px-3 py-2">Company Price</th>
                       <th className="px-3 py-2">Vendor Price</th>
@@ -1930,7 +1932,7 @@ const AdminDashboard = () => {
                         <td className="px-3 py-2">{row.Brand || row.brand || 'Others'}</td>
                         <td className="px-3 py-2 font-semibold">{row.mappedDevice}</td>
                         <td className="px-3 py-2">{row.Condition || row.condition || 'Unknown'}</td>
-                        <td className="px-3 py-2">{row['SIM Type/Model/Processor'] || row.sim || 'Unknown'}</td>
+                        <td className="px-3 py-2">{row['SIM Type/Model/Processor'] || row.specification || row.sim || 'Unknown'}</td>
                         <td className="px-3 py-2">{row['Storage Capacity/Configuration'] || row.storage || 'N/A'}</td>
                         <td className="px-3 py-2">{formatNaira(row.companyPrice)}</td>
                         <td className="px-3 py-2">{row.hasVendorMatch ? formatNaira(row.vendorPrice) : 'N/A'}</td>
