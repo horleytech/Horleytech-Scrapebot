@@ -361,6 +361,13 @@ const AdminDashboard = () => {
   const [pricingVendor, setPricingVendor] = useState('All');
   const [marginType, setMarginType] = useState('amount');
   const [marginValue, setMarginValue] = useState('0');
+  const [selectedProducts, setSelectedProducts] = useState([]);
+  const [pricingOverrides, setPricingOverrides] = useState({});
+  const [customMarginModalOpen, setCustomMarginModalOpen] = useState(false);
+  const [customMarginType, setCustomMarginType] = useState('amount');
+  const [customMarginValue, setCustomMarginValue] = useState('0');
+  const [assignVendorModalOpen, setAssignVendorModalOpen] = useState(false);
+  const [assignVendorValue, setAssignVendorValue] = useState('');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [expandedProductGroups, setExpandedProductGroups] = useState([]);
@@ -1245,10 +1252,24 @@ const AdminDashboard = () => {
     }
   };
 
+
+  const getPricingRowKey = (row, index) => {
+    const device = String(row?.mappedDevice || getCsvValueByAliases(row, ['Device Type', 'device', 'product', 'model']) || 'unknown').toLowerCase();
+    const condition = String(row?.Condition || row?.condition || 'unknown').toLowerCase();
+    const spec = String(row?.['SIM Type/Model/Processor'] || row?.specification || row?.sim || 'unknown').toLowerCase();
+    const storage = String(row?.['Storage Capacity/Configuration'] || row?.storage || 'na').toLowerCase();
+    const companyPrice = parseNairaValue(getCsvValueByAliases(row, ['Regular price', 'Company Price', 'price']) || row?.companyPrice || 0);
+    return `${device}::${condition}::${spec}::${storage}::${companyPrice}::${index}`;
+  };
+
+  useEffect(() => {
+    setSelectedProducts([]);
+  }, [pricingVendor, marginType, marginValue, companyCsvRows.length]);
+
   const pricingResults = useMemo(() => {
     const margin = Number(marginValue) || 0;
     const vendorRows = normalizedProductRows.filter((row) => row.vendorName === pricingVendor);
-    return companyCsvRows.map((row) => {
+    return companyCsvRows.map((row, index) => {
       const companyDevice = getCsvValueByAliases(row, ['Device Type', 'device', 'product', 'model']);
       const companyCondition = getCsvValueByAliases(row, ['Condition']) || 'Unknown';
       const companySpec = getCsvValueByAliases(row, ['SIM Type/Model/Processor', 'sim type', 'model', 'processor']);
@@ -1262,14 +1283,12 @@ const AdminDashboard = () => {
       const companyPrice = parseNairaValue(companyPriceRaw);
       const requiresConditionMatch = condition !== 'Unknown';
       const requiresSpecMatch = mappedSpec !== 'Unknown';
-      // Find ALL matching identical items from this vendor
       const allVendorMatches = vendorRows
         .filter((item) => item.deviceType === mappedDevice)
         .filter((item) => (!storage || item.storage === storage)
           && (!requiresSpecMatch || (item.specification || item.simType) === mappedSpec)
           && (!requiresConditionMatch || item.condition === condition));
 
-      // Sort them by date (Newest / Latest first) and pick the top one
       const vendorMatch = allVendorMatches.sort((a, b) => {
         const timeA = new Date(a.date).getTime() || 0;
         const timeB = new Date(b.date).getTime() || 0;
@@ -1279,14 +1298,21 @@ const AdminDashboard = () => {
       const hasVendorMatch = Boolean(vendorMatch);
       const shouldCalculate = pricingVendor !== 'All' && hasVendorMatch;
       const vendorPrice = shouldCalculate ? vendorMatch.priceValue : 0;
-      const target = shouldCalculate
+      const baseTarget = shouldCalculate
         ? (marginType === 'percentage' ? Math.round(vendorPrice * (1 + (margin / 100))) : vendorPrice + margin)
         : 0;
+      const rowKey = getPricingRowKey({ ...row, mappedDevice, companyPrice }, index);
+      const override = pricingOverrides[rowKey] || null;
+      const overrideMarginValue = Number(override?.marginValue) || 0;
+      const target = shouldCalculate && override?.marginType
+        ? (override.marginType === 'percentage' ? Math.round(vendorPrice * (1 + (overrideMarginValue / 100))) : vendorPrice + overrideMarginValue)
+        : baseTarget;
       const adjustment = shouldCalculate ? (target - companyPrice) : 0;
       const adjustmentPercent = shouldCalculate && companyPrice > 0 ? Math.round((adjustment / companyPrice) * 100) : 0;
 
       return {
         ...row,
+        rowKey,
         mappedDevice,
         companyPrice,
         vendorPrice,
@@ -1294,9 +1320,70 @@ const AdminDashboard = () => {
         adjustment,
         adjustmentPercent,
         hasVendorMatch,
+        assignedVendor: override?.assignedVendor || pricingVendor,
       };
     });
-  }, [companyCsvRows, pricingVendor, marginType, marginValue, normalizedProductRows, officialTargets]);
+  }, [companyCsvRows, pricingVendor, marginType, marginValue, normalizedProductRows, officialTargets, masterDictionary, pricingOverrides]);
+
+  const selectablePricingRowKeys = useMemo(
+    () => pricingResults.filter((row) => row.hasVendorMatch).map((row) => row.rowKey),
+    [pricingResults]
+  );
+
+  const allRowsSelected = selectablePricingRowKeys.length > 0 && selectablePricingRowKeys.every((rowKey) => selectedProducts.includes(rowKey));
+
+  const toggleProductSelection = (rowKey) => {
+    setSelectedProducts((prev) => (prev.includes(rowKey) ? prev.filter((item) => item !== rowKey) : [...prev, rowKey]));
+  };
+
+  const toggleSelectAllProducts = () => {
+    setSelectedProducts((prev) => (allRowsSelected ? prev.filter((rowKey) => !selectablePricingRowKeys.includes(rowKey)) : Array.from(new Set([...prev, ...selectablePricingRowKeys]))));
+  };
+
+  const applyCustomMarginToSelected = () => {
+    const parsedMargin = Number(customMarginValue);
+    if (!Number.isFinite(parsedMargin)) {
+      alert('Please enter a valid margin value.');
+      return;
+    }
+
+    setPricingOverrides((prev) => {
+      const next = { ...prev };
+      selectedProducts.forEach((rowKey) => {
+        next[rowKey] = {
+          ...(next[rowKey] || {}),
+          marginType: customMarginType,
+          marginValue: parsedMargin,
+        };
+      });
+      return next;
+    });
+
+    setCustomMarginModalOpen(false);
+    alert(`✅ Applied custom margin to ${selectedProducts.length} selected products.`);
+  };
+
+  const assignSelectedToVendor = () => {
+    if (!assignVendorValue.trim()) {
+      alert('Please choose a vendor.');
+      return;
+    }
+
+    setPricingOverrides((prev) => {
+      const next = { ...prev };
+      selectedProducts.forEach((rowKey) => {
+        next[rowKey] = {
+          ...(next[rowKey] || {}),
+          assignedVendor: assignVendorValue,
+        };
+      });
+      return next;
+    });
+
+    setAssignVendorModalOpen(false);
+    alert(`✅ Assigned ${selectedProducts.length} selected products to ${assignVendorValue}.`);
+  };
+
   const exportPricingTxt = () => {
     const lines = pricingResults
       .filter((item) => Number.isFinite(item.companyPrice) && item.companyPrice > 0)
@@ -1904,32 +1991,57 @@ const AdminDashboard = () => {
                 <button onClick={savePricingSession} className="px-4 py-3 rounded-2xl text-xs font-black uppercase tracking-wider border border-gray-100 bg-white/80 hover:bg-white">Save Session</button>
                 <button onClick={exportPricingTxt} className="px-4 py-3 rounded-2xl text-xs font-black uppercase tracking-wider border border-gray-100 bg-white/80 hover:bg-white">Export to TXT</button>
               </div>
-              <div className="overflow-x-auto border border-gray-100 rounded-2xl">
-                <table className="w-full text-left min-w-[1250px]">
-                  <thead className="bg-gray-50 text-xs uppercase text-gray-500">
+              {selectedProducts.length > 0 && (
+                <div className="sticky top-20 z-20 rounded-2xl border border-indigo-100 bg-white/90 backdrop-blur-xl shadow-lg px-4 py-3 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                  <p className="text-sm font-bold text-gray-800">{selectedProducts.length} Products Selected</p>
+                  <div className="flex items-center gap-2">
+                    <button type="button" onClick={() => setCustomMarginModalOpen(true)} className="px-3 py-2 rounded-lg text-xs font-black uppercase tracking-wide bg-indigo-600 text-white hover:bg-indigo-700">Apply Custom Margin</button>
+                    <button type="button" onClick={() => setAssignVendorModalOpen(true)} className="px-3 py-2 rounded-lg text-xs font-black uppercase tracking-wide bg-emerald-600 text-white hover:bg-emerald-700">Assign to Vendor</button>
+                  </div>
+                </div>
+              )}
+              <div className="overflow-x-auto border border-white/40 rounded-2xl bg-white/60 backdrop-blur-xl shadow-inner">
+                <table className="w-full text-left min-w-[1350px]">
+                  <thead className="bg-white/80 text-xs uppercase text-gray-500 sticky top-0 z-10 backdrop-blur-xl border-b border-gray-100">
                     <tr>
-                      <th className="px-3 py-2">Category</th>
-                      <th className="px-3 py-2">Brand</th>
-                      <th className="px-3 py-2">Device</th>
-                      <th className="px-3 py-2">Condition</th>
-                      <th className="px-3 py-2">Spec / Processor</th>
-                      <th className="px-3 py-2">Storage</th>
-                      <th className="px-3 py-2">Company Price</th>
-                      <th className="px-3 py-2">Vendor Price</th>
-                      <th className="px-3 py-2">Target Price</th>
-                      <th className="px-3 py-2">Adjustment Amount</th>
-                      <th className="px-3 py-2">Adjustment %</th>
+                      <th className="px-3 py-3">
+                        <input type="checkbox" className="h-4 w-4 rounded border-gray-300" checked={allRowsSelected} onChange={toggleSelectAllProducts} />
+                      </th>
+                      <th className="px-3 py-3">Category</th>
+                      <th className="px-3 py-3">Brand</th>
+                      <th className="px-3 py-3">Device</th>
+                      <th className="px-3 py-3">Condition</th>
+                      <th className="px-3 py-3">Spec / Processor</th>
+                      <th className="px-3 py-3">Storage</th>
+                      <th className="px-3 py-3">Assigned Vendor</th>
+                      <th className="px-3 py-3">Company Price</th>
+                      <th className="px-3 py-3">Vendor Price</th>
+                      <th className="px-3 py-3">Target Price</th>
+                      <th className="px-3 py-3">Adjustment Amount</th>
+                      <th className="px-3 py-3">Adjustment %</th>
                     </tr>
                   </thead>
                   <tbody>
                     {pricingResults.map((row, index) => (
-                      <tr key={`pricing-${index}`} className="border-t border-gray-100 text-sm">
+                      <tr key={`pricing-${row.rowKey}`} className="border-t border-gray-100 text-sm hover:bg-gray-50/80 transition-colors">
+                        <td className="px-3 py-2">
+                          <input
+                            type="checkbox"
+                            className="h-4 w-4 rounded border-gray-300"
+                            checked={selectedProducts.includes(row.rowKey)}
+                            onChange={() => toggleProductSelection(row.rowKey)}
+                            disabled={!row.hasVendorMatch}
+                          />
+                        </td>
                         <td className="px-3 py-2">{row.Category || row.category || 'Others'}</td>
                         <td className="px-3 py-2">{row.Brand || row.brand || 'Others'}</td>
                         <td className="px-3 py-2 font-semibold">{row.mappedDevice}</td>
                         <td className="px-3 py-2">{row.Condition || row.condition || 'Unknown'}</td>
                         <td className="px-3 py-2">{row['SIM Type/Model/Processor'] || row.specification || row.sim || 'Unknown'}</td>
                         <td className="px-3 py-2">{row['Storage Capacity/Configuration'] || row.storage || 'N/A'}</td>
+                        <td className="px-3 py-2">
+                          <span className="inline-flex items-center rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 px-2 py-0.5 text-[11px] font-semibold">{row.assignedVendor || 'Unassigned'}</span>
+                        </td>
                         <td className="px-3 py-2">{formatNaira(row.companyPrice)}</td>
                         <td className="px-3 py-2">{row.hasVendorMatch ? formatNaira(row.vendorPrice) : 'N/A'}</td>
                         <td className="px-3 py-2">{row.hasVendorMatch ? formatNaira(row.target) : 'N/A'}</td>
@@ -1938,11 +2050,44 @@ const AdminDashboard = () => {
                       </tr>
                     ))}
                     {!pricingResults.length && (
-                      <tr><td className="px-3 py-4 text-sm text-gray-500" colSpan={11}>No matched rows. Load CSV and choose a valid vendor.</td></tr>
+                      <tr><td className="px-3 py-4 text-sm text-gray-500" colSpan={13}>No matched rows. Load CSV and choose a valid vendor.</td></tr>
                     )}
                   </tbody>
                 </table>
               </div>
+              {customMarginModalOpen && (
+                <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
+                  <div className="w-full max-w-md rounded-2xl bg-white shadow-2xl p-5 space-y-4">
+                    <h3 className="text-lg font-black text-gray-900">Apply Custom Margin</h3>
+                    <select value={customMarginType} onChange={(e) => setCustomMarginType(e.target.value)} className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm">
+                      <option value="amount">Amount</option>
+                      <option value="percentage">Percentage</option>
+                    </select>
+                    <input value={customMarginValue} onChange={(e) => setCustomMarginValue(e.target.value)} placeholder="Enter margin value" className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm" />
+                    <div className="flex justify-end gap-2">
+                      <button type="button" onClick={() => setCustomMarginModalOpen(false)} className="px-3 py-2 rounded-lg border border-gray-200 text-sm">Cancel</button>
+                      <button type="button" onClick={applyCustomMarginToSelected} className="px-3 py-2 rounded-lg bg-indigo-600 text-white text-sm font-semibold">Apply</button>
+                    </div>
+                  </div>
+                </div>
+              )}
+              {assignVendorModalOpen && (
+                <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
+                  <div className="w-full max-w-md rounded-2xl bg-white shadow-2xl p-5 space-y-4">
+                    <h3 className="text-lg font-black text-gray-900">Assign Selected Products to Vendor</h3>
+                    <select value={assignVendorValue} onChange={(e) => setAssignVendorValue(e.target.value)} className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm">
+                      <option value="">Select Vendor</option>
+                      {offlineVendors.map((vendor) => (
+                        <option key={vendor.docId} value={vendor.vendorName}>{vendor.vendorName}</option>
+                      ))}
+                    </select>
+                    <div className="flex justify-end gap-2">
+                      <button type="button" onClick={() => setAssignVendorModalOpen(false)} className="px-3 py-2 rounded-lg border border-gray-200 text-sm">Cancel</button>
+                      <button type="button" onClick={assignSelectedToVendor} className="px-3 py-2 rounded-lg bg-emerald-600 text-white text-sm font-semibold">Assign</button>
+                    </div>
+                  </div>
+                </div>
+              )}
               <div className="border border-gray-100 rounded-2xl p-4 bg-white/60">
                 <p className="text-xs font-black uppercase tracking-wider text-gray-500 mb-3">Saved Sessions</p>
                 {savedPricingSessions.length ? (

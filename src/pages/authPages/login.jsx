@@ -2,12 +2,12 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button, Checkbox, Label, Modal } from 'flowbite-react';
 import { useDispatch, useSelector } from 'react-redux';
-import { collection, getDocs, limit, query, where } from 'firebase/firestore';
 import bgImg from '../../assets/background.jpg';
 import { RxMix, RxRocket } from 'react-icons/rx';
 import { users } from '../../constants/user';
 import { setAuthenticatedUser } from '../../services/reducers/auth/loginReducer';
-import { db } from '../../services/firebase';
+import { signInWithEmailAndPassword } from 'firebase/auth';
+import { auth } from '../../services/firebase';
 
 const Login = () => {
   const [openModal, setOpenModal] = useState(false);
@@ -76,39 +76,33 @@ const Login = () => {
   const handleStaffLogin = async () => {
     try {
       setLoginError('');
-      const trimmedUsername = username.trim();
-      const trimmedPassword = password.trim();
+      const staffUsername = username.trim();
+      const staffPassword = password.trim();
 
-      if (!trimmedUsername || !trimmedPassword) {
+      if (!staffUsername || !staffPassword) {
         setLoginError('Please provide a valid username and password.');
         return;
       }
 
-      const staffQuery = query(
-        collection(db, 'horleyTech_Staff'),
-        where('username', '==', trimmedUsername),
-        where('password', '==', trimmedPassword),
-        limit(1)
-      );
+      const pseudoEmail = `${staffUsername.toLowerCase().replace(/\s+/g, '')}@staff.horleytech.com`;
+      const userCredential = await signInWithEmailAndPassword(auth, pseudoEmail, staffPassword);
 
-      const snapshot = await getDocs(staffQuery);
-
-      if (snapshot.empty) {
-        setLoginError('The username and password don’t match.');
-        return;
-      }
-
-      const staffSession = { role: 'staff', username: trimmedUsername };
-      localStorage.setItem('horleyTech_staff_session', JSON.stringify(staffSession));
       dispatch(
         setAuthenticatedUser({
-          user: staffSession,
-          token: `staff-${trimmedUsername}`,
+          user: {
+            id: userCredential.user.uid,
+            email: userCredential.user.email,
+            role: 'staff',
+            username: staffUsername,
+          },
+          token: userCredential.user.accessToken || `staff-${userCredential.user.uid}`,
         })
       );
+
+      localStorage.setItem('userRole', 'staff');
       navigate('/hub', { replace: true });
     } catch (error) {
-      setLoginError('Unable to login as staff right now.');
+      setLoginError('The username and password don’t match.');
       console.error(error);
     }
   };

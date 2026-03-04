@@ -1,8 +1,8 @@
-# Horleytech Scrapebot & AI Engine 🚀
-An Enterprise-grade data ingestion, AI normalization, and Vendor Management platform built for Horleytech. This system scrapes messy vendor WhatsApp/CSV data, utilizes an autonomous OpenAI normalization engine, and securely stores sharded product maps in Firebase.
+# Horleytech Scrapebot & B2B AI Engine 🚀
+An Enterprise-grade data ingestion, AI normalization, and Vendor Management platform. This system scrapes messy vendor data, utilizes an autonomous OpenAI normalization engine, and securely stores sharded product maps in Firebase.
 
 🌟 Core Architecture
-Frontend: React + Vite + TailwindCSS (Deployed on Vercel)
+Frontend: React + Vite + TailwindCSS + Redux (Deployed on Vercel)
 
 Backend: Node.js + Express (Deployed on Ubuntu/Nginx via DigitalOcean)
 
@@ -11,25 +11,25 @@ Database: Google Firebase (Firestore) - Enterprise Blaze Plan
 AI Engine: OpenAI gpt-4o-mini
 
 🧠 The Master Sync Engine
-The legacy system relied on heavy frontend processing and bloated Firebase documents. We have upgraded to a Categorically Sharded Global Brain.
+Categorical Sharding: To bypass Firebase's 1MB document limit, the AI groups mappings dynamically into 8 distinct categorical shards (e.g., mappings_Smartphones, mappings_Laptops).
 
-How it works:
-Data Ingestion: WhatsApp webhooks and CSV uploads feed raw strings into the Offline Inventory.
+Specification Matching: The AI dynamically matches Specifications based on the device context.
 
-Background AI Judge: The /api/admin/trigger-background-sync endpoint safely sweeps the database for unknown messy strings.
+🔐 Role-Based Access Control (RBAC) & Tracking
+Dual Authentication: The system utilizes official Firebase Auth for both Admins and Staff.
 
-Smart Categorical Sharding: To bypass Firebase's 1MB document limit, the AI groups mappings dynamically. Instead of a monolithic dictionary, data is saved into 8 distinct categorical shards (e.g., mappings_Smartphones, mappings_Laptops, mappings_Smartwatches).
+Pseudo-Email Strategy: Staff members log in using simplified Usernames, which the backend securely maps to tracking emails ([username]@staff.horleytech.com).
 
-Specification Matching: The AI dynamically matches Specifications based on the device context (e.g., "M2 Pro" for Laptops, "45mm" for Watches, "ESIM" for Phones).
+Audit Logging: Every action taken by a Staff member is permanently tracked in the Firebase Audit Logs.
 
-🛡️ Enterprise Security & Limits
-CORS Bouncer: Strict Nginx Reverse Proxy with an explicit OPTIONS preflight VIP pass.
+💰 Advanced Price Engine & Distribution
+Bulk Selection: Admins can multi-select products from the master inventory.
 
-Index Exemptions: The mappings field in horleyTech_Settings is strictly exempted from Firebase Indexing, unlocking infinite dictionary expansion without freezing the backend.
+Targeted Margins: Price calculation rules can be applied to isolated, selected batches.
 
-Quota Protections: The Node.js engine writes data in intelligent batches to minimize Firebase Read/Write operations.
+Vendor Routing: Selected product blocks can be dynamically assigned to specific vendor storefronts.
 
-💻 Server Commands (Cheatsheet)
+💻 Server Commands
 Restart Backend Engine: pm2 restart all
 
 View Live Terminal Logs: pm2 log 0
