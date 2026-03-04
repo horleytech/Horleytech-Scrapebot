@@ -1271,7 +1271,8 @@ const AdminDashboard = () => {
     const margin = Number(marginValue) || 0;
     const vendorRows = normalizedProductRows.filter((row) => row.vendorName === pricingVendor);
     return companyCsvRows.map((row, index) => {
-      const companyDevice = getCsvValueByAliases(row, ['Device Type', 'device', 'product', 'model']);
+      // FIX 1: Support "Device Tye" typo
+      const companyDevice = getCsvValueByAliases(row, ['Device Type', 'Device Tye', 'device', 'product', 'model', 'Device Name']);
       const companyCondition = getCsvValueByAliases(row, ['Condition']) || 'Unknown';
       const companySpec = getCsvValueByAliases(row, ['SIM Type/Model/Processor', 'sim type', 'model', 'processor']);
       const companyRawDescriptor = `${companyDevice} ${companyCondition} ${companySpec}`.trim();
@@ -1289,42 +1290,50 @@ const AdminDashboard = () => {
         .filter((item) => (!storage || item.storage === storage)
           && (!requiresSpecMatch || (item.specification || item.simType) === mappedSpec)
           && (!requiresConditionMatch || item.condition === condition));
-
-      const vendorMatch = allVendorMatches.sort((a, b) => {
-        const timeA = new Date(a.date).getTime() || 0;
-        const timeB = new Date(b.date).getTime() || 0;
-        return timeB - timeA;
-      })[0];
-
-      const hasVendorMatch = Boolean(vendorMatch);
-      const shouldCalculate = pricingVendor !== 'All' && hasVendorMatch;
-      const vendorPrice = shouldCalculate ? vendorMatch.priceValue : 0;
-      const baseTarget = shouldCalculate
-        ? (marginType === 'percentage' ? Math.round(vendorPrice * (1 + (margin / 100))) : vendorPrice + margin)
-        : 0;
-      const rowKey = getPricingRowKey({ ...row, mappedDevice, companyPrice }, index);
-      const override = pricingOverrides[rowKey] || null;
-      const overrideMarginValue = Number(override?.marginValue) || 0;
-      const target = shouldCalculate && override?.marginType
-        ? (override.marginType === 'percentage' ? Math.round(vendorPrice * (1 + (overrideMarginValue / 100))) : vendorPrice + overrideMarginValue)
-        : baseTarget;
-      const adjustment = shouldCalculate ? (target - companyPrice) : 0;
-      const adjustmentPercent = shouldCalculate && companyPrice > 0 ? Math.round((adjustment / companyPrice) * 100) : 0;
-
-      return {
-        ...row,
-        rowKey,
-        mappedDevice,
-        companyPrice,
-        vendorPrice,
-        target,
-        adjustment,
-        adjustmentPercent,
-        hasVendorMatch,
-        assignedVendor: override?.assignedVendor || pricingVendor,
-      };
-    });
-  }, [companyCsvRows, pricingVendor, marginType, marginValue, normalizedProductRows, officialTargets, masterDictionary, pricingOverrides]);
+  const vendorMatch = allVendorMatches.sort((a, b) => {
+    const timeA = new Date(a.date).getTime() || 0;
+    const timeB = new Date(b.date).getTime() || 0;
+    return timeB - timeA;
+  })[0];
+  const hasVendorMatch = Boolean(vendorMatch);
+  const shouldCalculate = pricingVendor !== 'All' && hasVendorMatch;
+  const vendorPrice = shouldCalculate ? vendorMatch.priceValue : 0;
+  const baseTarget = shouldCalculate
+    ? (marginType === 'percentage' ? Math.round(vendorPrice * (1 + (margin / 100))) : vendorPrice + margin)
+    : 0;
+  const rowKey = getPricingRowKey({ ...row, mappedDevice, companyPrice }, index);
+  const override = pricingOverrides[rowKey] || null;
+  const overrideMarginValue = Number(override?.marginValue) || 0;
+  
+  // FIX 2: Apply custom margin against Company Price, override vendor rules
+  let target = baseTarget;
+  let adjustment = shouldCalculate ? (target - companyPrice) : 0;
+  let adjustmentPercent = shouldCalculate && companyPrice > 0 ? Math.round((adjustment / companyPrice) * 100) : 0;
+  if (override) {
+    if (override.marginType === 'percentage') {
+      target = Math.round(companyPrice * (1 + (overrideMarginValue / 100)));
+    } else {
+      target = companyPrice + overrideMarginValue;
+    }
+    adjustment = target - companyPrice;
+    adjustmentPercent = companyPrice > 0 ? Math.round((adjustment / companyPrice) * 100) : 0;
+  }
+  return {
+    ...row,
+    rowKey,
+    companyDevice,
+    mappedDevice,
+    companyPrice,
+    vendorPrice,
+    target,
+    adjustment,
+    adjustmentPercent,
+    hasVendorMatch,
+    assignedVendor: override?.assignedVendor || pricingVendor,
+    isOverridden: Boolean(override),
+  };
+});
+}, [companyCsvRows, pricingVendor, marginType, marginValue, normalizedProductRows, officialTargets, masterDictionary, pricingOverrides]);
 
   const groupedPricingResults = useMemo(() => {
     const groups = [];
@@ -1424,13 +1433,18 @@ const AdminDashboard = () => {
   };
 
   const exportPricingTxt = () => {
-    const lines = pricingResults
-      .filter((item) => Number.isFinite(item.companyPrice) && item.companyPrice > 0)
-      .map((item) => {
-        if (marginType === 'percentage') return `${item.companyPrice}: ${item.adjustmentPercent}%`;
-        return `${item.companyPrice}: ${item.adjustment}`;
-      });
-    const blob = new Blob([lines.join('\n')], { type: 'text/plain;charset=utf-8;' });
+    const validItems = pricingResults.filter((item) => Number.isFinite(item.companyPrice) && item.companyPrice > 0 && (item.hasVendorMatch || item.isOverridden));
+    if (!validItems.length) return alert('No valid pricing adjustments to export.');
+    
+    const pairs = validItems.map((item) => {
+      const override = pricingOverrides[item.rowKey];
+      const isPercent = override ? override.marginType === 'percentage' : marginType === 'percentage';
+      if (isPercent) return `${item.companyPrice}: ${item.adjustmentPercent}%`;
+      return `${item.companyPrice}: ${item.adjustment}`;
+    });
+    
+    const exportString = pairs.join(', ');
+    const blob = new Blob([exportString], { type: 'text/plain;charset=utf-8;' });
     const link = document.createElement('a');
     link.href = URL.createObjectURL(blob);
     link.setAttribute('download', `pricing-adjustments-${Date.now()}.txt`);
@@ -2102,9 +2116,9 @@ const AdminDashboard = () => {
                                             </td>
                                             <td className="px-3 py-2 font-bold">{formatNaira(row.companyPrice)}</td>
                                             <td className="px-3 py-2 text-gray-500">{row.hasVendorMatch ? formatNaira(row.vendorPrice) : 'N/A'}</td>
-                                            <td className="px-3 py-2 font-bold text-indigo-600">{row.hasVendorMatch ? formatNaira(row.target) : 'N/A'}</td>
+                                            <td className="px-3 py-2 font-bold text-indigo-600">{(row.hasVendorMatch || row.isOverridden) ? formatNaira(row.target) : 'N/A'}</td>
                                             <td className="px-3 py-2">
-                                              {row.hasVendorMatch ? (
+                                              {(row.hasVendorMatch || row.isOverridden) ? (
                                                 <span className={`px-2 py-1 rounded text-xs font-bold ${row.adjustment > 0 ? 'bg-green-100 text-green-700' : row.adjustment < 0 ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-600'}`}>
                                                   {row.adjustment > 0 ? '+' : ''}{formatNaira(row.adjustment)}
                                                 </span>
@@ -2129,8 +2143,8 @@ const AdminDashboard = () => {
                 )}
               </div>
               {customMarginModalOpen && (
-                <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
-                  <div className="w-full max-w-md rounded-2xl bg-white shadow-2xl p-5 space-y-4">
+                <div className="fixed top-0 left-0 w-screen h-screen z-[99999] bg-black/60 flex items-center justify-center p-4 m-0" style={{ position: 'fixed' }}>
+                  <div className="w-full max-w-md rounded-2xl bg-white shadow-2xl p-5 space-y-4 relative">
                     <h3 className="text-lg font-black text-gray-900">Apply Custom Margin</h3>
                     <select value={customMarginType} onChange={(e) => setCustomMarginType(e.target.value)} className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm">
                       <option value="amount">Amount</option>
@@ -2145,8 +2159,8 @@ const AdminDashboard = () => {
                 </div>
               )}
               {assignVendorModalOpen && (
-                <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
-                  <div className="w-full max-w-md rounded-2xl bg-white shadow-2xl p-5 space-y-4">
+                <div className="fixed top-0 left-0 w-screen h-screen z-[99999] bg-black/60 flex items-center justify-center p-4 m-0" style={{ position: 'fixed' }}>
+                  <div className="w-full max-w-md rounded-2xl bg-white shadow-2xl p-5 space-y-4 relative">
                     <h3 className="text-lg font-black text-gray-900">Assign Selected Products to Vendor</h3>
                     <select value={assignVendorValue} onChange={(e) => setAssignVendorValue(e.target.value)} className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm">
                       <option value="">Select Vendor</option>
