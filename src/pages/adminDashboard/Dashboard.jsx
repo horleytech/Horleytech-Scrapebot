@@ -1271,8 +1271,8 @@ const AdminDashboard = () => {
     const margin = Number(marginValue) || 0;
     const vendorRows = normalizedProductRows.filter((row) => row.vendorName === pricingVendor);
     return companyCsvRows.map((row, index) => {
-      // FIX 1: Support "Device Tye" typo
-      const companyDevice = getCsvValueByAliases(row, ['Device Type', 'Device Tye', 'device', 'product', 'model', 'Device Name']);
+     // FIX 1: Perfectly extract "Device Type"
+      const companyDevice = getCsvValueByAliases(row, ['Device Type', 'device type', 'Device', 'device', 'product', 'model', 'Device Name']) || '';
       const companyCondition = getCsvValueByAliases(row, ['Condition']) || 'Unknown';
       const companySpec = getCsvValueByAliases(row, ['SIM Type/Model/Processor', 'sim type', 'model', 'processor']);
       const companyRawDescriptor = `${companyDevice} ${companyCondition} ${companySpec}`.trim();
@@ -1338,27 +1338,26 @@ const AdminDashboard = () => {
   const groupedPricingResults = useMemo(() => {
     const groups = [];
     let activeTopCategory = { name: 'General Inventory', subGroups: [] };
-    let activeSubGroup = { name: 'Uncategorized', items: [] };
+    let activeSubGroup = { name: 'General Items', items: [] };
 
     pricingResults.forEach((row) => {
-      const rawValues = Object.values(row.originalRow || row);
-      const hashtagVal = rawValues.find((v) => typeof v === 'string' && v.trim().startsWith('#'));
+      const rawDevice = row.companyDevice || row['Device Type'] || '';
+      const deviceVal = String(rawDevice).trim();
+      const isHashtag = deviceVal.startsWith('#');
+      const hasPrice = row.companyPrice > 0;
 
-      if (hashtagVal) {
-        const cleanHash = hashtagVal.trim();
-        const topCategories = ['#smartphones', '#laptops', '#tablets', '#smartwatches', '#sounds', '#accessories', '#gaming'];
+      if (isHashtag) {
+        // Save previous before starting a new Hashtag folder
+        if (activeSubGroup.items.length > 0) activeTopCategory.subGroups.push(activeSubGroup);
+        if (activeTopCategory.subGroups.length > 0) groups.push(activeTopCategory);
 
-        if (topCategories.some((tc) => cleanHash.toLowerCase().includes(tc))) {
-          if (activeSubGroup.items.length > 0) activeTopCategory.subGroups.push(activeSubGroup);
-          if (activeTopCategory.subGroups.length > 0) groups.push(activeTopCategory);
-
-          activeTopCategory = { name: cleanHash, subGroups: [] };
-          activeSubGroup = { name: 'General Items', items: [] };
-        } else {
-          if (activeSubGroup.items.length > 0) activeTopCategory.subGroups.push(activeSubGroup);
-          activeSubGroup = { name: cleanHash, items: [] };
-        }
-      } else if (row.companyPrice > 0 || (row.mappedDevice && row.mappedDevice !== 'Unknown Device')) {
+        activeTopCategory = { name: deviceVal, subGroups: [] };
+        activeSubGroup = { name: 'General Items', items: [] };
+      } else if (!hasPrice && deviceVal.length > 0 && !isHashtag) {
+        // Creates sub-folders for series names
+        if (activeSubGroup.items.length > 0) activeTopCategory.subGroups.push(activeSubGroup);
+        activeSubGroup = { name: deviceVal, items: [] };
+      } else if (hasPrice || (row.mappedDevice && row.mappedDevice !== 'Unknown Device')) {
         activeSubGroup.items.push(row);
       }
     });
@@ -1434,15 +1433,17 @@ const AdminDashboard = () => {
 
   const exportPricingTxt = () => {
     const validItems = pricingResults.filter((item) => Number.isFinite(item.companyPrice) && item.companyPrice > 0 && (item.hasVendorMatch || item.isOverridden));
-    if (!validItems.length) return alert('No valid pricing adjustments to export.');
+    const changedItems = validItems.filter(item => item.adjustment !== 0);
+    if (!changedItems.length) return alert('No prices were changed. Adjust a price first.');
     
-    const pairs = validItems.map((item) => {
+    const pairs = changedItems.map((item) => {
       const override = pricingOverrides[item.rowKey];
       const isPercent = override ? override.marginType === 'percentage' : marginType === 'percentage';
-      if (isPercent) return `${item.companyPrice}: ${item.adjustmentPercent}%`;
-      return `${item.companyPrice}: ${item.adjustment}`;
+      if (isPercent) return `${item.companyPrice}: ${item.adjustmentPercent > 0 ? '+' : ''}${item.adjustmentPercent}%`;
+      return `${item.companyPrice}: ${item.adjustment > 0 ? '+' : ''}${item.adjustment}`;
     });
     
+    // FIX 3: Combine into a single comma-separated straight line
     const exportString = pairs.join(', ');
     const blob = new Blob([exportString], { type: 'text/plain;charset=utf-8;' });
     const link = document.createElement('a');
@@ -2107,7 +2108,8 @@ const AdminDashboard = () => {
                                             <td className="px-4 py-2">
                                               <input type="checkbox" className="h-4 w-4 rounded border-gray-300 cursor-pointer" checked={selectedProducts.includes(row.rowKey)} onChange={() => toggleProductSelection(row.rowKey)} />
                                             </td>
-                                            <td className="px-3 py-2 font-semibold text-gray-800">{row.mappedDevice}</td>
+                                            {/* FIX 4: Use companyDevice so it doesn't show Unknown! */}
+                                            <td className="px-3 py-2 font-semibold text-gray-800">{row.companyDevice || row['Device Type'] || 'Unknown'}</td>
                                             <td className="px-3 py-2 text-gray-600">{row.Condition || row.condition || 'Unknown'}</td>
                                             <td className="px-3 py-2 text-gray-600">{row['SIM Type/Model/Processor'] || row.specification || row.sim || 'Unknown'}</td>
                                             <td className="px-3 py-2 font-mono text-xs">{row['Storage Capacity/Configuration'] || row.storage || 'N/A'}</td>
@@ -2116,6 +2118,7 @@ const AdminDashboard = () => {
                                             </td>
                                             <td className="px-3 py-2 font-bold">{formatNaira(row.companyPrice)}</td>
                                             <td className="px-3 py-2 text-gray-500">{row.hasVendorMatch ? formatNaira(row.vendorPrice) : 'N/A'}</td>
+                                            {/* FIX 5: Show target and adjustments if overridden! */}
                                             <td className="px-3 py-2 font-bold text-indigo-600">{(row.hasVendorMatch || row.isOverridden) ? formatNaira(row.target) : 'N/A'}</td>
                                             <td className="px-3 py-2">
                                               {(row.hasVendorMatch || row.isOverridden) ? (
@@ -2142,8 +2145,9 @@ const AdminDashboard = () => {
                   <div className="border border-gray-100 rounded-2xl bg-white/60 px-4 py-4 text-sm text-gray-500">No matched rows. Load CSV and choose a valid vendor.</div>
                 )}
               </div>
+              {/* FIX 6: Viewport locked modals! */}
               {customMarginModalOpen && (
-                <div className="fixed top-0 left-0 w-screen h-screen z-[99999] bg-black/60 flex items-center justify-center p-4 m-0" style={{ position: 'fixed' }}>
+                <div className="fixed top-0 left-0 w-[100vw] h-[100vh] z-[99999] bg-black/60 flex items-center justify-center p-4 m-0" style={{ position: 'fixed' }}>
                   <div className="w-full max-w-md rounded-2xl bg-white shadow-2xl p-5 space-y-4 relative">
                     <h3 className="text-lg font-black text-gray-900">Apply Custom Margin</h3>
                     <select value={customMarginType} onChange={(e) => setCustomMarginType(e.target.value)} className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm">
@@ -2159,7 +2163,7 @@ const AdminDashboard = () => {
                 </div>
               )}
               {assignVendorModalOpen && (
-                <div className="fixed top-0 left-0 w-screen h-screen z-[99999] bg-black/60 flex items-center justify-center p-4 m-0" style={{ position: 'fixed' }}>
+                <div className="fixed top-0 left-0 w-[100vw] h-[100vh] z-[99999] bg-black/60 flex items-center justify-center p-4 m-0" style={{ position: 'fixed' }}>
                   <div className="w-full max-w-md rounded-2xl bg-white shadow-2xl p-5 space-y-4 relative">
                     <h3 className="text-lg font-black text-gray-900">Assign Selected Products to Vendor</h3>
                     <select value={assignVendorValue} onChange={(e) => setAssignVendorValue(e.target.value)} className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm">
