@@ -1308,17 +1308,10 @@ const AdminDashboard = () => {
       const rowKey = getPricingRowKey({ ...row, mappedDevice, companyPrice }, index);
       const override = pricingOverrides[rowKey] || null;
       const overrideMarginValue = Number(override?.marginValue) || 0;
-      const hasCustomTarget = Number.isFinite(Number(override?.customTarget));
-      const target = hasCustomTarget
-        ? Number(override.customTarget)
-        : shouldCalculate && override?.marginType
-          ? (override.marginType === 'percentage' ? Math.round(vendorPrice * (1 + (overrideMarginValue / 100))) : vendorPrice + overrideMarginValue)
-          : baseTarget;
-      const adjustment = hasCustomTarget
-        ? Number(override?.adjustment || 0)
-        : shouldCalculate
-          ? (target - companyPrice)
-          : 0;
+      const target = shouldCalculate && override?.marginType
+        ? (override.marginType === 'percentage' ? Math.round(vendorPrice * (1 + (overrideMarginValue / 100))) : vendorPrice + overrideMarginValue)
+        : baseTarget;
+      const adjustment = shouldCalculate ? (target - companyPrice) : 0;
       const adjustmentPercent = shouldCalculate && companyPrice > 0 ? Math.round((adjustment / companyPrice) * 100) : 0;
 
       return {
@@ -1332,7 +1325,6 @@ const AdminDashboard = () => {
         adjustment,
         adjustmentPercent,
         hasVendorMatch,
-        hasCustomMargin: Boolean(override?.hasCustomMargin),
         assignedVendor: override?.assignedVendor || pricingVendor,
       };
     });
@@ -1445,28 +1437,29 @@ const AdminDashboard = () => {
     const val = parseFloat(marginValue);
     const updatedProducts = [];
     pricingResults.forEach((row) => {
-      if (!selectedProducts.includes(row.rowKey)) return;
-      const basePrice = Number(String(row.companyPrice || 0).replace(/[^0-9.-]+/g, ''));
-      if (basePrice <= 0) return;
+      if (selectedProducts.includes(row.rowKey)) {
+        const basePrice = Number(String(row.companyPrice || 0).replace(/[^0-9.-]+/g, ''));
+        if (basePrice <= 0) return row;
 
-      let adjustmentAmount = 0;
-      if (marginType === 'percentage') {
-        adjustmentAmount = basePrice * (val / 100);
-      } else {
-        adjustmentAmount = val;
+        let adjustmentAmount = 0;
+        if (marginType === 'percentage') {
+          adjustmentAmount = basePrice * (val / 100);
+        } else {
+          adjustmentAmount = val;
+        }
+
+        if (marginDirection === 'decrease') adjustmentAmount = -Math.abs(adjustmentAmount);
+        else adjustmentAmount = Math.abs(adjustmentAmount);
+
+        const newTarget = basePrice + adjustmentAmount;
+        const updatedRow = {
+          ...row,
+          target: newTarget,
+          adjustment: adjustmentAmount,
+          hasCustomMargin: true,
+        };
+        updatedProducts.push(updatedRow);
       }
-
-      if (marginDirection === 'decrease') adjustmentAmount = -Math.abs(adjustmentAmount);
-      else adjustmentAmount = Math.abs(adjustmentAmount);
-
-      const newTarget = basePrice + adjustmentAmount;
-      const updatedRow = {
-        ...row,
-        target: newTarget,
-        adjustment: adjustmentAmount,
-        hasCustomMargin: true,
-      };
-      updatedProducts.push(updatedRow);
     });
 
     setPricingOverrides((prev) => {
@@ -1474,9 +1467,8 @@ const AdminDashboard = () => {
       updatedProducts.forEach((updatedRow) => {
         next[updatedRow.rowKey] = {
           ...(next[updatedRow.rowKey] || {}),
-          customTarget: updatedRow.target,
-          adjustment: updatedRow.adjustment,
-          hasCustomMargin: true,
+          marginType: 'amount',
+          marginValue: updatedRow.target - updatedRow.vendorPrice,
         };
       });
       return next;
@@ -2234,9 +2226,9 @@ const AdminDashboard = () => {
                                                       </td>
                                                       <td className="px-3 py-2 font-black text-gray-900">{formatNaira(row.companyPrice)}</td>
                                                       <td className="px-3 py-2 text-gray-500 font-medium">{row.hasVendorMatch ? formatNaira(row.vendorPrice) : 'N/A'}</td>
-                                                      <td className="px-3 py-2 font-black text-indigo-600">{row.hasVendorMatch || row.hasCustomMargin ? formatNaira(row.target) : 'N/A'}</td>
+                                                      <td className="px-3 py-2 font-black text-indigo-600">{row.hasVendorMatch ? formatNaira(row.target) : 'N/A'}</td>
                                                       <td className="px-3 py-2">
-                                                        {row.hasVendorMatch || row.hasCustomMargin ? (
+                                                        {row.hasVendorMatch ? (
                                                           <span className={`px-2 py-1 rounded text-xs font-black ${row.adjustment > 0 ? 'bg-green-100 text-green-700' : row.adjustment < 0 ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-600'}`}>
                                                             {row.adjustment > 0 ? '+' : ''}{formatNaira(row.adjustment)}
                                                           </span>
@@ -2278,41 +2270,6 @@ const AdminDashboard = () => {
                   </div>
                 ) : <p className="text-sm text-gray-500">No saved sessions yet.</p>}
               </div>
-              {isMarginModalOpen && (
-                <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm">
-                  <div className="bg-white rounded-2xl shadow-2xl w-[400px] p-6 overflow-hidden">
-                    <div className="flex justify-between items-center mb-6">
-                      <h2 className="text-xl font-black text-gray-800">Bulk Price Adjustment</h2>
-                      <button onClick={() => setIsMarginModalOpen(false)} className="text-gray-400 hover:text-red-500 font-bold text-xl">&times;</button>
-                    </div>
-
-                    <div className="space-y-4">
-                      <div>
-                        <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Direction</label>
-                        <div className="flex gap-2">
-                          <button onClick={() => setMarginDirection('increase')} className={`flex-1 py-2 rounded-lg font-bold text-sm transition-colors ${marginDirection === 'increase' ? 'bg-green-100 text-green-700 border-2 border-green-500' : 'bg-gray-50 text-gray-500 border-2 border-transparent hover:bg-gray-100'}`}>Increase (+)</button>
-                          <button onClick={() => setMarginDirection('decrease')} className={`flex-1 py-2 rounded-lg font-bold text-sm transition-colors ${marginDirection === 'decrease' ? 'bg-red-100 text-red-700 border-2 border-red-500' : 'bg-gray-50 text-gray-500 border-2 border-transparent hover:bg-gray-100'}`}>Decrease (-)</button>
-                        </div>
-                      </div>
-                      <div>
-                        <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Adjustment Type</label>
-                        <div className="flex gap-2">
-                          <button onClick={() => setMarginType('percentage')} className={`flex-1 py-2 rounded-lg font-bold text-sm transition-colors ${marginType === 'percentage' ? 'bg-indigo-100 text-indigo-700 border-2 border-indigo-500' : 'bg-gray-50 text-gray-500 border-2 border-transparent hover:bg-gray-100'}`}>Percentage (%)</button>
-                          <button onClick={() => setMarginType('flat')} className={`flex-1 py-2 rounded-lg font-bold text-sm transition-colors ${marginType === 'flat' ? 'bg-indigo-100 text-indigo-700 border-2 border-indigo-500' : 'bg-gray-50 text-gray-500 border-2 border-transparent hover:bg-gray-100'}`}>Flat Amount (₦)</button>
-                        </div>
-                      </div>
-                      <div>
-                        <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Value</label>
-                        <input type="number" value={marginValue} onChange={(e) => setMarginValue(e.target.value)} placeholder={marginType === 'percentage' ? 'e.g. 15' : 'e.g. 5000'} className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 font-bold text-gray-800" />
-                      </div>
-                    </div>
-                    <div className="mt-8 flex gap-3">
-                      <button onClick={() => setIsMarginModalOpen(false)} className="flex-1 py-3 rounded-xl font-bold text-gray-600 bg-gray-100 hover:bg-gray-200 transition-colors">Cancel</button>
-                      <button onClick={handleApplyBulkMargin} className="flex-1 py-3 rounded-xl font-black text-white bg-indigo-600 hover:bg-indigo-700 shadow-lg shadow-indigo-200 transition-all">Apply to {selectedProducts.length}</button>
-                    </div>
-                  </div>
-                </div>
-              )}
             </div>
 ) : activeTab === 'backups' ? (
             <div className="bg-white/70 backdrop-blur-xl border border-white/20 rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] overflow-hidden">
