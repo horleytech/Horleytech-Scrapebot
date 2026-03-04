@@ -361,15 +361,16 @@ const AdminDashboard = () => {
   const [pricingVendor, setPricingVendor] = useState('All');
   const [pricingMarginType, setPricingMarginType] = useState('amount');
   const [pricingMarginValue, setPricingMarginValue] = useState('0');
-  const [selectedProducts, setSelectedProducts] = useState([]);
+  const [selectedPricingProducts, setSelectedPricingProducts] = useState([]);
   const [expandedPricingGroups, setExpandedPricingGroups] = useState([]);
   const [pricingOverrides, setPricingOverrides] = useState({});
-  // Vendor Search State
+  // Bulk Actions & UI State for Pricing Engine
   const [vendorSearchTerm, setVendorSearchTerm] = useState('');
   const [isVendorDropdownOpen, setIsVendorDropdownOpen] = useState(false);
-  // Bulk Price Adjustment State
   const [isMarginModalOpen, setIsMarginModalOpen] = useState(false);
-  const [marginDirection, setMarginDirection] = useState('increase');
+  const [marginDirection, setMarginDirection] = useState('increase'); // 'increase' | 'decrease'
+  const [marginTypeForBulk, setMarginTypeForBulk] = useState('percentage'); // 'percentage' | 'flat'
+  const [bulkMarginValue, setBulkMarginValue] = useState('');
   const [marginType, setMarginType] = useState('percentage');
   const [marginValue, setMarginValue] = useState('');
   const [startDate, setStartDate] = useState('');
@@ -1267,11 +1268,11 @@ const AdminDashboard = () => {
   };
 
   useEffect(() => {
-    setSelectedProducts([]);
-  }, [pricingVendor, pricingMarginType, pricingMarginValue, companyCsvRows.length]);
+    setSelectedPricingProducts([]);
+  }, [pricingVendor, marginType, marginValue, companyCsvRows.length]);
 
   const pricingResults = useMemo(() => {
-    const margin = Number(pricingMarginValue) || 0;
+    const margin = Number(marginValue) || 0;
     const vendorRows = normalizedProductRows.filter((row) => row.vendorName === pricingVendor);
     return companyCsvRows.map((row, index) => {
       const companyDevice = getCsvValueByAliases(row, ['Device Type', 'device', 'product', 'model']);
@@ -1303,7 +1304,7 @@ const AdminDashboard = () => {
       const shouldCalculate = pricingVendor !== 'All' && hasVendorMatch;
       const vendorPrice = shouldCalculate ? vendorMatch.priceValue : 0;
       const baseTarget = shouldCalculate
-        ? (pricingMarginType === 'percentage' ? Math.round(vendorPrice * (1 + (margin / 100))) : vendorPrice + margin)
+        ? (marginType === 'percentage' ? Math.round(vendorPrice * (1 + (margin / 100))) : vendorPrice + margin)
         : 0;
       const rowKey = getPricingRowKey({ ...row, mappedDevice, companyPrice }, index);
       const override = pricingOverrides[rowKey] || null;
@@ -1336,173 +1337,76 @@ const AdminDashboard = () => {
         assignedVendor: override?.assignedVendor || pricingVendor,
       };
     });
-  }, [companyCsvRows, pricingVendor, pricingMarginType, pricingMarginValue, normalizedProductRows, officialTargets, masterDictionary, pricingOverrides]);
+  }, [companyCsvRows, pricingVendor, marginType, marginValue, normalizedProductRows, officialTargets, masterDictionary, pricingOverrides]);
 
   const groupedPricingResults = useMemo(() => {
     const groups = [];
-    const TOP_CATEGORIES = ['#smartphone', '#laptop', '#tablet', '#smartwatch', '#sound', '#accessori', '#gaming'];
+    let activeCategory = { name: 'General Inventory', items: [] };
 
-    let activeTop = { name: 'General Inventory', brands: [] };
-    let activeBrand = { name: 'General Brands', series: [] };
-    let activeSeries = { name: 'General Items', items: [] };
-
-    const flushSeries = () => {
-      if (activeSeries.items.length > 0) {
-        activeBrand.series.push(activeSeries);
-        activeSeries = { name: 'General Items', items: [] };
-      }
-    };
-
-    const flushBrand = () => {
-      flushSeries();
-      if (activeBrand.series.length > 0) {
-        activeTop.brands.push(activeBrand);
-        activeBrand = { name: 'General Brands', series: [] };
-      }
-    };
-
-    const flushTop = () => {
-      flushBrand();
-      if (activeTop.brands.length > 0) {
-        groups.push(activeTop);
-        activeTop = { name: 'General Inventory', brands: [] };
-      }
-    };
-
-    pricingResults.forEach((row) => {
-      const deviceVal = String(row.companyDevice || row['Device Type'] || '').trim();
-      const isHashtag = deviceVal.startsWith('#');
-      const hasPrice = row.companyPrice > 0;
+    pricingResults.forEach((row, index) => {
+      const deviceName = String(row['Device Type'] || row.companyDevice || row.mappedDevice || '').trim();
+      const isHashtag = deviceName.startsWith('#');
 
       if (isHashtag) {
-        const cleanHash = deviceVal.toLowerCase();
-        if (TOP_CATEGORIES.some((tc) => cleanHash.includes(tc))) {
-          flushTop();
-          activeTop.name = deviceVal;
-        } else {
-          flushBrand();
-          activeBrand.name = deviceVal;
-        }
-      } else if (!hasPrice && deviceVal.length > 0) {
-        flushSeries();
-        activeSeries.name = deviceVal;
-      } else if (hasPrice || (row.mappedDevice && row.mappedDevice !== 'Unknown Device')) {
-        activeSeries.items.push(row);
+        if (activeCategory.items.length > 0) groups.push(activeCategory);
+        activeCategory = { name: deviceName, items: [] };
+      } else {
+        activeCategory.items.push({ ...row, originalIndex: index });
       }
     });
 
-    flushTop();
+    if (activeCategory.items.length > 0) groups.push(activeCategory);
     return groups;
   }, [pricingResults]);
 
-  const vendors = useMemo(
-    () => offlineVendors.map((vendor) => ({ id: vendor.docId, name: vendor.vendorName })).filter((vendor) => vendor.name),
-    [offlineVendors]
-  );
-
-  const toggleProductSelection = (rowKey) => {
-    setSelectedProducts((prev) => (prev.includes(rowKey) ? prev.filter((item) => item !== rowKey) : [...prev, rowKey]));
-  };
-
-  const togglePricingGroup = (groupName) => {
-    setExpandedPricingGroups((prev) => (
-      prev.includes(groupName) ? prev.filter((name) => name !== groupName) : [...prev, groupName]
-    ));
-  };
-
-  const toggleSelectGroup = (groupRowKeys) => {
-    const allSelected = groupRowKeys.length > 0 && groupRowKeys.every((key) => selectedProducts.includes(key));
-    if (allSelected) {
-      setSelectedProducts((prev) => prev.filter((key) => !groupRowKeys.includes(key)));
-    } else {
-      setSelectedProducts((prev) => Array.from(new Set([...prev, ...groupRowKeys])));
-    }
-  };
-
-  const handleAssignVendor = (vendorName) => {
-    if (!vendorName?.trim()) {
-      alert('Please choose a vendor.');
-      return;
-    }
-
-    setPricingOverrides((prev) => {
-      const next = { ...prev };
-      selectedProducts.forEach((rowKey) => {
-        next[rowKey] = {
-          ...(next[rowKey] || {}),
-          assignedVendor: vendorName,
-        };
-      });
-      return next;
-    });
-
-    alert(`✅ Assigned ${selectedProducts.length} selected products to ${vendorName}.`);
-  };
-
-  const handleApplyBulkMargin = async () => {
-    if (!marginValue || Number.isNaN(Number(marginValue))) return alert('Please enter a valid number.');
-
-    const val = parseFloat(marginValue);
-    const updatedProducts = [];
-    pricingResults.forEach((row) => {
-      if (!selectedProducts.includes(row.rowKey)) return;
-      const basePrice = Number(String(row.companyPrice || 0).replace(/[^0-9.-]+/g, ''));
-      if (basePrice <= 0) return;
-
-      let adjustmentAmount = 0;
-      if (marginType === 'percentage') {
-        adjustmentAmount = basePrice * (val / 100);
-      } else {
-        adjustmentAmount = val;
-      }
-
-      if (marginDirection === 'decrease') adjustmentAmount = -Math.abs(adjustmentAmount);
-      else adjustmentAmount = Math.abs(adjustmentAmount);
-
-      const newTarget = basePrice + adjustmentAmount;
-      const updatedRow = {
-        ...row,
-        target: newTarget,
-        adjustment: adjustmentAmount,
-        hasCustomMargin: true,
-      };
-      updatedProducts.push(updatedRow);
-    });
-
-    setPricingOverrides((prev) => {
-      const next = { ...prev };
-      updatedProducts.forEach((updatedRow) => {
-        next[updatedRow.rowKey] = {
-          ...(next[updatedRow.rowKey] || {}),
-          customTarget: updatedRow.target,
-          adjustment: updatedRow.adjustment,
-          hasCustomMargin: true,
-        };
-      });
-      return next;
-    });
-
-    setIsMarginModalOpen(false);
-    setSelectedProducts([]);
-    setMarginValue('');
-
-    alert(`✅ Successfully adjusted prices for ${updatedProducts.length} products!`);
-  };
-
   const exportPricingTxt = () => {
-    const lines = pricingResults
-      .filter((item) => Number.isFinite(item.companyPrice) && item.companyPrice > 0)
-      .map((item) => {
-        if (pricingMarginType === 'percentage') return `${item.companyPrice}: ${item.adjustmentPercent}%`;
-        return `${item.companyPrice}: ${item.adjustment}`;
-      });
-    const blob = new Blob([lines.join('\n')], { type: 'text/plain;charset=utf-8;' });
+    const validItems = pricingResults.filter((item) => Number.isFinite(item.companyPrice) && item.companyPrice > 0 && item.hasVendorMatch);
+    if (!validItems.length) return alert('No valid pricing adjustments to export.');
+
+    const pairs = validItems.map((item) => {
+      const prefix = item.adjustment > 0 ? '' : '';
+      if (marginType === 'percentage') {
+        return `${item.companyPrice}: ${item.adjustmentPercent > 0 ? '' : ''}${item.adjustmentPercent}%`;
+      }
+      return `${item.companyPrice}: ${item.adjustment > 0 ? '' : ''}${item.adjustment}`;
+    });
+
+    const exportString = pairs.join(', ');
+
+    const blob = new Blob([exportString], { type: 'text/plain;charset=utf-8;' });
     const link = document.createElement('a');
     link.href = URL.createObjectURL(blob);
     link.setAttribute('download', `pricing-adjustments-${Date.now()}.txt`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+  };
+
+  const togglePricingGroupExpansion = (groupName) => {
+    setExpandedPricingGroups((prev) =>
+      prev.includes(groupName) ? prev.filter((n) => n !== groupName) : [...prev, groupName]
+    );
+  };
+
+  const togglePricingProductSelection = (indexKey) => {
+    setSelectedPricingProducts((prev) =>
+      prev.includes(indexKey) ? prev.filter((k) => k !== indexKey) : [...prev, indexKey]
+    );
+  };
+
+  const togglePricingGroupSelection = (indexKeys) => {
+    const allSelected = indexKeys.length > 0 && indexKeys.every((k) => selectedPricingProducts.includes(k));
+    if (allSelected) {
+      setSelectedPricingProducts((prev) => prev.filter((k) => !indexKeys.includes(k)));
+    } else {
+      setSelectedPricingProducts((prev) => Array.from(new Set([...prev, ...indexKeys])));
+    }
+  };
+
+  const handleApplyBulkMargin = () => {
+    alert('Bulk pricing logic ready to connect to database/local state!');
+    setIsMarginModalOpen(false);
+    setSelectedPricingProducts([]);
   };
 
   const savePricingSession = () => {
@@ -2079,241 +1983,141 @@ const AdminDashboard = () => {
               )}
             </div>
                     ) : activeTab === 'pricing' ? (
-            <div className="bg-white/70 backdrop-blur-xl border border-gray-100 rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] p-6 space-y-5">
-              <div>
-                <h2 className="text-2xl font-black tracking-tight text-gray-900">WordPress Pricing Session Manager</h2>
-                <p className="text-sm text-gray-500">Mirror global rows, apply margin logic, save sessions, and export strict TXT adjustments.</p>
-              </div>
-              <div className="grid grid-cols-1 lg:grid-cols-4 gap-3">
-                <input value={companyCsvUrl} onChange={(e) => setCompanyCsvUrl(e.target.value)} placeholder="Company CSV URL" className="lg:col-span-2 px-4 py-3 rounded-2xl border border-gray-100 bg-white/80 text-sm outline-none focus:ring-2 focus:ring-gray-300 cursor-text select-text" />
-                <input type="text" list="vendor-search-list" value={pricingVendor} onChange={(e) => setPricingVendor(e.target.value)} placeholder="Vendor" className="px-4 py-3 rounded-2xl border border-gray-100 bg-white/80 text-sm outline-none focus:ring-2 focus:ring-gray-300 cursor-text select-text" />
-                <button onClick={loadCompanyCsv} disabled={loadingCompanyCsv} className="px-4 py-3 rounded-2xl text-xs font-black uppercase tracking-wider border border-gray-100 bg-white/80 hover:bg-white disabled:opacity-50">{loadingCompanyCsv ? 'Loading...' : 'Load Company CSV'}</button>
-                <select value={pricingMarginType} onChange={(e) => setPricingMarginType(e.target.value)} className="px-4 py-3 rounded-2xl border border-gray-100 bg-white/80 text-sm outline-none focus:ring-2 focus:ring-gray-300 cursor-text select-text">
-                  <option value="amount">Amount</option>
-                  <option value="percentage">Percentage</option>
-                </select>
-                <input value={pricingMarginValue} onChange={(e) => setPricingMarginValue(e.target.value)} placeholder="Margin value" className="px-4 py-3 rounded-2xl border border-gray-100 bg-white/80 text-sm outline-none focus:ring-2 focus:ring-gray-300 cursor-text select-text" />
-                <button onClick={savePricingSession} className="px-4 py-3 rounded-2xl text-xs font-black uppercase tracking-wider border border-gray-100 bg-white/80 hover:bg-white">Save Session</button>
-                <button onClick={exportPricingTxt} className="px-4 py-3 rounded-2xl text-xs font-black uppercase tracking-wider border border-gray-100 bg-white/80 hover:bg-white">Export to TXT</button>
-              </div>
-              {selectedProducts.length > 0 && (
-                <div className="sticky top-20 z-20 rounded-2xl border border-indigo-100 bg-white/90 backdrop-blur-xl shadow-lg px-4 py-3 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                  <p className="text-sm font-bold text-gray-800">{selectedProducts.length} Products Selected</p>
-                  <div className="flex items-center gap-2">
-                    <div className="relative">
-                      <input
-                        type="text"
-                        placeholder="Search vendor to assign..."
-                        value={vendorSearchTerm}
-                        onChange={(e) => {
-                          setVendorSearchTerm(e.target.value);
-                          setIsVendorDropdownOpen(true);
-                        }}
-                        onFocus={() => setIsVendorDropdownOpen(true)}
-                        className="w-64 px-4 py-2 border border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm"
-                      />
-                      {isVendorDropdownOpen && (
-                        <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-xl max-h-60 overflow-y-auto">
-                          {vendors.filter((v) => v.name.toLowerCase().includes(vendorSearchTerm.toLowerCase())).map((vendor) => (
-                            <div
-                              key={vendor.id}
-                              className="px-4 py-2 hover:bg-indigo-50 cursor-pointer text-sm font-semibold text-gray-700"
-                              onClick={() => {
-                                handleAssignVendor(vendor.name);
-                                setVendorSearchTerm('');
-                                setIsVendorDropdownOpen(false);
-                              }}
-                            >
-                              {vendor.name}
-                            </div>
-                          ))}
-                          {vendors.filter((v) => v.name.toLowerCase().includes(vendorSearchTerm.toLowerCase())).length === 0 && (
-                            <div className="px-4 py-2 text-sm text-gray-500">No vendors found.</div>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                    <button
-                      onClick={() => setIsMarginModalOpen(true)}
-                      className="px-4 py-2 bg-indigo-600 text-white font-bold rounded-lg shadow-sm hover:bg-indigo-700 transition-colors text-sm"
-                    >
-                      Adjust Prices
-                    </button>
-                  </div>
-                </div>
-              )}
-              <div className="space-y-4">
-                {groupedPricingResults.map((topCat, tIdx) => {
-                  const topCatKeys = topCat.brands.flatMap((b) => b.series.flatMap((s) => s.items.map((i) => i.rowKey)));
-                  const topCatSelected = topCatKeys.length > 0 && topCatKeys.every((k) => selectedProducts.includes(k));
-                  const topCatExpanded = expandedPricingGroups.includes(`top-${tIdx}`);
-                  return (
-                    <div key={`top-${tIdx}`} className="bg-white/80 rounded-3xl border border-gray-200 overflow-hidden shadow-sm">
-                      {/* LEVEL 1: TOP CATEGORY */}
-                      <div className="flex items-center justify-between px-5 py-4 bg-[#1A1C23] text-white cursor-pointer hover:bg-black transition-colors" onClick={() => togglePricingGroup(`top-${tIdx}`)}>
-                        <div className="flex items-center gap-4">
-                          <input type="checkbox" checked={topCatSelected} onChange={(e) => { e.stopPropagation(); toggleSelectGroup(topCatKeys); }} className="w-5 h-5 cursor-pointer rounded border-gray-500 text-indigo-600 focus:ring-indigo-500" />
-                          <h3 className="font-black text-lg uppercase tracking-widest">{topCat.name}</h3>
-                          <span className="bg-white/20 px-3 py-1 rounded-lg text-xs font-bold text-white shadow-sm border border-white/10">{topCatKeys.length} Products</span>
-                        </div>
-                        <span className="text-gray-400 font-bold text-lg">{topCatExpanded ? '▼' : '▶'}</span>
-                      </div>
+  <div className="bg-white/70 backdrop-blur-xl border border-gray-100 rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] p-6 space-y-6">
+    <div>
+      <h2 className="text-2xl font-black tracking-tight text-gray-900">Advanced Pricing Engine</h2>
+      <p className="text-sm text-gray-500">Intelligent hashtag grouping, targeted margins, and single-line TXT export.</p>
+    </div>
 
-                      {/* LEVEL 2: BRANDS */}
-                      {topCatExpanded && (
-                        <div className="p-4 space-y-4 bg-gray-50/50">
-                          {topCat.brands.map((brand, bIdx) => {
-                            const brandKeys = brand.series.flatMap((s) => s.items.map((i) => i.rowKey));
-                            const brandSelected = brandKeys.length > 0 && brandKeys.every((k) => selectedProducts.includes(k));
-                            const brandExpanded = expandedPricingGroups.includes(`brand-${tIdx}-${bIdx}`);
-                            return (
-                              <div key={`brand-${bIdx}`} className="border border-gray-300 rounded-2xl overflow-hidden shadow-sm bg-white">
-                                <div className="flex items-center justify-between px-4 py-3 bg-gradient-to-r from-gray-100 to-gray-50 cursor-pointer hover:bg-gray-200/50 transition-colors border-b border-gray-200" onClick={() => togglePricingGroup(`brand-${tIdx}-${bIdx}`)}>
-                                  <div className="flex items-center gap-3">
-                                    <input type="checkbox" checked={brandSelected} onChange={(e) => { e.stopPropagation(); toggleSelectGroup(brandKeys); }} className="w-4 h-4 cursor-pointer rounded border-gray-400 text-emerald-600 focus:ring-emerald-500" />
-                                    <h4 className="font-black text-[15px] text-[#1A1C23] uppercase tracking-wider">{brand.name}</h4>
-                                    <span className="text-[11px] font-bold text-gray-500 bg-white border border-gray-200 px-2 py-0.5 rounded-md">{brandKeys.length} items</span>
-                                  </div>
-                                  <span className="text-gray-400 text-sm font-bold">{brandExpanded ? '▼' : '▶'}</span>
-                                </div>
+    {/* Controls */}
+    <div className="grid grid-cols-1 lg:grid-cols-4 gap-3 bg-white/50 p-4 rounded-2xl border border-gray-100">
+      <input value={companyCsvUrl} onChange={(e) => setCompanyCsvUrl(e.target.value)} placeholder="Company CSV URL" className="lg:col-span-2 px-4 py-3 rounded-xl border border-gray-200 text-sm outline-none focus:ring-2 focus:ring-blue-500" />
+      <button onClick={loadCompanyCsv} disabled={loadingCompanyCsv} className="px-4 py-3 rounded-xl text-xs font-black uppercase tracking-wider bg-[#1A1C23] text-white hover:bg-black disabled:opacity-50">{loadingCompanyCsv ? 'Loading...' : 'Load Data'}</button>
 
-                                {/* LEVEL 3: SERIES & TABLE */}
-                                {brandExpanded && (
-                                  <div className="p-3 space-y-3 bg-white">
-                                    {brand.series.map((series, sIdx) => {
-                                      const seriesKeys = series.items.map((i) => i.rowKey);
-                                      const seriesSelected = seriesKeys.length > 0 && seriesKeys.every((k) => selectedProducts.includes(k));
-                                      const seriesExpanded = expandedPricingGroups.includes(`series-${tIdx}-${bIdx}-${sIdx}`);
-                                      return (
-                                        <div key={`series-${sIdx}`} className="border border-gray-100 rounded-xl overflow-hidden shadow-sm">
-                                          <div className="flex items-center justify-between px-4 py-2.5 bg-blue-50/30 cursor-pointer hover:bg-blue-50/60 transition-colors border-b border-blue-50/50" onClick={() => togglePricingGroup(`series-${tIdx}-${bIdx}-${sIdx}`)}>
-                                            <div className="flex items-center gap-3">
-                                              <input type="checkbox" checked={seriesSelected} onChange={(e) => { e.stopPropagation(); toggleSelectGroup(seriesKeys); }} className="w-4 h-4 cursor-pointer rounded border-blue-200 text-blue-600 focus:ring-blue-500" />
-                                              <h5 className="font-bold text-sm text-blue-900">{series.name}</h5>
-                                              <span className="text-[10px] font-bold text-blue-500 bg-white border border-blue-100 px-2 py-0.5 rounded-full">{series.items.length} items</span>
-                                            </div>
-                                            <span className="text-blue-300 text-xs font-bold">{seriesExpanded ? '▼' : '▶'}</span>
-                                          </div>
-
-                                          {seriesExpanded && series.items.length > 0 && (
-                                            <div className="overflow-x-auto">
-                                              <table className="w-full text-left min-w-[1200px]">
-                                                <thead className="bg-white text-[10px] uppercase text-gray-400 font-black border-b border-gray-100">
-                                                  <tr>
-                                                    <th className="px-4 py-3">Select</th>
-                                                    <th className="px-3 py-3">Device Type</th>
-                                                    <th className="px-3 py-3">Condition</th>
-                                                    <th className="px-3 py-3">Spec / Processor</th>
-                                                    <th className="px-3 py-3">Storage</th>
-                                                    <th className="px-3 py-3">Assigned Vendor</th>
-                                                    <th className="px-3 py-3">Company Price</th>
-                                                    <th className="px-3 py-3">Vendor Price</th>
-                                                    <th className="px-3 py-3">Target Price</th>
-                                                    <th className="px-3 py-3">Adjustment</th>
-                                                  </tr>
-                                                </thead>
-                                                <tbody>
-                                                  {series.items.map((row) => (
-                                                    <tr key={`pricing-${row.rowKey}`} className="border-t border-gray-50 text-sm hover:bg-gray-50 transition-colors">
-                                                      <td className="px-4 py-2">
-                                                        <input type="checkbox" className="h-4 w-4 rounded border-gray-300 cursor-pointer" checked={selectedProducts.includes(row.rowKey)} onChange={() => toggleProductSelection(row.rowKey)} />
-                                                      </td>
-                                                      <td className="px-3 py-2">
-                                                        <p className="font-bold text-gray-800">{row.companyDevice || row['Device Type'] || 'Unknown'}</p>
-                                                        {row.mappedDevice && row.mappedDevice !== 'Unknown Device' && row.mappedDevice !== (row.companyDevice || row['Device Type']) && (
-                                                          <span className="inline-block mt-1 px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wider bg-indigo-50 text-indigo-500 border border-indigo-100">
-                                                            AI: {row.mappedDevice}
-                                                          </span>
-                                                        )}
-                                                      </td>
-                                                      <td className="px-3 py-2 text-gray-600 font-medium">{row.Condition || row.condition || 'Unknown'}</td>
-                                                      <td className="px-3 py-2 text-gray-600 font-medium">{row['SIM Type/Model/Processor'] || row.specification || row.sim || 'Unknown'}</td>
-                                                      <td className="px-3 py-2 font-mono text-xs font-semibold text-gray-700">{row['Storage Capacity/Configuration'] || row.storage || 'N/A'}</td>
-                                                      <td className="px-3 py-2">
-                                                        <span className="inline-flex items-center rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200 px-2 py-0.5 text-[10px] font-black uppercase tracking-widest">{row.assignedVendor || 'Unassigned'}</span>
-                                                      </td>
-                                                      <td className="px-3 py-2 font-black text-gray-900">{formatNaira(row.companyPrice)}</td>
-                                                      <td className="px-3 py-2 text-gray-500 font-medium">{row.hasVendorMatch ? formatNaira(row.vendorPrice) : 'N/A'}</td>
-                                                      <td className="px-3 py-2 font-black text-indigo-600">{row.hasVendorMatch || row.hasCustomMargin ? formatNaira(row.target) : 'N/A'}</td>
-                                                      <td className="px-3 py-2">
-                                                        {row.hasVendorMatch || row.hasCustomMargin ? (
-                                                          <span className={`px-2 py-1 rounded text-xs font-black ${row.adjustment > 0 ? 'bg-green-100 text-green-700' : row.adjustment < 0 ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-600'}`}>
-                                                            {row.adjustment > 0 ? '+' : ''}{formatNaira(row.adjustment)}
-                                                          </span>
-                                                        ) : 'N/A'}
-                                                      </td>
-                                                    </tr>
-                                                  ))}
-                                                </tbody>
-                                              </table>
-                                            </div>
-                                          )}
-                                        </div>
-                                      );
-                                    })}
-                                  </div>
-                                )}
-                              </div>
-                            );
-                          })}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
+      {/* Custom Searchable Vendor Dropdown */}
+      <div className="relative">
+        <input
+          type="text"
+          placeholder="Select Vendor..."
+          value={vendorSearchTerm || pricingVendor !== 'All' ? pricingVendor : ''}
+          onChange={(e) => { setVendorSearchTerm(e.target.value); setPricingVendor(e.target.value); setIsVendorDropdownOpen(true); }}
+          onFocus={() => setIsVendorDropdownOpen(true)}
+          className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 text-sm font-bold"
+        />
+        {isVendorDropdownOpen && (
+          <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-xl shadow-xl max-h-60 overflow-y-auto">
+            {uniqueVendorFilters.filter((v) => v.toLowerCase().includes(vendorSearchTerm.toLowerCase())).map((vendor) => (
+              <div key={vendor} className="px-4 py-2 hover:bg-blue-50 cursor-pointer text-sm font-bold text-gray-700" onClick={() => { setPricingVendor(vendor); setVendorSearchTerm(''); setIsVendorDropdownOpen(false); }}>
+                {vendor}
               </div>
-              <div className="border border-gray-100 rounded-2xl p-4 bg-white/60">
-                <p className="text-xs font-black uppercase tracking-wider text-gray-500 mb-3">Saved Sessions</p>
-                {savedPricingSessions.length ? (
-                  <div className="space-y-2 max-h-52 overflow-y-auto">
-                    {savedPricingSessions.map((session) => (
-                      <div key={session.id} className="flex items-center justify-between border border-gray-100 rounded-xl px-3 py-2 bg-white/80">
-                        <div>
-                          <p className="text-sm font-bold text-gray-800">{session.pricingVendor || 'All Vendors'} • {session.marginType} {session.marginValue}</p>
-                          <p className="text-xs text-gray-500">{new Date(session.createdAt).toLocaleString()} • {session.rows?.length || 0} rows</p>
-                        </div>
-                        <button type="button" onClick={() => deletePricingSession(session.id)} className="text-xs font-black uppercase tracking-wider px-2.5 py-1.5 rounded-lg border border-red-200 bg-red-50 text-red-600 hover:bg-red-100">Delete</button>
-                      </div>
-                    ))}
-                  </div>
-                ) : <p className="text-sm text-gray-500">No saved sessions yet.</p>}
-              </div>
-              {isMarginModalOpen && (
-                <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm">
-                  <div className="bg-white rounded-2xl shadow-2xl w-[400px] p-6 overflow-hidden">
-                    <div className="flex justify-between items-center mb-6">
-                      <h2 className="text-xl font-black text-gray-800">Bulk Price Adjustment</h2>
-                      <button onClick={() => setIsMarginModalOpen(false)} className="text-gray-400 hover:text-red-500 font-bold text-xl">&times;</button>
-                    </div>
+            ))}
+          </div>
+        )}
+      </div>
 
-                    <div className="space-y-4">
-                      <div>
-                        <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Direction</label>
-                        <div className="flex gap-2">
-                          <button onClick={() => setMarginDirection('increase')} className={`flex-1 py-2 rounded-lg font-bold text-sm transition-colors ${marginDirection === 'increase' ? 'bg-green-100 text-green-700 border-2 border-green-500' : 'bg-gray-50 text-gray-500 border-2 border-transparent hover:bg-gray-100'}`}>Increase (+)</button>
-                          <button onClick={() => setMarginDirection('decrease')} className={`flex-1 py-2 rounded-lg font-bold text-sm transition-colors ${marginDirection === 'decrease' ? 'bg-red-100 text-red-700 border-2 border-red-500' : 'bg-gray-50 text-gray-500 border-2 border-transparent hover:bg-gray-100'}`}>Decrease (-)</button>
-                        </div>
-                      </div>
-                      <div>
-                        <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Adjustment Type</label>
-                        <div className="flex gap-2">
-                          <button onClick={() => setMarginType('percentage')} className={`flex-1 py-2 rounded-lg font-bold text-sm transition-colors ${marginType === 'percentage' ? 'bg-indigo-100 text-indigo-700 border-2 border-indigo-500' : 'bg-gray-50 text-gray-500 border-2 border-transparent hover:bg-gray-100'}`}>Percentage (%)</button>
-                          <button onClick={() => setMarginType('flat')} className={`flex-1 py-2 rounded-lg font-bold text-sm transition-colors ${marginType === 'flat' ? 'bg-indigo-100 text-indigo-700 border-2 border-indigo-500' : 'bg-gray-50 text-gray-500 border-2 border-transparent hover:bg-gray-100'}`}>Flat Amount (₦)</button>
-                        </div>
-                      </div>
-                      <div>
-                        <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Value</label>
-                        <input type="number" value={marginValue} onChange={(e) => setMarginValue(e.target.value)} placeholder={marginType === 'percentage' ? 'e.g. 15' : 'e.g. 5000'} className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 font-bold text-gray-800" />
-                      </div>
-                    </div>
-                    <div className="mt-8 flex gap-3">
-                      <button onClick={() => setIsMarginModalOpen(false)} className="flex-1 py-3 rounded-xl font-bold text-gray-600 bg-gray-100 hover:bg-gray-200 transition-colors">Cancel</button>
-                      <button onClick={handleApplyBulkMargin} className="flex-1 py-3 rounded-xl font-black text-white bg-indigo-600 hover:bg-indigo-700 shadow-lg shadow-indigo-200 transition-all">Apply to {selectedProducts.length}</button>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
+      <select value={marginType} onChange={(e) => setMarginType(e.target.value)} className="px-4 py-3 rounded-xl border border-gray-200 text-sm font-bold outline-none focus:ring-2 focus:ring-blue-500">
+        <option value="amount">Flat Amount (₦)</option>
+        <option value="percentage">Percentage (%)</option>
+      </select>
+      <input value={marginValue} onChange={(e) => setMarginValue(e.target.value)} placeholder="Global Margin" className="px-4 py-3 rounded-xl border border-gray-200 text-sm font-bold outline-none focus:ring-2 focus:ring-blue-500" />
+
+      <button onClick={exportPricingTxt} className="px-4 py-3 rounded-xl text-xs font-black uppercase tracking-wider bg-blue-600 text-white hover:bg-blue-700 shadow-sm">Export TXT</button>
+    </div>
+{/* Bulk Actions Panel */}
+{selectedPricingProducts.length > 0 && (
+  <div className="bg-indigo-600 text-white rounded-2xl p-4 flex items-center justify-between shadow-lg animate-in slide-in-from-bottom-4">
+    <p className="font-black text-sm">{selectedPricingProducts.length} Items Selected</p>
+    <button onClick={() => setIsMarginModalOpen(true)} className="bg-white text-indigo-600 px-4 py-2 rounded-lg text-xs font-black uppercase tracking-wider hover:bg-indigo-50">Bulk Adjust Price</button>
+  </div>
+)}
+{/* Nested Hashtag Accordion UI */}
+<div className="space-y-4">
+  {groupedPricingResults.map((group, gIdx) => {
+    const groupKeys = group.items.map((item) => item.originalIndex);
+    const isGroupSelected = groupKeys.length > 0 && groupKeys.every((k) => selectedPricingProducts.includes(k));
+    const isExpanded = expandedPricingGroups.includes(group.name);
+
+    return (
+      <div key={`group-${gIdx}`} className="bg-white border border-gray-200 rounded-2xl overflow-hidden shadow-sm">
+        <div className="flex items-center justify-between px-5 py-4 bg-[#1A1C23] cursor-pointer hover:bg-black transition-colors text-white" onClick={() => togglePricingGroupExpansion(group.name)}>
+          <div className="flex items-center gap-4">
+            <input type="checkbox" checked={isGroupSelected} onChange={(e) => { e.stopPropagation(); togglePricingGroupSelection(groupKeys); }} className="w-5 h-5 cursor-pointer rounded border-gray-500 text-blue-500 focus:ring-blue-500" />
+            <h3 className="font-black text-lg uppercase tracking-widest">{group.name}</h3>
+            <span className="bg-white/20 px-3 py-1 rounded-lg text-xs font-bold shadow-sm border border-white/10">{group.items.length} Products</span>
+          </div>
+          <span className="text-gray-400 font-bold text-lg">{isExpanded ? '▼' : '▶'}</span>
+        </div>
+
+        {isExpanded && group.items.length > 0 && (
+          <div className="overflow-x-auto bg-white p-2">
+            <table className="w-full text-left min-w-[1200px]">
+              <thead className="bg-gray-50 text-[10px] uppercase text-gray-500 font-black border-b border-gray-100">
+                <tr>
+                  <th className="px-4 py-3">Select</th>
+                  <th className="px-3 py-3">Device (Original)</th>
+                  <th className="px-3 py-3">AI Standard Name</th>
+                  <th className="px-3 py-3">Condition</th>
+                  <th className="px-3 py-3">Spec / Storage</th>
+                  <th className="px-3 py-3">Base Price</th>
+                  <th className="px-3 py-3">Vendor Price</th>
+                  <th className="px-3 py-3">Target Price</th>
+                  <th className="px-3 py-3">Adjustment</th>
+                </tr>
+              </thead>
+              <tbody>
+                {group.items.map((row) => (
+                  <tr key={`item-${row.originalIndex}`} className="border-t border-gray-50 text-sm hover:bg-blue-50/30 transition-colors">
+                    <td className="px-4 py-2">
+                      <input type="checkbox" className="h-4 w-4 rounded border-gray-300 cursor-pointer" checked={selectedPricingProducts.includes(row.originalIndex)} onChange={() => togglePricingProductSelection(row.originalIndex)} />
+                    </td>
+                    <td className="px-3 py-2 font-bold text-gray-800">{row['Device Type'] || row.companyDevice || 'Unknown'}</td>
+                    <td className="px-3 py-2">
+                      <span className="bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded text-[10px] font-black uppercase">{row.mappedDevice}</span>
+                    </td>
+                    <td className="px-3 py-2 text-gray-600 font-medium">{row.Condition || row.condition || 'Unknown'}</td>
+                    <td className="px-3 py-2 text-gray-600 font-mono text-xs">{row['SIM Type/Model/Processor'] || row.specification || 'Unknown'} • {row['Storage Capacity/Configuration'] || row.storage || 'N/A'}</td>
+                    <td className="px-3 py-2 font-black text-gray-900">{formatNaira(row.companyPrice)}</td>
+                    <td className="px-3 py-2 text-gray-500 font-medium">{row.hasVendorMatch ? formatNaira(row.vendorPrice) : 'N/A'}</td>
+                    <td className="px-3 py-2 font-black text-blue-600">{row.hasVendorMatch ? formatNaira(row.target) : 'N/A'}</td>
+                    <td className="px-3 py-2">
+                      {row.hasVendorMatch ? (
+                        <span className={`px-2 py-1 rounded text-xs font-black ${row.adjustment > 0 ? 'bg-green-100 text-green-700' : row.adjustment < 0 ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-600'}`}>
+                          {marginType === 'percentage' ? `${row.adjustmentPercent}%` : formatNaira(row.adjustment)}
+                        </span>
+                      ) : 'N/A'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    );
+  })}
+  {!groupedPricingResults.length && <p className="text-center text-gray-400 font-bold uppercase tracking-widest py-10">No data loaded. Paste CSV URL above.</p>}
+</div>
+{/* Bulk Adjustment Modal */}
+{isMarginModalOpen && (
+  <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6">
+      <h2 className="text-xl font-black text-gray-900 mb-6">Adjust {selectedPricingProducts.length} Products</h2>
+      <div className="space-y-4">
+        <div className="flex gap-2">
+          <button onClick={() => setMarginTypeForBulk('percentage')} className={`flex-1 py-2 rounded-lg font-bold text-sm border-2 ${marginTypeForBulk === 'percentage' ? 'bg-blue-50 border-blue-500 text-blue-700' : 'border-gray-200 text-gray-500'}`}>Percentage (%)</button>
+          <button onClick={() => setMarginTypeForBulk('flat')} className={`flex-1 py-2 rounded-lg font-bold text-sm border-2 ${marginTypeForBulk === 'flat' ? 'bg-blue-50 border-blue-500 text-blue-700' : 'border-gray-200 text-gray-500'}`}>Flat Amount (₦)</button>
+        </div>
+        <input type="number" value={bulkMarginValue} onChange={(e) => setBulkMarginValue(e.target.value)} placeholder="e.g. 10 or -5000" className="w-full px-4 py-3 border border-gray-300 rounded-xl font-bold focus:ring-2 focus:ring-blue-500" />
+        <p className="text-xs text-gray-400">Use a negative number to reduce the price.</p>
+      </div>
+      <div className="mt-6 flex gap-3">
+        <button onClick={() => setIsMarginModalOpen(false)} className="flex-1 py-3 rounded-xl font-bold text-gray-600 bg-gray-100 hover:bg-gray-200">Cancel</button>
+        <button onClick={handleApplyBulkMargin} className="flex-1 py-3 rounded-xl font-black text-white bg-indigo-600 hover:bg-indigo-700">Apply Rule</button>
+      </div>
+    </div>
+  </div>
+)}
+</div>
 ) : activeTab === 'backups' ? (
             <div className="bg-white/70 backdrop-blur-xl border border-white/20 rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] overflow-hidden">
               <div className="p-5 bg-gray-50 border-b flex justify-between items-center gap-4">
