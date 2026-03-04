@@ -1341,7 +1341,18 @@ const AdminDashboard = () => {
 
   const groupedPricingResults = useMemo(() => {
     const groups = [];
-    const TOP_CATS = ['#smartphone', '#phone', '#laptop', '#tablet', '#smartwatch', '#watch', '#sound', '#audio', '#accessori', '#gaming'];
+    const TOP_CATEGORY_KEYWORDS = [
+      'smartphone',
+      'phone',
+      'laptop',
+      'tablet',
+      'smartwatch',
+      'watch',
+      'sound',
+      'audio',
+      'accessori',
+      'gaming',
+    ];
     
     let activeTop = { name: 'General Inventory', brands: [] };
     let activeBrand = { name: 'General Brands', series: [] };
@@ -1378,7 +1389,9 @@ const AdminDashboard = () => {
       
       if (isHashtag) {
         const cleanHash = deviceVal.toLowerCase().replace(/[^a-z0-9]/g, '');
-        if (TOP_CATS.some(tc => cleanHash.includes(tc))) {
+        const isTopCategory = TOP_CATEGORY_KEYWORDS.some((keyword) => cleanHash.includes(keyword));
+
+        if (isTopCategory) {
           flushTop();
           activeTop.name = deviceVal;
         } else {
@@ -2072,20 +2085,30 @@ document.body.removeChild(link);
           <div className="p-4 space-y-4 bg-gray-50">
             {topCat.brands.map((brand, bIdx) => {
               const brandExpanded = expandedPricingGroups.includes(`brand-${tIdx}-${bIdx}`);
+              const brandKeys = brand.series.flatMap((series) => series.items.map((item) => item.originalIndex));
+              const brandSelected = brandKeys.length > 0 && brandKeys.every((key) => selectedPricingProducts.includes(key));
               return (
                 <div key={`brand-${bIdx}`} className="bg-white border border-gray-200 rounded-xl overflow-hidden">
                   <div className="flex justify-between p-3 bg-gray-100 cursor-pointer" onClick={() => togglePricingGroupExpansion(`brand-${tIdx}-${bIdx}`)}>
-                    <h4 className="font-black text-[15px] uppercase">{brand.name}</h4>
+                    <div className="flex items-center gap-3">
+                      <input type="checkbox" checked={brandSelected} onChange={(e) => { e.stopPropagation(); togglePricingGroupSelection(brandKeys); }} className="w-4 h-4 cursor-pointer rounded" />
+                      <h4 className="font-black text-[15px] uppercase">{brand.name}</h4>
+                    </div>
                     <span>{brandExpanded ? '▼' : '▶'}</span>
                   </div>
                   {brandExpanded && (
                     <div className="p-3 space-y-3">
                       {brand.series.map((series, sIdx) => {
                         const seriesExpanded = expandedPricingGroups.includes(`series-${tIdx}-${bIdx}-${sIdx}`);
+                        const seriesKeys = series.items.map((item) => item.originalIndex);
+                        const seriesSelected = seriesKeys.length > 0 && seriesKeys.every((key) => selectedPricingProducts.includes(key));
                         return (
                           <div key={`series-${sIdx}`} className="border border-blue-100 rounded-lg overflow-hidden">
                             <div className="flex justify-between p-2.5 bg-blue-50 cursor-pointer" onClick={() => togglePricingGroupExpansion(`series-${tIdx}-${bIdx}-${sIdx}`)}>
-                              <h5 className="font-bold text-sm text-blue-900">{series.name}</h5>
+                              <div className="flex items-center gap-2">
+                                <input type="checkbox" checked={seriesSelected} onChange={(e) => { e.stopPropagation(); togglePricingGroupSelection(seriesKeys); }} className="w-4 h-4 cursor-pointer rounded" />
+                                <h5 className="font-bold text-sm text-blue-900">{series.name}</h5>
+                              </div>
                               <span>{seriesExpanded ? '▼' : '▶'}</span>
                             </div>
                             {seriesExpanded && (
