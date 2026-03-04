@@ -1271,8 +1271,8 @@ const AdminDashboard = () => {
     const margin = Number(marginValue) || 0;
     const vendorRows = normalizedProductRows.filter((row) => row.vendorName === pricingVendor);
     return companyCsvRows.map((row, index) => {
-     // FIX 1: Support "Device Tye" typo
-      const companyDevice = getCsvValueByAliases(row, ['Device Type', 'device type', 'device', 'product', 'Device Name']);
+     // FIX: Ensure original name is captured perfectly
+      const companyDevice = String(getCsvValueByAliases(row, ['Device Type', 'device type', 'Device', 'device', 'Device Name']) || row['Device Type'] || row['device type'] || '');
       const companyCondition = getCsvValueByAliases(row, ['Condition']) || 'Unknown';
       const companySpec = getCsvValueByAliases(row, ['SIM Type/Model/Processor', 'sim type', 'model', 'processor']);
       const companyRawDescriptor = `${companyDevice} ${companyCondition} ${companySpec}`.trim();
@@ -2107,7 +2107,7 @@ const AdminDashboard = () => {
                                             <td className="px-4 py-2">
                                               <input type="checkbox" className="h-4 w-4 rounded border-gray-300 cursor-pointer" checked={selectedProducts.includes(row.rowKey)} onChange={() => toggleProductSelection(row.rowKey)} />
                                             </td>
-                                            <td className="px-3 py-2 font-semibold text-gray-800">{row.mappedDevice}</td>
+                                            <td className="px-3 py-2 font-semibold text-gray-800">{row.companyDevice || row['Device Type'] || 'Unknown'}</td>
                                             <td className="px-3 py-2 text-gray-600">{row.Condition || row.condition || 'Unknown'}</td>
                                             <td className="px-3 py-2 text-gray-600">{row['SIM Type/Model/Processor'] || row.specification || row.sim || 'Unknown'}</td>
                                             <td className="px-3 py-2 font-mono text-xs">{row['Storage Capacity/Configuration'] || row.storage || 'N/A'}</td>
