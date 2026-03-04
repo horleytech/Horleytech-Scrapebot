@@ -1314,6 +1314,7 @@ const AdminDashboard = () => {
       return {
         ...row,
         rowKey,
+        companyDevice,
         mappedDevice,
         companyPrice,
         vendorPrice,
@@ -1329,27 +1330,23 @@ const AdminDashboard = () => {
   const groupedPricingResults = useMemo(() => {
     const groups = [];
     let activeTopCategory = { name: 'General Inventory', subGroups: [] };
-    let activeSubGroup = { name: 'Uncategorized', items: [] };
+    let activeSubGroup = { name: 'General Items', items: [] };
 
     pricingResults.forEach((row) => {
-      const rawValues = Object.values(row.originalRow || row);
-      const hashtagVal = rawValues.find((v) => typeof v === 'string' && v.trim().startsWith('#'));
+      const deviceVal = String(row.companyDevice || row['Device Type'] || '').trim();
+      const isHashtag = deviceVal.startsWith('#');
+      const hasPrice = row.companyPrice > 0;
 
-      if (hashtagVal) {
-        const cleanHash = hashtagVal.trim();
-        const topCategories = ['#smartphones', '#laptops', '#tablets', '#smartwatches', '#sounds', '#accessories', '#gaming'];
+      if (isHashtag) {
+        if (activeSubGroup.items.length > 0) activeTopCategory.subGroups.push(activeSubGroup);
+        if (activeTopCategory.subGroups.length > 0) groups.push(activeTopCategory);
 
-        if (topCategories.some((tc) => cleanHash.toLowerCase().includes(tc))) {
-          if (activeSubGroup.items.length > 0) activeTopCategory.subGroups.push(activeSubGroup);
-          if (activeTopCategory.subGroups.length > 0) groups.push(activeTopCategory);
-
-          activeTopCategory = { name: cleanHash, subGroups: [] };
-          activeSubGroup = { name: 'General Items', items: [] };
-        } else {
-          if (activeSubGroup.items.length > 0) activeTopCategory.subGroups.push(activeSubGroup);
-          activeSubGroup = { name: cleanHash, items: [] };
-        }
-      } else if (row.companyPrice > 0 || (row.mappedDevice && row.mappedDevice !== 'Unknown Device')) {
+        activeTopCategory = { name: deviceVal, subGroups: [] };
+        activeSubGroup = { name: 'General Items', items: [] };
+      } else if (!hasPrice && deviceVal.length > 0) {
+        if (activeSubGroup.items.length > 0) activeTopCategory.subGroups.push(activeSubGroup);
+        activeSubGroup = { name: deviceVal, items: [] };
+      } else if (hasPrice || (row.mappedDevice && row.mappedDevice !== 'Unknown Device')) {
         activeSubGroup.items.push(row);
       }
     });
@@ -2093,7 +2090,14 @@ const AdminDashboard = () => {
                                             <td className="px-4 py-2">
                                               <input type="checkbox" className="h-4 w-4 rounded border-gray-300 cursor-pointer" checked={selectedProducts.includes(row.rowKey)} onChange={() => toggleProductSelection(row.rowKey)} />
                                             </td>
-                                            <td className="px-3 py-2 font-semibold text-gray-800">{row.mappedDevice}</td>
+                                            <td className="px-3 py-2">
+                                              <p className="font-semibold text-gray-800">{row.companyDevice || row['Device Type'] || 'Unknown'}</p>
+                                              {row.mappedDevice && row.mappedDevice !== 'Unknown Device' && row.mappedDevice !== (row.companyDevice || row['Device Type']) && (
+                                                <span className="inline-block mt-1 px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wider bg-indigo-50 text-indigo-500 border border-indigo-100 shadow-sm">
+                                                  AI: {row.mappedDevice}
+                                                </span>
+                                              )}
+                                            </td>
                                             <td className="px-3 py-2 text-gray-600">{row.Condition || row.condition || 'Unknown'}</td>
                                             <td className="px-3 py-2 text-gray-600">{row['SIM Type/Model/Processor'] || row.specification || row.sim || 'Unknown'}</td>
                                             <td className="px-3 py-2 font-mono text-xs">{row['Storage Capacity/Configuration'] || row.storage || 'N/A'}</td>
