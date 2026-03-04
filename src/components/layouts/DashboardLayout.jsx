@@ -1,6 +1,6 @@
 /* eslint-disable react/prop-types */
 
-import { Fragment, useState } from 'react';
+import { Fragment, useMemo, useState } from 'react';
 import { Dialog, Menu, Transition } from '@headlessui/react';
 import UserProfile from '../../assets/user.svg';
 import Logo from '../../assets/logo.png';
@@ -28,10 +28,30 @@ export default function MenteeDashboardLayout({ children, notificationCount = 0,
   const navigate = useNavigate();
   const dispatch = useDispatch();
 
+  const userRole = useMemo(() => {
+    try {
+      const storedAuth = localStorage.getItem('scrapebot_auth');
+      if (storedAuth) {
+        const parsedAuth = JSON.parse(storedAuth);
+        if (parsedAuth?.user?.role) return parsedAuth.user.role;
+      }
+
+      const staffSession = localStorage.getItem('horleyTech_staff_session');
+      if (staffSession) {
+        const parsedStaffSession = JSON.parse(staffSession);
+        if (parsedStaffSession?.role) return parsedStaffSession.role;
+      }
+    } catch (error) {
+      console.error('Unable to read stored role:', error);
+    }
+
+    return null;
+  }, []);
+
   const handleLogout = () => {
     localStorage.clear();
     dispatch(logout());
-    navigate('/login', { replace: true });
+    navigate('/', { replace: true });
   };
 
   return (
@@ -71,7 +91,7 @@ export default function MenteeDashboardLayout({ children, notificationCount = 0,
 
                   <div className="flex flex-col px-6 pb-4 overflow-y-auto bg-white grow gap-y-5">
                     <div className="flex items-center justify-center p-10 h-16 shrink-0">
-                      <img className="w-auto h-8 mx-20 cursor-pointer" src={Logo} alt="HorleyTech" width="64" height="64" onClick={() => navigate('/hub')} />
+                      <img className="w-auto h-8 mx-20 cursor-pointer transition-opacity hover:opacity-80" src={Logo} alt="HorleyTech" width="64" height="64" onClick={() => navigate('/hub')} />
                     </div>
                     <nav className="flex flex-col flex-1">
                       <ul role="list" className="flex flex-col flex-1 gap-y-7">
@@ -126,7 +146,7 @@ export default function MenteeDashboardLayout({ children, notificationCount = 0,
           <div className="hidden lg:h-screen lg:inset-y-0 lg:z-50 lg:flex lg:w-[15rem] lg:flex-col">
             <div className="flex flex-col px-6 pb-4 overflow-y-auto bg-white border-r border-gray-200 grow gap-y-5">
               <div className="flex items-center justify-center h-16 mx-auto shrink-0 mt-4">
-                <img className="w-auto h-8 cursor-pointer" src={Logo} alt="HorleyTech" width="64" height="64" onClick={() => navigate('/hub')} />
+                <img className="w-auto h-8 cursor-pointer transition-opacity hover:opacity-80" src={Logo} alt="HorleyTech" width="64" height="64" onClick={() => navigate('/hub')} />
               </div>
               <nav className="flex flex-col flex-1 mt-4">
                 <ul role="list" className="flex flex-col flex-1 gap-y-7">
@@ -196,8 +216,8 @@ export default function MenteeDashboardLayout({ children, notificationCount = 0,
                   <div className="hidden lg:block lg:h-6 lg:w-px lg:bg-gray-200" aria-hidden="true" />
 
                   <Menu as="div" className="relative">
-                    <Menu.Button className="-m-1.5 flex items-center p-1.5">
-                      <img className="w-8 h-8 p-2 rounded-full bg-[#ffa500]" src={UserProfile} alt="" />
+                    <Menu.Button className="-m-1.5 flex items-center p-1.5 cursor-pointer transition-opacity hover:opacity-80">
+                      <img className="w-8 h-8 p-2 rounded-full bg-[#ffa500] cursor-pointer transition-opacity hover:opacity-80" src={UserProfile} alt="" />
                     </Menu.Button>
                     <Transition
                       as={Fragment}
@@ -210,17 +230,19 @@ export default function MenteeDashboardLayout({ children, notificationCount = 0,
                     >
                       <Menu.Items className="absolute right-0 z-20 w-44 mt-2 origin-top-right bg-white rounded-md shadow-lg ring-1 ring-black/5 focus:outline-none">
                         <div className="py-1">
-                          <Menu.Item>
-                            {({ active }) => (
-                              <button
-                                type="button"
-                                onClick={() => navigate('/admin/team')}
-                                className={classNames(active ? 'bg-gray-100' : '', 'block w-full px-4 py-2 text-left text-sm text-gray-700')}
-                              >
-                                Manage Team
-                              </button>
-                            )}
-                          </Menu.Item>
+                          {userRole !== 'staff' && (
+                            <Menu.Item>
+                              {({ active }) => (
+                                <button
+                                  type="button"
+                                  onClick={() => navigate('/admin/team')}
+                                  className={classNames(active ? 'bg-gray-100' : '', 'block w-full px-4 py-2 text-left text-sm text-gray-700')}
+                                >
+                                  Manage Team
+                                </button>
+                              )}
+                            </Menu.Item>
+                          )}
                           <Menu.Item>
                             {({ active }) => (
                               <button

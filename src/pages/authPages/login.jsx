@@ -18,17 +18,13 @@ const Login = () => {
   const [loginError, setLoginError] = useState('');
   const navigate = useNavigate();
   const dispatch = useDispatch();
-  const { isAuthenticated, user } = useSelector((state) => state.auth);
+  const { isAuthenticated } = useSelector((state) => state.auth);
 
   useEffect(() => {
     if (isAuthenticated) {
-      if (user?.role === 'staff') {
-        navigate('/hub', { replace: true });
-        return;
-      }
-      navigate('/dashboard', { replace: true });
+      navigate('/hub', { replace: true });
     }
-  }, [isAuthenticated, navigate, user?.role]);
+  }, [isAuthenticated, navigate]);
 
   function onCloseModal() {
     setOpenModal(false);
@@ -71,7 +67,7 @@ const Login = () => {
           token: `local-${matchedUser.id}`,
         })
       );
-      navigate('/dashboard', { replace: true });
+      navigate('/hub', { replace: true });
     } else {
       setLoginError('The username and password don’t match.');
     }

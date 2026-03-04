@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { addDoc, collection, deleteDoc, doc, getDocs, query, where } from 'firebase/firestore';
 import { FaTrash } from 'react-icons/fa';
+import { useNavigate } from 'react-router-dom';
 import { db } from '../../services/firebase';
 
 const MAX_STAFF = 5;
@@ -11,6 +12,7 @@ const TeamManagement = () => {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const navigate = useNavigate();
 
   const canAddStaff = useMemo(() => staffList.length < MAX_STAFF, [staffList.length]);
 
@@ -91,6 +93,13 @@ const TeamManagement = () => {
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
+      <button
+        type="button"
+        onClick={() => navigate('/hub')}
+        className="inline-flex items-center text-sm font-medium text-slate-700 transition hover:text-slate-900"
+      >
+        ← Back to Hub
+      </button>
       <div className="bg-white rounded-xl shadow p-6 border border-slate-200">
         <h1 className="text-2xl font-bold text-slate-900">Team Management</h1>
         <p className="text-slate-600 mt-1">Create and manage staff accounts (maximum 5).</p>
