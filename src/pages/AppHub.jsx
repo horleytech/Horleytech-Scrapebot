@@ -1,18 +1,26 @@
 import { useNavigate } from 'react-router-dom';
+import { signOut } from 'firebase/auth';
 import { useDispatch } from 'react-redux';
 import { FaDatabase } from 'react-icons/fa';
 import { IoChatbubbleEllipses } from 'react-icons/io5';
 import Logo from '../assets/logo.png';
 import { logout } from '../services/reducers/auth/loginReducer';
+import { auth } from '../services/firebase';
 
 const AppHub = () => {
   const navigate = useNavigate();
   const dispatch = useDispatch();
 
-  const handleLogout = () => {
-    localStorage.clear();
-    dispatch(logout());
-    navigate('/', { replace: true });
+  const handleLogout = async () => {
+    try {
+      await signOut(auth);
+    } catch (error) {
+      console.error('Sign out failed:', error);
+    } finally {
+      localStorage.clear();
+      dispatch(logout());
+      navigate('/', { replace: true });
+    }
   };
 
   return (
@@ -25,7 +33,7 @@ const AppHub = () => {
           <button
             type="button"
             onClick={handleLogout}
-            className="rounded-md border border-red-400 px-3 py-2 text-sm font-medium text-red-200 transition hover:bg-red-500/20"
+            className="rounded-md border border-red-300 bg-red-500/20 px-4 py-2 text-sm font-semibold text-red-100 shadow-md transition hover:bg-red-500/30"
           >
             Logout
           </button>

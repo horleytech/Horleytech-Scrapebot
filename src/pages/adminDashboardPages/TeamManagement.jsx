@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { addDoc, collection, deleteDoc, doc, getDocs, query, where } from 'firebase/firestore';
+import { collection, getDocs } from 'firebase/firestore';
 import { FaTrash } from 'react-icons/fa';
 import { useNavigate } from 'react-router-dom';
 import { db } from '../../services/firebase';
@@ -47,24 +47,30 @@ const TeamManagement = () => {
     setLoading(true);
     setError('');
     try {
-      const existingStaff = await getDocs(query(collection(db, 'horleyTech_Staff'), where('username', '==', trimmedUsername)));
-      if (!existingStaff.empty) {
+      const usernameExists = staffList.some((staff) => String(staff.username || '').toLowerCase() === trimmedUsername.toLowerCase());
+      if (usernameExists) {
         setError('This username already exists.');
         setLoading(false);
         return;
       }
 
-      const currentCount = await getDocs(collection(db, 'horleyTech_Staff'));
-      if (currentCount.size >= MAX_STAFF) {
+      if (staffList.length >= MAX_STAFF) {
         setError('Maximum of 5 staff members reached.');
         setLoading(false);
         return;
       }
 
-      await addDoc(collection(db, 'horleyTech_Staff'), {
-        username: trimmedUsername,
-        password: password.trim(),
+      const response = await fetch('https://backend.horleytech.com/api/admin/create-staff', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: trimmedUsername, password: password.trim() }),
       });
+
+      const result = await response.json();
+      if (!response.ok || !result?.success) {
+        throw new Error(result?.error || 'Failed to create staff account.');
+      }
+
       setUsername('');
       setPassword('');
       await loadStaff();
@@ -82,7 +88,15 @@ const TeamManagement = () => {
     setLoading(true);
     setError('');
     try {
-      await deleteDoc(doc(db, 'horleyTech_Staff', staff.id));
+      const response = await fetch(`https://backend.horleytech.com/api/admin/delete-staff/${staff.uid || staff.id}`, {
+        method: 'DELETE',
+      });
+
+      const result = await response.json();
+      if (!response.ok || !result?.success) {
+        throw new Error(result?.error || 'Failed to delete staff account.');
+      }
+
       await loadStaff();
     } catch (deleteError) {
       setError('Unable to delete this staff member.');
@@ -95,10 +109,10 @@ const TeamManagement = () => {
     <div className="max-w-4xl mx-auto space-y-6">
       <button
         type="button"
-        onClick={() => navigate('/hub')}
+        onClick={() => navigate('/dashboard')}
         className="inline-flex items-center text-sm font-medium text-slate-700 transition hover:text-slate-900"
       >
-        ← Back to Hub
+        ← Back to Inventory
       </button>
       <div className="bg-white rounded-xl shadow p-6 border border-slate-200">
         <h1 className="text-2xl font-bold text-slate-900">Team Management</h1>
@@ -147,7 +161,7 @@ const TeamManagement = () => {
           <thead className="bg-slate-50 text-slate-700">
             <tr>
               <th className="text-left px-4 py-3 font-semibold">Username</th>
-              <th className="text-left px-4 py-3 font-semibold">Password</th>
+              <th className="text-left px-4 py-3 font-semibold">Email</th>
               <th className="text-right px-4 py-3 font-semibold">Action</th>
             </tr>
           </thead>
@@ -155,7 +169,7 @@ const TeamManagement = () => {
             {staffList.map((staff) => (
               <tr key={staff.id} className="border-t border-slate-200">
                 <td className="px-4 py-3">{staff.username}</td>
-                <td className="px-4 py-3">{staff.password}</td>
+                <td className="px-4 py-3">{staff.email || '—'}</td>
                 <td className="px-4 py-3 text-right">
                   <button
                     type="button"

@@ -9,6 +9,7 @@ import cors from 'cors';
 import { fileURLToPath } from 'url';
 import { createRequire } from 'module';
 import OpenAI from 'openai';
+import admin from 'firebase-admin';
 import { processChatFile } from './fileProcessor.js';
 import { saveVendorsToFirebase } from './dataProcessor.js';
 import { initializeCronTasks, runRetroactiveSweep } from './cronTasks.js';
@@ -228,6 +229,56 @@ app.get('/api/logs', (req, res) => {
     res.send(content.split('\n').slice(-50).join('\n'));
   } catch (e) {
     res.send('Logs loading...');
+  }
+});
+
+// --- STAFF MANAGEMENT ROUTES ---
+app.post('/api/admin/create-staff', async (req, res) => {
+  try {
+    const { username, password } = req.body || {};
+
+    if (!username || !password) {
+      return res.status(400).json({ success: false, error: 'username and password are required.' });
+    }
+
+    const pseudoEmail = `${String(username).toLowerCase().replace(/\s+/g, '')}@staff.horleytech.com`;
+    const firestore = getAdminFirestore();
+
+    const userRecord = await admin.auth().createUser({
+      email: pseudoEmail,
+      password: String(password),
+      displayName: `Staff: ${String(username)}`,
+    });
+
+    await firestore.collection('horleyTech_Staff').doc(userRecord.uid).set({
+      username: String(username),
+      email: pseudoEmail,
+      role: 'staff',
+      uid: userRecord.uid,
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    return res.status(200).json({ success: true, uid: userRecord.uid });
+  } catch (error) {
+    return res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+app.delete('/api/admin/delete-staff/:uid', async (req, res) => {
+  try {
+    const { uid } = req.params;
+
+    if (!uid) {
+      return res.status(400).json({ success: false, error: 'uid is required.' });
+    }
+
+    const firestore = getAdminFirestore();
+    await admin.auth().deleteUser(String(uid));
+    await firestore.collection('horleyTech_Staff').doc(String(uid)).delete();
+
+    return res.status(200).json({ success: true });
+  } catch (error) {
+    return res.status(500).json({ success: false, error: error.message });
   }
 });
 
