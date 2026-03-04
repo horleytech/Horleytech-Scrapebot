@@ -359,16 +359,19 @@ const AdminDashboard = () => {
   const [companyCsvRows, setCompanyCsvRows] = useState([]);
   const [savedPricingSessions, setSavedPricingSessions] = useState([]);
   const [pricingVendor, setPricingVendor] = useState('All');
-  const [marginType, setMarginType] = useState('amount');
-  const [marginValue, setMarginValue] = useState('0');
+  const [pricingMarginType, setPricingMarginType] = useState('amount');
+  const [pricingMarginValue, setPricingMarginValue] = useState('0');
   const [selectedProducts, setSelectedProducts] = useState([]);
   const [expandedPricingGroups, setExpandedPricingGroups] = useState([]);
   const [pricingOverrides, setPricingOverrides] = useState({});
-  const [customMarginModalOpen, setCustomMarginModalOpen] = useState(false);
-  const [customMarginType, setCustomMarginType] = useState('amount');
-  const [customMarginValue, setCustomMarginValue] = useState('0');
-  const [assignVendorModalOpen, setAssignVendorModalOpen] = useState(false);
-  const [assignVendorValue, setAssignVendorValue] = useState('');
+  // Vendor Search State
+  const [vendorSearchTerm, setVendorSearchTerm] = useState('');
+  const [isVendorDropdownOpen, setIsVendorDropdownOpen] = useState(false);
+  // Bulk Price Adjustment State
+  const [isMarginModalOpen, setIsMarginModalOpen] = useState(false);
+  const [marginDirection, setMarginDirection] = useState('increase');
+  const [marginType, setMarginType] = useState('percentage');
+  const [marginValue, setMarginValue] = useState('');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [expandedProductGroups, setExpandedProductGroups] = useState([]);
@@ -1265,10 +1268,10 @@ const AdminDashboard = () => {
 
   useEffect(() => {
     setSelectedProducts([]);
-  }, [pricingVendor, marginType, marginValue, companyCsvRows.length]);
+  }, [pricingVendor, pricingMarginType, pricingMarginValue, companyCsvRows.length]);
 
   const pricingResults = useMemo(() => {
-    const margin = Number(marginValue) || 0;
+    const margin = Number(pricingMarginValue) || 0;
     const vendorRows = normalizedProductRows.filter((row) => row.vendorName === pricingVendor);
     return companyCsvRows.map((row, index) => {
       const companyDevice = getCsvValueByAliases(row, ['Device Type', 'device', 'product', 'model']);
@@ -1300,7 +1303,7 @@ const AdminDashboard = () => {
       const shouldCalculate = pricingVendor !== 'All' && hasVendorMatch;
       const vendorPrice = shouldCalculate ? vendorMatch.priceValue : 0;
       const baseTarget = shouldCalculate
-        ? (marginType === 'percentage' ? Math.round(vendorPrice * (1 + (margin / 100))) : vendorPrice + margin)
+        ? (pricingMarginType === 'percentage' ? Math.round(vendorPrice * (1 + (margin / 100))) : vendorPrice + margin)
         : 0;
       const rowKey = getPricingRowKey({ ...row, mappedDevice, companyPrice }, index);
       const override = pricingOverrides[rowKey] || null;
@@ -1325,7 +1328,7 @@ const AdminDashboard = () => {
         assignedVendor: override?.assignedVendor || pricingVendor,
       };
     });
-  }, [companyCsvRows, pricingVendor, marginType, marginValue, normalizedProductRows, officialTargets, masterDictionary, pricingOverrides]);
+  }, [companyCsvRows, pricingVendor, pricingMarginType, pricingMarginValue, normalizedProductRows, officialTargets, masterDictionary, pricingOverrides]);
 
   const groupedPricingResults = useMemo(() => {
     const groups = [];
@@ -1357,6 +1360,11 @@ const AdminDashboard = () => {
     return groups;
   }, [pricingResults]);
 
+  const vendors = useMemo(
+    () => offlineVendors.map((vendor) => ({ id: vendor.docId, name: vendor.vendorName })).filter((vendor) => vendor.name),
+    [offlineVendors]
+  );
+
   const toggleProductSelection = (rowKey) => {
     setSelectedProducts((prev) => (prev.includes(rowKey) ? prev.filter((item) => item !== rowKey) : [...prev, rowKey]));
   };
@@ -1376,31 +1384,8 @@ const AdminDashboard = () => {
     }
   };
 
-  const applyCustomMarginToSelected = () => {
-    const parsedMargin = Number(customMarginValue);
-    if (!Number.isFinite(parsedMargin)) {
-      alert('Please enter a valid margin value.');
-      return;
-    }
-
-    setPricingOverrides((prev) => {
-      const next = { ...prev };
-      selectedProducts.forEach((rowKey) => {
-        next[rowKey] = {
-          ...(next[rowKey] || {}),
-          marginType: customMarginType,
-          marginValue: parsedMargin,
-        };
-      });
-      return next;
-    });
-
-    setCustomMarginModalOpen(false);
-    alert(`✅ Applied custom margin to ${selectedProducts.length} selected products.`);
-  };
-
-  const assignSelectedToVendor = () => {
-    if (!assignVendorValue.trim()) {
+  const handleAssignVendor = (vendorName) => {
+    if (!vendorName?.trim()) {
       alert('Please choose a vendor.');
       return;
     }
@@ -1410,21 +1395,70 @@ const AdminDashboard = () => {
       selectedProducts.forEach((rowKey) => {
         next[rowKey] = {
           ...(next[rowKey] || {}),
-          assignedVendor: assignVendorValue,
+          assignedVendor: vendorName,
         };
       });
       return next;
     });
 
-    setAssignVendorModalOpen(false);
-    alert(`✅ Assigned ${selectedProducts.length} selected products to ${assignVendorValue}.`);
+    alert(`✅ Assigned ${selectedProducts.length} selected products to ${vendorName}.`);
+  };
+
+  const handleApplyBulkMargin = async () => {
+    if (!marginValue || Number.isNaN(Number(marginValue))) return alert('Please enter a valid number.');
+
+    const val = parseFloat(marginValue);
+    const updatedProducts = [];
+    pricingResults.forEach((row) => {
+      if (selectedProducts.includes(row.rowKey)) {
+        const basePrice = Number(String(row.companyPrice || 0).replace(/[^0-9.-]+/g, ''));
+        if (basePrice <= 0) return row;
+
+        let adjustmentAmount = 0;
+        if (marginType === 'percentage') {
+          adjustmentAmount = basePrice * (val / 100);
+        } else {
+          adjustmentAmount = val;
+        }
+
+        if (marginDirection === 'decrease') adjustmentAmount = -Math.abs(adjustmentAmount);
+        else adjustmentAmount = Math.abs(adjustmentAmount);
+
+        const newTarget = basePrice + adjustmentAmount;
+        const updatedRow = {
+          ...row,
+          target: newTarget,
+          adjustment: adjustmentAmount,
+          hasCustomMargin: true,
+        };
+        updatedProducts.push(updatedRow);
+      }
+    });
+
+    setPricingOverrides((prev) => {
+      const next = { ...prev };
+      updatedProducts.forEach((updatedRow) => {
+        next[updatedRow.rowKey] = {
+          ...(next[updatedRow.rowKey] || {}),
+          marginType: 'amount',
+          marginValue: updatedRow.target - updatedRow.vendorPrice,
+        };
+      });
+      return next;
+    });
+
+    setIsMarginModalOpen(false);
+    setSelectedProducts([]);
+    setMarginValue('');
+
+    alert(`✅ Successfully adjusted prices for ${updatedProducts.length} products!`);
   };
 
   const exportPricingTxt = () => {
     const lines = pricingResults
       .filter((item) => Number.isFinite(item.companyPrice) && item.companyPrice > 0)
       .map((item) => {
-        if (marginType === 'percentage') return `${item.companyPrice}: ${item.adjustmentPercent}%`;
+        if (pricingMarginType === 'percentage') return `${item.companyPrice}: ${item.adjustmentPercent}%`;
         return `${item.companyPrice}: ${item.adjustment}`;
       });
     const blob = new Blob([lines.join('\n')], { type: 'text/plain;charset=utf-8;' });
@@ -1445,8 +1479,8 @@ const AdminDashboard = () => {
       id: `${Date.now()}`,
       createdAt: new Date().toISOString(),
       pricingVendor,
-      marginType,
-      marginValue,
+      marginType: pricingMarginType,
+      marginValue: pricingMarginValue,
       rows: pricingResults,
     };
     const updated = [session, ...savedPricingSessions].slice(0, 20);
@@ -2019,11 +2053,11 @@ const AdminDashboard = () => {
                 <input value={companyCsvUrl} onChange={(e) => setCompanyCsvUrl(e.target.value)} placeholder="Company CSV URL" className="lg:col-span-2 px-4 py-3 rounded-2xl border border-gray-100 bg-white/80 text-sm outline-none focus:ring-2 focus:ring-gray-300 cursor-text select-text" />
                 <input type="text" list="vendor-search-list" value={pricingVendor} onChange={(e) => setPricingVendor(e.target.value)} placeholder="Vendor" className="px-4 py-3 rounded-2xl border border-gray-100 bg-white/80 text-sm outline-none focus:ring-2 focus:ring-gray-300 cursor-text select-text" />
                 <button onClick={loadCompanyCsv} disabled={loadingCompanyCsv} className="px-4 py-3 rounded-2xl text-xs font-black uppercase tracking-wider border border-gray-100 bg-white/80 hover:bg-white disabled:opacity-50">{loadingCompanyCsv ? 'Loading...' : 'Load Company CSV'}</button>
-                <select value={marginType} onChange={(e) => setMarginType(e.target.value)} className="px-4 py-3 rounded-2xl border border-gray-100 bg-white/80 text-sm outline-none focus:ring-2 focus:ring-gray-300 cursor-text select-text">
+                <select value={pricingMarginType} onChange={(e) => setPricingMarginType(e.target.value)} className="px-4 py-3 rounded-2xl border border-gray-100 bg-white/80 text-sm outline-none focus:ring-2 focus:ring-gray-300 cursor-text select-text">
                   <option value="amount">Amount</option>
                   <option value="percentage">Percentage</option>
                 </select>
-                <input value={marginValue} onChange={(e) => setMarginValue(e.target.value)} placeholder="Margin value" className="px-4 py-3 rounded-2xl border border-gray-100 bg-white/80 text-sm outline-none focus:ring-2 focus:ring-gray-300 cursor-text select-text" />
+                <input value={pricingMarginValue} onChange={(e) => setPricingMarginValue(e.target.value)} placeholder="Margin value" className="px-4 py-3 rounded-2xl border border-gray-100 bg-white/80 text-sm outline-none focus:ring-2 focus:ring-gray-300 cursor-text select-text" />
                 <button onClick={savePricingSession} className="px-4 py-3 rounded-2xl text-xs font-black uppercase tracking-wider border border-gray-100 bg-white/80 hover:bg-white">Save Session</button>
                 <button onClick={exportPricingTxt} className="px-4 py-3 rounded-2xl text-xs font-black uppercase tracking-wider border border-gray-100 bg-white/80 hover:bg-white">Export to TXT</button>
               </div>
@@ -2031,8 +2065,45 @@ const AdminDashboard = () => {
                 <div className="sticky top-20 z-20 rounded-2xl border border-indigo-100 bg-white/90 backdrop-blur-xl shadow-lg px-4 py-3 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                   <p className="text-sm font-bold text-gray-800">{selectedProducts.length} Products Selected</p>
                   <div className="flex items-center gap-2">
-                    <button type="button" onClick={() => setCustomMarginModalOpen(true)} className="px-3 py-2 rounded-lg text-xs font-black uppercase tracking-wide bg-indigo-600 text-white hover:bg-indigo-700">Apply Custom Margin</button>
-                    <button type="button" onClick={() => setAssignVendorModalOpen(true)} className="px-3 py-2 rounded-lg text-xs font-black uppercase tracking-wide bg-emerald-600 text-white hover:bg-emerald-700">Assign to Vendor</button>
+                    <div className="relative">
+                      <input
+                        type="text"
+                        placeholder="Search vendor to assign..."
+                        value={vendorSearchTerm}
+                        onChange={(e) => {
+                          setVendorSearchTerm(e.target.value);
+                          setIsVendorDropdownOpen(true);
+                        }}
+                        onFocus={() => setIsVendorDropdownOpen(true)}
+                        className="w-64 px-4 py-2 border border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm"
+                      />
+                      {isVendorDropdownOpen && (
+                        <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-xl max-h-60 overflow-y-auto">
+                          {vendors.filter((v) => v.name.toLowerCase().includes(vendorSearchTerm.toLowerCase())).map((vendor) => (
+                            <div
+                              key={vendor.id}
+                              className="px-4 py-2 hover:bg-indigo-50 cursor-pointer text-sm font-semibold text-gray-700"
+                              onClick={() => {
+                                handleAssignVendor(vendor.name);
+                                setVendorSearchTerm('');
+                                setIsVendorDropdownOpen(false);
+                              }}
+                            >
+                              {vendor.name}
+                            </div>
+                          ))}
+                          {vendors.filter((v) => v.name.toLowerCase().includes(vendorSearchTerm.toLowerCase())).length === 0 && (
+                            <div className="px-4 py-2 text-sm text-gray-500">No vendors found.</div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                    <button
+                      onClick={() => setIsMarginModalOpen(true)}
+                      className="px-4 py-2 bg-indigo-600 text-white font-bold rounded-lg shadow-sm hover:bg-indigo-700 transition-colors text-sm"
+                    >
+                      Adjust Prices
+                    </button>
                   </div>
                 </div>
               )}
@@ -2132,35 +2203,37 @@ const AdminDashboard = () => {
                   <div className="border border-gray-100 rounded-2xl bg-white/60 px-4 py-4 text-sm text-gray-500">No matched rows. Load CSV and choose a valid vendor.</div>
                 )}
               </div>
-              {customMarginModalOpen && (
-                <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
-                  <div className="w-full max-w-md rounded-2xl bg-white shadow-2xl p-5 space-y-4">
-                    <h3 className="text-lg font-black text-gray-900">Apply Custom Margin</h3>
-                    <select value={customMarginType} onChange={(e) => setCustomMarginType(e.target.value)} className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm">
-                      <option value="amount">Amount</option>
-                      <option value="percentage">Percentage</option>
-                    </select>
-                    <input value={customMarginValue} onChange={(e) => setCustomMarginValue(e.target.value)} placeholder="Enter margin value" className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm" />
-                    <div className="flex justify-end gap-2">
-                      <button type="button" onClick={() => setCustomMarginModalOpen(false)} className="px-3 py-2 rounded-lg border border-gray-200 text-sm">Cancel</button>
-                      <button type="button" onClick={applyCustomMarginToSelected} className="px-3 py-2 rounded-lg bg-indigo-600 text-white text-sm font-semibold">Apply</button>
+              {isMarginModalOpen && (
+                <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm">
+                  <div className="bg-white rounded-2xl shadow-2xl w-[400px] p-6 overflow-hidden">
+                    <div className="flex justify-between items-center mb-6">
+                      <h2 className="text-xl font-black text-gray-800">Bulk Price Adjustment</h2>
+                      <button onClick={() => setIsMarginModalOpen(false)} className="text-gray-400 hover:text-red-500 font-bold text-xl">&times;</button>
                     </div>
-                  </div>
-                </div>
-              )}
-              {assignVendorModalOpen && (
-                <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
-                  <div className="w-full max-w-md rounded-2xl bg-white shadow-2xl p-5 space-y-4">
-                    <h3 className="text-lg font-black text-gray-900">Assign Selected Products to Vendor</h3>
-                    <select value={assignVendorValue} onChange={(e) => setAssignVendorValue(e.target.value)} className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm">
-                      <option value="">Select Vendor</option>
-                      {offlineVendors.map((vendor) => (
-                        <option key={vendor.docId} value={vendor.vendorName}>{vendor.vendorName}</option>
-                      ))}
-                    </select>
-                    <div className="flex justify-end gap-2">
-                      <button type="button" onClick={() => setAssignVendorModalOpen(false)} className="px-3 py-2 rounded-lg border border-gray-200 text-sm">Cancel</button>
-                      <button type="button" onClick={assignSelectedToVendor} className="px-3 py-2 rounded-lg bg-emerald-600 text-white text-sm font-semibold">Assign</button>
+
+                    <div className="space-y-4">
+                      <div>
+                        <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Direction</label>
+                        <div className="flex gap-2">
+                          <button onClick={() => setMarginDirection('increase')} className={`flex-1 py-2 rounded-lg font-bold text-sm transition-colors ${marginDirection === 'increase' ? 'bg-green-100 text-green-700 border-2 border-green-500' : 'bg-gray-50 text-gray-500 border-2 border-transparent hover:bg-gray-100'}`}>Increase (+)</button>
+                          <button onClick={() => setMarginDirection('decrease')} className={`flex-1 py-2 rounded-lg font-bold text-sm transition-colors ${marginDirection === 'decrease' ? 'bg-red-100 text-red-700 border-2 border-red-500' : 'bg-gray-50 text-gray-500 border-2 border-transparent hover:bg-gray-100'}`}>Decrease (-)</button>
+                        </div>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Adjustment Type</label>
+                        <div className="flex gap-2">
+                          <button onClick={() => setMarginType('percentage')} className={`flex-1 py-2 rounded-lg font-bold text-sm transition-colors ${marginType === 'percentage' ? 'bg-indigo-100 text-indigo-700 border-2 border-indigo-500' : 'bg-gray-50 text-gray-500 border-2 border-transparent hover:bg-gray-100'}`}>Percentage (%)</button>
+                          <button onClick={() => setMarginType('flat')} className={`flex-1 py-2 rounded-lg font-bold text-sm transition-colors ${marginType === 'flat' ? 'bg-indigo-100 text-indigo-700 border-2 border-indigo-500' : 'bg-gray-50 text-gray-500 border-2 border-transparent hover:bg-gray-100'}`}>Flat Amount (₦)</button>
+                        </div>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Value</label>
+                        <input type="number" value={marginValue} onChange={(e) => setMarginValue(e.target.value)} placeholder={marginType === 'percentage' ? 'e.g. 15' : 'e.g. 5000'} className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 font-bold text-gray-800" />
+                      </div>
+                    </div>
+                    <div className="mt-8 flex gap-3">
+                      <button onClick={() => setIsMarginModalOpen(false)} className="flex-1 py-3 rounded-xl font-bold text-gray-600 bg-gray-100 hover:bg-gray-200 transition-colors">Cancel</button>
+                      <button onClick={handleApplyBulkMargin} className="flex-1 py-3 rounded-xl font-black text-white bg-indigo-600 hover:bg-indigo-700 shadow-lg shadow-indigo-200 transition-all">Apply to {selectedProducts.length}</button>
                     </div>
                   </div>
                 </div>
