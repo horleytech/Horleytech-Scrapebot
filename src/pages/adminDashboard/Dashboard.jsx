@@ -362,6 +362,7 @@ const AdminDashboard = () => {
   const [marginType, setMarginType] = useState('amount');
   const [marginValue, setMarginValue] = useState('0');
   const [selectedProducts, setSelectedProducts] = useState([]);
+  const [expandedPricingGroups, setExpandedPricingGroups] = useState([]);
   const [pricingOverrides, setPricingOverrides] = useState({});
   const [customMarginModalOpen, setCustomMarginModalOpen] = useState(false);
   const [customMarginType, setCustomMarginType] = useState('amount');
@@ -1325,19 +1326,57 @@ const AdminDashboard = () => {
     });
   }, [companyCsvRows, pricingVendor, marginType, marginValue, normalizedProductRows, officialTargets, masterDictionary, pricingOverrides]);
 
-  const selectablePricingRowKeys = useMemo(
-    () => pricingResults.filter((row) => row.hasVendorMatch).map((row) => row.rowKey),
-    [pricingResults]
-  );
+  const groupedPricingResults = useMemo(() => {
+    const groups = [];
+    let activeTopCategory = { name: 'General Inventory', subGroups: [] };
+    let activeSubGroup = { name: 'Uncategorized', items: [] };
 
-  const allRowsSelected = selectablePricingRowKeys.length > 0 && selectablePricingRowKeys.every((rowKey) => selectedProducts.includes(rowKey));
+    pricingResults.forEach((row) => {
+      const rawValues = Object.values(row.originalRow || row);
+      const hashtagVal = rawValues.find((v) => typeof v === 'string' && v.trim().startsWith('#'));
+
+      if (hashtagVal) {
+        const cleanHash = hashtagVal.trim();
+        const topCategories = ['#smartphones', '#laptops', '#tablets', '#smartwatches', '#sounds', '#accessories', '#gaming'];
+
+        if (topCategories.some((tc) => cleanHash.toLowerCase().includes(tc))) {
+          if (activeSubGroup.items.length > 0) activeTopCategory.subGroups.push(activeSubGroup);
+          if (activeTopCategory.subGroups.length > 0) groups.push(activeTopCategory);
+
+          activeTopCategory = { name: cleanHash, subGroups: [] };
+          activeSubGroup = { name: 'General Items', items: [] };
+        } else {
+          if (activeSubGroup.items.length > 0) activeTopCategory.subGroups.push(activeSubGroup);
+          activeSubGroup = { name: cleanHash, items: [] };
+        }
+      } else if (row.companyPrice > 0 || (row.mappedDevice && row.mappedDevice !== 'Unknown Device')) {
+        activeSubGroup.items.push(row);
+      }
+    });
+
+    if (activeSubGroup.items.length > 0) activeTopCategory.subGroups.push(activeSubGroup);
+    if (activeTopCategory.subGroups.length > 0) groups.push(activeTopCategory);
+
+    return groups;
+  }, [pricingResults]);
 
   const toggleProductSelection = (rowKey) => {
     setSelectedProducts((prev) => (prev.includes(rowKey) ? prev.filter((item) => item !== rowKey) : [...prev, rowKey]));
   };
 
-  const toggleSelectAllProducts = () => {
-    setSelectedProducts((prev) => (allRowsSelected ? prev.filter((rowKey) => !selectablePricingRowKeys.includes(rowKey)) : Array.from(new Set([...prev, ...selectablePricingRowKeys]))));
+  const togglePricingGroup = (groupName) => {
+    setExpandedPricingGroups((prev) => (
+      prev.includes(groupName) ? prev.filter((name) => name !== groupName) : [...prev, groupName]
+    ));
+  };
+
+  const toggleSelectGroup = (groupRowKeys) => {
+    const allSelected = groupRowKeys.length > 0 && groupRowKeys.every((key) => selectedProducts.includes(key));
+    if (allSelected) {
+      setSelectedProducts((prev) => prev.filter((key) => !groupRowKeys.includes(key)));
+    } else {
+      setSelectedProducts((prev) => Array.from(new Set([...prev, ...groupRowKeys])));
+    }
   };
 
   const applyCustomMarginToSelected = () => {
@@ -2000,60 +2039,94 @@ const AdminDashboard = () => {
                   </div>
                 </div>
               )}
-              <div className="overflow-x-auto border border-white/40 rounded-2xl bg-white/60 backdrop-blur-xl shadow-inner">
-                <table className="w-full text-left min-w-[1350px]">
-                  <thead className="bg-white/80 text-xs uppercase text-gray-500 sticky top-0 z-10 backdrop-blur-xl border-b border-gray-100">
-                    <tr>
-                      <th className="px-3 py-3">
-                        <input type="checkbox" className="h-4 w-4 rounded border-gray-300" checked={allRowsSelected} onChange={toggleSelectAllProducts} />
-                      </th>
-                      <th className="px-3 py-3">Category</th>
-                      <th className="px-3 py-3">Brand</th>
-                      <th className="px-3 py-3">Device</th>
-                      <th className="px-3 py-3">Condition</th>
-                      <th className="px-3 py-3">Spec / Processor</th>
-                      <th className="px-3 py-3">Storage</th>
-                      <th className="px-3 py-3">Assigned Vendor</th>
-                      <th className="px-3 py-3">Company Price</th>
-                      <th className="px-3 py-3">Vendor Price</th>
-                      <th className="px-3 py-3">Target Price</th>
-                      <th className="px-3 py-3">Adjustment Amount</th>
-                      <th className="px-3 py-3">Adjustment %</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {pricingResults.map((row, index) => (
-                      <tr key={`pricing-${row.rowKey}`} className="border-t border-gray-100 text-sm hover:bg-gray-50/80 transition-colors">
-                        <td className="px-3 py-2">
-                          <input
-                            type="checkbox"
-                            className="h-4 w-4 rounded border-gray-300"
-                            checked={selectedProducts.includes(row.rowKey)}
-                            onChange={() => toggleProductSelection(row.rowKey)}
-                            disabled={!row.hasVendorMatch}
-                          />
-                        </td>
-                        <td className="px-3 py-2">{row.Category || row.category || 'Others'}</td>
-                        <td className="px-3 py-2">{row.Brand || row.brand || 'Others'}</td>
-                        <td className="px-3 py-2 font-semibold">{row.mappedDevice}</td>
-                        <td className="px-3 py-2">{row.Condition || row.condition || 'Unknown'}</td>
-                        <td className="px-3 py-2">{row['SIM Type/Model/Processor'] || row.specification || row.sim || 'Unknown'}</td>
-                        <td className="px-3 py-2">{row['Storage Capacity/Configuration'] || row.storage || 'N/A'}</td>
-                        <td className="px-3 py-2">
-                          <span className="inline-flex items-center rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 px-2 py-0.5 text-[11px] font-semibold">{row.assignedVendor || 'Unassigned'}</span>
-                        </td>
-                        <td className="px-3 py-2">{formatNaira(row.companyPrice)}</td>
-                        <td className="px-3 py-2">{row.hasVendorMatch ? formatNaira(row.vendorPrice) : 'N/A'}</td>
-                        <td className="px-3 py-2">{row.hasVendorMatch ? formatNaira(row.target) : 'N/A'}</td>
-                        <td className="px-3 py-2">{row.hasVendorMatch ? formatNaira(row.adjustment) : 'N/A'}</td>
-                        <td className="px-3 py-2">{row.hasVendorMatch ? `${row.adjustmentPercent}%` : 'N/A'}</td>
-                      </tr>
-                    ))}
-                    {!pricingResults.length && (
-                      <tr><td className="px-3 py-4 text-sm text-gray-500" colSpan={13}>No matched rows. Load CSV and choose a valid vendor.</td></tr>
-                    )}
-                  </tbody>
-                </table>
+              <div className="space-y-4">
+                {groupedPricingResults.map((topCat, tIdx) => {
+                  const topCatKeys = topCat.subGroups.flatMap((sg) => sg.items.map((item) => item.rowKey));
+                  const topCatSelected = topCatKeys.length > 0 && topCatKeys.every((key) => selectedProducts.includes(key));
+                  const topCatExpanded = expandedPricingGroups.includes(topCat.name);
+                  return (
+                    <div key={`top-${tIdx}`} className="bg-white/80 rounded-2xl border border-gray-200 overflow-hidden shadow-sm">
+                      <div className="flex items-center justify-between px-5 py-4 bg-gradient-to-r from-gray-100 to-gray-50 cursor-pointer hover:bg-gray-200/50 transition-colors" onClick={() => togglePricingGroup(topCat.name)}>
+                        <div className="flex items-center gap-4">
+                          <input type="checkbox" checked={topCatSelected} onChange={(e) => { e.stopPropagation(); toggleSelectGroup(topCatKeys); }} className="w-5 h-5 cursor-pointer rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" />
+                          <h3 className="font-black text-lg text-[#1A1C23] uppercase tracking-widest">{topCat.name}</h3>
+                          <span className="bg-white px-3 py-1 rounded-lg text-xs font-bold text-gray-500 shadow-sm border border-gray-200">{topCatKeys.length} Products</span>
+                        </div>
+                        <span className="text-gray-400 font-bold text-lg">{topCatExpanded ? '▼' : '▶'}</span>
+                      </div>
+                      {topCatExpanded && (
+                        <div className="p-4 space-y-4 bg-gray-50/50">
+                          {topCat.subGroups.map((subCat, sIdx) => {
+                            const subCatKeys = subCat.items.map((item) => item.rowKey);
+                            const subCatSelected = subCatKeys.length > 0 && subCatKeys.every((key) => selectedProducts.includes(key));
+                            const subCatExpanded = expandedPricingGroups.includes(subCat.name + tIdx);
+                            return (
+                              <div key={`sub-${sIdx}`} className="border border-gray-200 rounded-xl overflow-hidden shadow-sm bg-white">
+                                <div className="flex items-center justify-between px-4 py-3 bg-white cursor-pointer hover:bg-gray-50 transition-colors border-b border-gray-100" onClick={() => togglePricingGroup(subCat.name + tIdx)}>
+                                  <div className="flex items-center gap-3">
+                                    <input type="checkbox" checked={subCatSelected} onChange={(e) => { e.stopPropagation(); toggleSelectGroup(subCatKeys); }} className="w-4 h-4 cursor-pointer rounded border-gray-300 text-emerald-600 focus:ring-emerald-500" />
+                                    <h4 className="font-bold text-sm text-gray-800 uppercase tracking-wider">{subCat.name}</h4>
+                                    <span className="text-[10px] font-bold text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">{subCat.items.length} items</span>
+                                  </div>
+                                  <span className="text-gray-300 text-xs font-bold">{subCatExpanded ? '▼' : '▶'}</span>
+                                </div>
+                                {subCatExpanded && subCat.items.length > 0 && (
+                                  <div className="overflow-x-auto">
+                                    <table className="w-full text-left min-w-[1200px]">
+                                      <thead className="bg-gray-50/80 text-[10px] uppercase text-gray-500 font-black border-b border-gray-100">
+                                        <tr>
+                                          <th className="px-4 py-3">Select</th>
+                                          <th className="px-3 py-3">Device</th>
+                                          <th className="px-3 py-3">Condition</th>
+                                          <th className="px-3 py-3">Spec / Processor</th>
+                                          <th className="px-3 py-3">Storage</th>
+                                          <th className="px-3 py-3">Assigned Vendor</th>
+                                          <th className="px-3 py-3">Company Price</th>
+                                          <th className="px-3 py-3">Vendor Price</th>
+                                          <th className="px-3 py-3">Target Price</th>
+                                          <th className="px-3 py-3">Adjustment</th>
+                                        </tr>
+                                      </thead>
+                                      <tbody>
+                                        {subCat.items.map((row) => (
+                                          <tr key={`pricing-${row.rowKey}`} className="border-t border-gray-50 text-sm hover:bg-blue-50/30 transition-colors">
+                                            <td className="px-4 py-2">
+                                              <input type="checkbox" className="h-4 w-4 rounded border-gray-300 cursor-pointer" checked={selectedProducts.includes(row.rowKey)} onChange={() => toggleProductSelection(row.rowKey)} />
+                                            </td>
+                                            <td className="px-3 py-2 font-semibold text-gray-800">{row.mappedDevice}</td>
+                                            <td className="px-3 py-2 text-gray-600">{row.Condition || row.condition || 'Unknown'}</td>
+                                            <td className="px-3 py-2 text-gray-600">{row['SIM Type/Model/Processor'] || row.specification || row.sim || 'Unknown'}</td>
+                                            <td className="px-3 py-2 font-mono text-xs">{row['Storage Capacity/Configuration'] || row.storage || 'N/A'}</td>
+                                            <td className="px-3 py-2">
+                                              <span className="inline-flex items-center rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 px-2 py-0.5 text-[10px] font-black uppercase tracking-widest">{row.assignedVendor || 'Unassigned'}</span>
+                                            </td>
+                                            <td className="px-3 py-2 font-bold">{formatNaira(row.companyPrice)}</td>
+                                            <td className="px-3 py-2 text-gray-500">{row.hasVendorMatch ? formatNaira(row.vendorPrice) : 'N/A'}</td>
+                                            <td className="px-3 py-2 font-bold text-indigo-600">{row.hasVendorMatch ? formatNaira(row.target) : 'N/A'}</td>
+                                            <td className="px-3 py-2">
+                                              {row.hasVendorMatch ? (
+                                                <span className={`px-2 py-1 rounded text-xs font-bold ${row.adjustment > 0 ? 'bg-green-100 text-green-700' : row.adjustment < 0 ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-600'}`}>
+                                                  {row.adjustment > 0 ? '+' : ''}{formatNaira(row.adjustment)}
+                                                </span>
+                                              ) : 'N/A'}
+                                            </td>
+                                          </tr>
+                                        ))}
+                                      </tbody>
+                                    </table>
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+                {!pricingResults.length && (
+                  <div className="border border-gray-100 rounded-2xl bg-white/60 px-4 py-4 text-sm text-gray-500">No matched rows. Load CSV and choose a valid vendor.</div>
+                )}
               </div>
               {customMarginModalOpen && (
                 <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
