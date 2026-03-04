@@ -29,8 +29,9 @@ export default function MenteeDashboardLayout({ children, notificationCount = 0,
   const dispatch = useDispatch();
 
   const handleLogout = () => {
+    localStorage.clear();
     dispatch(logout());
-    navigate('/', { replace: true });
+    navigate('/login', { replace: true });
   };
 
   return (
@@ -70,7 +71,7 @@ export default function MenteeDashboardLayout({ children, notificationCount = 0,
 
                   <div className="flex flex-col px-6 pb-4 overflow-y-auto bg-white grow gap-y-5">
                     <div className="flex items-center justify-center p-10 h-16 shrink-0">
-                      <img className="w-auto h-auto mx-20" src={Logo} alt="HorleyTech" width="64" height="64" />
+                      <img className="w-auto h-8 mx-20 cursor-pointer" src={Logo} alt="HorleyTech" width="64" height="64" onClick={() => navigate('/hub')} />
                     </div>
                     <nav className="flex flex-col flex-1">
                       <ul role="list" className="flex flex-col flex-1 gap-y-7">
@@ -125,7 +126,7 @@ export default function MenteeDashboardLayout({ children, notificationCount = 0,
           <div className="hidden lg:h-screen lg:inset-y-0 lg:z-50 lg:flex lg:w-[15rem] lg:flex-col">
             <div className="flex flex-col px-6 pb-4 overflow-y-auto bg-white border-r border-gray-200 grow gap-y-5">
               <div className="flex items-center justify-center h-16 mx-auto shrink-0 mt-4">
-                <img className="w-auto h-8" src={Logo} alt="HorleyTech" width="64" height="64" />
+                <img className="w-auto h-8 cursor-pointer" src={Logo} alt="HorleyTech" width="64" height="64" onClick={() => navigate('/hub')} />
               </div>
               <nav className="flex flex-col flex-1 mt-4">
                 <ul role="list" className="flex flex-col flex-1 gap-y-7">
@@ -198,6 +199,42 @@ export default function MenteeDashboardLayout({ children, notificationCount = 0,
                     <Menu.Button className="-m-1.5 flex items-center p-1.5">
                       <img className="w-8 h-8 p-2 rounded-full bg-[#ffa500]" src={UserProfile} alt="" />
                     </Menu.Button>
+                    <Transition
+                      as={Fragment}
+                      enter="transition ease-out duration-100"
+                      enterFrom="transform opacity-0 scale-95"
+                      enterTo="transform opacity-100 scale-100"
+                      leave="transition ease-in duration-75"
+                      leaveFrom="transform opacity-100 scale-100"
+                      leaveTo="transform opacity-0 scale-95"
+                    >
+                      <Menu.Items className="absolute right-0 z-20 w-44 mt-2 origin-top-right bg-white rounded-md shadow-lg ring-1 ring-black/5 focus:outline-none">
+                        <div className="py-1">
+                          <Menu.Item>
+                            {({ active }) => (
+                              <button
+                                type="button"
+                                onClick={() => navigate('/admin/team')}
+                                className={classNames(active ? 'bg-gray-100' : '', 'block w-full px-4 py-2 text-left text-sm text-gray-700')}
+                              >
+                                Manage Team
+                              </button>
+                            )}
+                          </Menu.Item>
+                          <Menu.Item>
+                            {({ active }) => (
+                              <button
+                                type="button"
+                                onClick={handleLogout}
+                                className={classNames(active ? 'bg-gray-100' : '', 'block w-full px-4 py-2 text-left text-sm text-gray-700')}
+                              >
+                                Logout
+                              </button>
+                            )}
+                          </Menu.Item>
+                        </div>
+                      </Menu.Items>
+                    </Transition>
                   </Menu>
                 </div>
               </div>
