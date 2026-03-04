@@ -593,13 +593,19 @@ const AdminDashboard = () => {
 
   const fetchCustomMappings = async () => {
     try {
-      const mappingsSnap = await getDoc(doc(db, 'horleyTech_Settings', 'customMappings'));
-      if (!mappingsSnap.exists()) return;
-      const mappingsData = mappingsSnap.data() || {};
-      const firebaseMappings = mappingsData.mappings || {};
-      if (firebaseMappings && typeof firebaseMappings === 'object') {
-        setMasterDictionary(firebaseMappings);
-      }
+      // 2. Fetch Sharded AI Mappings
+      const CAT_LIST = ['Smartphones', 'Smartwatches', 'Laptops', 'Sounds', 'Accessories', 'Tablets', 'Gaming', 'Others'];
+      let globalMappings = {};
+
+      const mappingPromises = CAT_LIST.map((cat) => getDoc(doc(db, 'horleyTech_Settings', `mappings_${cat}`)));
+      const mappingDocs = await Promise.all(mappingPromises);
+
+      mappingDocs.forEach((docSnap) => {
+        if (docSnap.exists() && docSnap.data().mappings) {
+          globalMappings = { ...globalMappings, ...docSnap.data().mappings };
+        }
+      });
+      setMasterDictionary(globalMappings);
     } catch (error) {
       console.error('Failed to load Firebase custom mappings:', error);
     }
@@ -1217,35 +1223,25 @@ const AdminDashboard = () => {
   };
 
   const nukeAndRebuildDictionary = async () => {
-    const confirmText = window.prompt('⚠️ DANGER: This will PERMANENTLY DELETE the entire AI Dictionary. You will have to pay the AI to relearn everything.\n\nType "NUKE" to confirm:');
-    if (confirmText !== 'NUKE') {
-      alert('Canceled. Your dictionary is safe.');
-      return;
-    }
+    const confirmed = window.prompt('⚠️ WARNING: Type NUKE to confirm.');
+    if (confirmed === 'NUKE') {
+      try {
+        const CAT_LIST = ['Smartphones', 'Smartwatches', 'Laptops', 'Sounds', 'Accessories', 'Tablets', 'Gaming', 'Others'];
+        const batch = writeBatch(db);
 
-    try {
-      await Promise.all([
-        setDoc(doc(db, 'horleyTech_Settings', 'customMappings'), {
-          mappings: {},
-          updatedAt: new Date().toISOString(),
-          nukedAt: new Date().toISOString(),
-        }, { merge: true }),
-        setDoc(doc(db, 'horleyTech_Settings', 'globalProductsCache'), {
-          cache_metadata: true,
-          syncedAt: new Date().toISOString(),
-          totalItems: 0,
-          totalChunks: 0,
-          officialTargets: [],
-        }, { merge: true }),
-      ]);
+        // Delete all sharded dictionaries
+        CAT_LIST.forEach((cat) => {
+          batch.delete(doc(db, 'horleyTech_Settings', `mappings_${cat}`));
+        });
+        // Delete the old legacy dictionary just in case
+        batch.delete(doc(db, 'horleyTech_Settings', 'customMappings'));
 
-      setMasterDictionary({});
-      setGlobalProductsCacheRows([]);
-      setOfficialTargets([]);
-      alert('✅ Dictionary nuked. Run Master Sync to rebuild with pure AI mappings.');
-    } catch (error) {
-      alert(`❌ Failed to nuke dictionary: ${error.message}`);
-    } finally {
+        await batch.commit();
+        setMasterDictionary({});
+        alert('💥 Global AI Dictionary completely wiped.');
+      } catch (err) {
+        alert(`Error nuking dictionary: ${err.message}`);
+      }
     }
   };
 

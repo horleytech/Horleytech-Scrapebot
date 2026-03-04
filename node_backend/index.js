@@ -873,8 +873,20 @@ const db = getFirestore();
 try {
 console.log('🔄 Background Sync: Initializing...');
 
-const mapDoc = await db.collection('horleyTech_Settings').doc('customMappings').get();
-const mappings = mapDoc.exists ? (mapDoc.data().mappings || {}) : {};
+// 2. Fetch all existing Categorical Mappings
+const CAT_LIST = ['Smartphones', 'Smartwatches', 'Laptops', 'Sounds', 'Accessories', 'Tablets', 'Gaming', 'Others'];
+const accumulatedMappings = {};
+
+for (const cat of CAT_LIST) {
+  const catDoc = await db.collection(SETTINGS_COLLECTION).doc(`mappings_${cat}`).get();
+  if (catDoc.exists) {
+    const data = catDoc.data();
+    if (data && data.mappings) {
+      Object.assign(accumulatedMappings, data.mappings);
+    }
+  }
+}
+const mappings = accumulatedMappings;
 const vendorsSnap = await db.collection('horleyTech_OfflineInventories').get();
 const unknownsSet = new Set();
 vendorsSnap.docs.forEach(docSnap => {
@@ -895,8 +907,7 @@ if (candidates.length === 0) {
   return;
 }
 // OPTIMIZATION: Accumulate mappings to reduce database writes by 80%
-let accumulatedMappings = {};
-let accumulatedCount = 0;
+let chunkMappings = {};
 for (let i = 0; i < candidates.length; i += 20) {
   const isFifthChunk = ((i / 20) % 5 === 0);
   const isLastChunk = (i + 20 >= candidates.length);
@@ -932,7 +943,7 @@ for (let i = 0; i < candidates.length; i += 20) {
         const raw = String(item?.raw || '').trim();
         if (!raw) return;
         const key = raw.toLowerCase().replace(/[^a-z0-9]/g, '');
-        accumulatedMappings[key] = {
+        chunkMappings[key] = {
           standardName: item.deviceType || 'Unknown Device',
           condition: item.condition || 'Unknown',
           specification: item.specification || item.sim || 'Unknown', // Universal Spec field
@@ -943,20 +954,50 @@ for (let i = 0; i < candidates.length; i += 20) {
           deviceType: item.deviceType || 'Unknown Device'
         };
       });
-      accumulatedCount += data.length;
     }
   } catch (err) {
     console.error(`❌ Backend Chunk ${i} failed:`, err.message);
   }
   // OPTIMIZED AGGRESSIVE SAVE: Only write to Firebase every 100 items (or on the last chunk)
-  if ((isFifthChunk || isLastChunk) && Object.keys(accumulatedMappings).length > 0) {
-    await db.collection('horleyTech_Settings').doc('customMappings').set({ mappings: accumulatedMappings, updatedAt: new Date().toISOString() }, { merge: true });
-    console.log(`✅ Database Checkpoint - Bulk Saved ${accumulatedCount} mapped items.`);
+  if ((isFifthChunk || isLastChunk) && Object.keys(chunkMappings).length > 0) {
+    // 📦 Categorical Sharding Checkpoint Save
+    const shardUpdates = {};
+    for (const [key, mapping] of Object.entries(chunkMappings)) {
+      const safeCat = CAT_LIST.includes(mapping.category) ? mapping.category : 'Others';
+      if (!shardUpdates[safeCat]) shardUpdates[safeCat] = {};
+      shardUpdates[safeCat][key] = mapping;
+    }
+
+    for (const [catName, mapData] of Object.entries(shardUpdates)) {
+      await db.collection(SETTINGS_COLLECTION).doc(`mappings_${catName}`).set({
+        mappings: mapData,
+        lastUpdated: new Date().toISOString(),
+      }, { merge: true });
+    }
+    console.log(`✅ Database Checkpoint - Sharded & Saved ${Object.keys(chunkMappings).length} mapped items.`);
     // Reset accumulators after save
-    accumulatedMappings = {};
-    accumulatedCount = 0;
+    chunkMappings = {};
   }
 }
+
+// 5. Final Complete Save
+if (Object.keys(chunkMappings).length > 0) {
+  const shardUpdates = {};
+  for (const [key, mapping] of Object.entries(chunkMappings)) {
+    const safeCat = CAT_LIST.includes(mapping.category) ? mapping.category : 'Others';
+    if (!shardUpdates[safeCat]) shardUpdates[safeCat] = {};
+    shardUpdates[safeCat][key] = mapping;
+  }
+
+  for (const [catName, mapData] of Object.entries(shardUpdates)) {
+    await db.collection(SETTINGS_COLLECTION).doc(`mappings_${catName}`).set({
+      mappings: mapData,
+      lastUpdated: new Date().toISOString(),
+    }, { merge: true });
+  }
+  console.log(`✅ Final Complete Save - Sharded & Saved ${Object.keys(chunkMappings).length} mapped items.`);
+}
+
 console.log('🎉 Background Sync: Complete!');
 await db.collection('horleyTech_Settings').doc('syncStatus').set({ isSyncing: false, progress: 'Sync Complete', justFinished: true }, { merge: true });
 } catch (error) {
