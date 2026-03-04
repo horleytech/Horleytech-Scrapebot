@@ -1332,34 +1332,8 @@ const AdminDashboard = () => {
 
   const groupedPricingResults = useMemo(() => {
     const groups = [];
-    const TOP_CATEGORIES = ['#smartphone', '#laptop', '#tablet', '#smartwatch', '#sound', '#accessori', '#gaming'];
-
-    let activeTop = { name: 'General Inventory', brands: [] };
-    let activeBrand = { name: 'General Brands', series: [] };
-    let activeSeries = { name: 'General Items', items: [] };
-
-    const flushSeries = () => {
-      if (activeSeries.items.length > 0) {
-        activeBrand.series.push(activeSeries);
-        activeSeries = { name: 'General Items', items: [] };
-      }
-    };
-
-    const flushBrand = () => {
-      flushSeries();
-      if (activeBrand.series.length > 0) {
-        activeTop.brands.push(activeBrand);
-        activeBrand = { name: 'General Brands', series: [] };
-      }
-    };
-
-    const flushTop = () => {
-      flushBrand();
-      if (activeTop.brands.length > 0) {
-        groups.push(activeTop);
-        activeTop = { name: 'General Inventory', brands: [] };
-      }
-    };
+    let activeTopCategory = { name: 'General Inventory', subGroups: [] };
+    let activeSubGroup = { name: 'General Items', items: [] };
 
     pricingResults.forEach((row) => {
       const deviceVal = String(row.companyDevice || row['Device Type'] || '').trim();
@@ -1367,23 +1341,22 @@ const AdminDashboard = () => {
       const hasPrice = row.companyPrice > 0;
 
       if (isHashtag) {
-        const cleanHash = deviceVal.toLowerCase();
-        if (TOP_CATEGORIES.some((tc) => cleanHash.includes(tc))) {
-          flushTop();
-          activeTop.name = deviceVal;
-        } else {
-          flushBrand();
-          activeBrand.name = deviceVal;
-        }
+        if (activeSubGroup.items.length > 0) activeTopCategory.subGroups.push(activeSubGroup);
+        if (activeTopCategory.subGroups.length > 0) groups.push(activeTopCategory);
+
+        activeTopCategory = { name: deviceVal, subGroups: [] };
+        activeSubGroup = { name: 'General Items', items: [] };
       } else if (!hasPrice && deviceVal.length > 0) {
-        flushSeries();
-        activeSeries.name = deviceVal;
+        if (activeSubGroup.items.length > 0) activeTopCategory.subGroups.push(activeSubGroup);
+        activeSubGroup = { name: deviceVal, items: [] };
       } else if (hasPrice || (row.mappedDevice && row.mappedDevice !== 'Unknown Device')) {
-        activeSeries.items.push(row);
+        activeSubGroup.items.push(row);
       }
     });
 
-    flushTop();
+    if (activeSubGroup.items.length > 0) activeTopCategory.subGroups.push(activeSubGroup);
+    if (activeTopCategory.subGroups.length > 0) groups.push(activeTopCategory);
+
     return groups;
   }, [pricingResults]);
 
@@ -2136,113 +2109,86 @@ const AdminDashboard = () => {
               )}
               <div className="space-y-4">
                 {groupedPricingResults.map((topCat, tIdx) => {
-                  const topCatKeys = topCat.brands.flatMap((b) => b.series.flatMap((s) => s.items.map((i) => i.rowKey)));
-                  const topCatSelected = topCatKeys.length > 0 && topCatKeys.every((k) => selectedProducts.includes(k));
-                  const topCatExpanded = expandedPricingGroups.includes(`top-${tIdx}`);
+                  const topCatKeys = topCat.subGroups.flatMap((sg) => sg.items.map((item) => item.rowKey));
+                  const topCatSelected = topCatKeys.length > 0 && topCatKeys.every((key) => selectedProducts.includes(key));
+                  const topCatExpanded = expandedPricingGroups.includes(topCat.name);
                   return (
-                    <div key={`top-${tIdx}`} className="bg-white/80 rounded-3xl border border-gray-200 overflow-hidden shadow-sm">
-                      {/* LEVEL 1: TOP CATEGORY */}
-                      <div className="flex items-center justify-between px-5 py-4 bg-[#1A1C23] text-white cursor-pointer hover:bg-black transition-colors" onClick={() => togglePricingGroup(`top-${tIdx}`)}>
+                    <div key={`top-${tIdx}`} className="bg-white/80 rounded-2xl border border-gray-200 overflow-hidden shadow-sm">
+                      <div className="flex items-center justify-between px-5 py-4 bg-gradient-to-r from-gray-100 to-gray-50 cursor-pointer hover:bg-gray-200/50 transition-colors" onClick={() => togglePricingGroup(topCat.name)}>
                         <div className="flex items-center gap-4">
-                          <input type="checkbox" checked={topCatSelected} onChange={(e) => { e.stopPropagation(); toggleSelectGroup(topCatKeys); }} className="w-5 h-5 cursor-pointer rounded border-gray-500 text-indigo-600 focus:ring-indigo-500" />
-                          <h3 className="font-black text-lg uppercase tracking-widest">{topCat.name}</h3>
-                          <span className="bg-white/20 px-3 py-1 rounded-lg text-xs font-bold text-white shadow-sm border border-white/10">{topCatKeys.length} Products</span>
+                          <input type="checkbox" checked={topCatSelected} onChange={(e) => { e.stopPropagation(); toggleSelectGroup(topCatKeys); }} className="w-5 h-5 cursor-pointer rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" />
+                          <h3 className="font-black text-lg text-[#1A1C23] uppercase tracking-widest">{topCat.name}</h3>
+                          <span className="bg-white px-3 py-1 rounded-lg text-xs font-bold text-gray-500 shadow-sm border border-gray-200">{topCatKeys.length} Products</span>
                         </div>
                         <span className="text-gray-400 font-bold text-lg">{topCatExpanded ? '▼' : '▶'}</span>
                       </div>
-
-                      {/* LEVEL 2: BRANDS */}
                       {topCatExpanded && (
                         <div className="p-4 space-y-4 bg-gray-50/50">
-                          {topCat.brands.map((brand, bIdx) => {
-                            const brandKeys = brand.series.flatMap((s) => s.items.map((i) => i.rowKey));
-                            const brandSelected = brandKeys.length > 0 && brandKeys.every((k) => selectedProducts.includes(k));
-                            const brandExpanded = expandedPricingGroups.includes(`brand-${tIdx}-${bIdx}`);
+                          {topCat.subGroups.map((subCat, sIdx) => {
+                            const subCatKeys = subCat.items.map((item) => item.rowKey);
+                            const subCatSelected = subCatKeys.length > 0 && subCatKeys.every((key) => selectedProducts.includes(key));
+                            const subCatExpanded = expandedPricingGroups.includes(subCat.name + tIdx);
                             return (
-                              <div key={`brand-${bIdx}`} className="border border-gray-300 rounded-2xl overflow-hidden shadow-sm bg-white">
-                                <div className="flex items-center justify-between px-4 py-3 bg-gradient-to-r from-gray-100 to-gray-50 cursor-pointer hover:bg-gray-200/50 transition-colors border-b border-gray-200" onClick={() => togglePricingGroup(`brand-${tIdx}-${bIdx}`)}>
+                              <div key={`sub-${sIdx}`} className="border border-gray-200 rounded-xl overflow-hidden shadow-sm bg-white">
+                                <div className="flex items-center justify-between px-4 py-3 bg-white cursor-pointer hover:bg-gray-50 transition-colors border-b border-gray-100" onClick={() => togglePricingGroup(subCat.name + tIdx)}>
                                   <div className="flex items-center gap-3">
-                                    <input type="checkbox" checked={brandSelected} onChange={(e) => { e.stopPropagation(); toggleSelectGroup(brandKeys); }} className="w-4 h-4 cursor-pointer rounded border-gray-400 text-emerald-600 focus:ring-emerald-500" />
-                                    <h4 className="font-black text-[15px] text-[#1A1C23] uppercase tracking-wider">{brand.name}</h4>
-                                    <span className="text-[11px] font-bold text-gray-500 bg-white border border-gray-200 px-2 py-0.5 rounded-md">{brandKeys.length} items</span>
+                                    <input type="checkbox" checked={subCatSelected} onChange={(e) => { e.stopPropagation(); toggleSelectGroup(subCatKeys); }} className="w-4 h-4 cursor-pointer rounded border-gray-300 text-emerald-600 focus:ring-emerald-500" />
+                                    <h4 className="font-bold text-sm text-gray-800 uppercase tracking-wider">{subCat.name}</h4>
+                                    <span className="text-[10px] font-bold text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">{subCat.items.length} items</span>
                                   </div>
-                                  <span className="text-gray-400 text-sm font-bold">{brandExpanded ? '▼' : '▶'}</span>
+                                  <span className="text-gray-300 text-xs font-bold">{subCatExpanded ? '▼' : '▶'}</span>
                                 </div>
-
-                                {/* LEVEL 3: SERIES & TABLE */}
-                                {brandExpanded && (
-                                  <div className="p-3 space-y-3 bg-white">
-                                    {brand.series.map((series, sIdx) => {
-                                      const seriesKeys = series.items.map((i) => i.rowKey);
-                                      const seriesSelected = seriesKeys.length > 0 && seriesKeys.every((k) => selectedProducts.includes(k));
-                                      const seriesExpanded = expandedPricingGroups.includes(`series-${tIdx}-${bIdx}-${sIdx}`);
-                                      return (
-                                        <div key={`series-${sIdx}`} className="border border-gray-100 rounded-xl overflow-hidden shadow-sm">
-                                          <div className="flex items-center justify-between px-4 py-2.5 bg-blue-50/30 cursor-pointer hover:bg-blue-50/60 transition-colors border-b border-blue-50/50" onClick={() => togglePricingGroup(`series-${tIdx}-${bIdx}-${sIdx}`)}>
-                                            <div className="flex items-center gap-3">
-                                              <input type="checkbox" checked={seriesSelected} onChange={(e) => { e.stopPropagation(); toggleSelectGroup(seriesKeys); }} className="w-4 h-4 cursor-pointer rounded border-blue-200 text-blue-600 focus:ring-blue-500" />
-                                              <h5 className="font-bold text-sm text-blue-900">{series.name}</h5>
-                                              <span className="text-[10px] font-bold text-blue-500 bg-white border border-blue-100 px-2 py-0.5 rounded-full">{series.items.length} items</span>
-                                            </div>
-                                            <span className="text-blue-300 text-xs font-bold">{seriesExpanded ? '▼' : '▶'}</span>
-                                          </div>
-
-                                          {seriesExpanded && series.items.length > 0 && (
-                                            <div className="overflow-x-auto">
-                                              <table className="w-full text-left min-w-[1200px]">
-                                                <thead className="bg-white text-[10px] uppercase text-gray-400 font-black border-b border-gray-100">
-                                                  <tr>
-                                                    <th className="px-4 py-3">Select</th>
-                                                    <th className="px-3 py-3">Device Type</th>
-                                                    <th className="px-3 py-3">Condition</th>
-                                                    <th className="px-3 py-3">Spec / Processor</th>
-                                                    <th className="px-3 py-3">Storage</th>
-                                                    <th className="px-3 py-3">Assigned Vendor</th>
-                                                    <th className="px-3 py-3">Company Price</th>
-                                                    <th className="px-3 py-3">Vendor Price</th>
-                                                    <th className="px-3 py-3">Target Price</th>
-                                                    <th className="px-3 py-3">Adjustment</th>
-                                                  </tr>
-                                                </thead>
-                                                <tbody>
-                                                  {series.items.map((row) => (
-                                                    <tr key={`pricing-${row.rowKey}`} className="border-t border-gray-50 text-sm hover:bg-gray-50 transition-colors">
-                                                      <td className="px-4 py-2">
-                                                        <input type="checkbox" className="h-4 w-4 rounded border-gray-300 cursor-pointer" checked={selectedProducts.includes(row.rowKey)} onChange={() => toggleProductSelection(row.rowKey)} />
-                                                      </td>
-                                                      <td className="px-3 py-2">
-                                                        <p className="font-bold text-gray-800">{row.companyDevice || row['Device Type'] || 'Unknown'}</p>
-                                                        {row.mappedDevice && row.mappedDevice !== 'Unknown Device' && row.mappedDevice !== (row.companyDevice || row['Device Type']) && (
-                                                          <span className="inline-block mt-1 px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wider bg-indigo-50 text-indigo-500 border border-indigo-100">
-                                                            AI: {row.mappedDevice}
-                                                          </span>
-                                                        )}
-                                                      </td>
-                                                      <td className="px-3 py-2 text-gray-600 font-medium">{row.Condition || row.condition || 'Unknown'}</td>
-                                                      <td className="px-3 py-2 text-gray-600 font-medium">{row['SIM Type/Model/Processor'] || row.specification || row.sim || 'Unknown'}</td>
-                                                      <td className="px-3 py-2 font-mono text-xs font-semibold text-gray-700">{row['Storage Capacity/Configuration'] || row.storage || 'N/A'}</td>
-                                                      <td className="px-3 py-2">
-                                                        <span className="inline-flex items-center rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200 px-2 py-0.5 text-[10px] font-black uppercase tracking-widest">{row.assignedVendor || 'Unassigned'}</span>
-                                                      </td>
-                                                      <td className="px-3 py-2 font-black text-gray-900">{formatNaira(row.companyPrice)}</td>
-                                                      <td className="px-3 py-2 text-gray-500 font-medium">{row.hasVendorMatch ? formatNaira(row.vendorPrice) : 'N/A'}</td>
-                                                      <td className="px-3 py-2 font-black text-indigo-600">{row.hasVendorMatch ? formatNaira(row.target) : 'N/A'}</td>
-                                                      <td className="px-3 py-2">
-                                                        {row.hasVendorMatch ? (
-                                                          <span className={`px-2 py-1 rounded text-xs font-black ${row.adjustment > 0 ? 'bg-green-100 text-green-700' : row.adjustment < 0 ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-600'}`}>
-                                                            {row.adjustment > 0 ? '+' : ''}{formatNaira(row.adjustment)}
-                                                          </span>
-                                                        ) : 'N/A'}
-                                                      </td>
-                                                    </tr>
-                                                  ))}
-                                                </tbody>
-                                              </table>
-                                            </div>
-                                          )}
-                                        </div>
-                                      );
-                                    })}
+                                {subCatExpanded && subCat.items.length > 0 && (
+                                  <div className="overflow-x-auto">
+                                    <table className="w-full text-left min-w-[1200px]">
+                                      <thead className="bg-gray-50/80 text-[10px] uppercase text-gray-500 font-black border-b border-gray-100">
+                                        <tr>
+                                          <th className="px-4 py-3">Select</th>
+                                          <th className="px-3 py-3">Device</th>
+                                          <th className="px-3 py-3">Condition</th>
+                                          <th className="px-3 py-3">Spec / Processor</th>
+                                          <th className="px-3 py-3">Storage</th>
+                                          <th className="px-3 py-3">Assigned Vendor</th>
+                                          <th className="px-3 py-3">Company Price</th>
+                                          <th className="px-3 py-3">Vendor Price</th>
+                                          <th className="px-3 py-3">Target Price</th>
+                                          <th className="px-3 py-3">Adjustment</th>
+                                        </tr>
+                                      </thead>
+                                      <tbody>
+                                        {subCat.items.map((row) => (
+                                          <tr key={`pricing-${row.rowKey}`} className="border-t border-gray-50 text-sm hover:bg-blue-50/30 transition-colors">
+                                            <td className="px-4 py-2">
+                                              <input type="checkbox" className="h-4 w-4 rounded border-gray-300 cursor-pointer" checked={selectedProducts.includes(row.rowKey)} onChange={() => toggleProductSelection(row.rowKey)} />
+                                            </td>
+                                            <td className="px-3 py-2">
+                                              <p className="font-semibold text-gray-800">{row.companyDevice || row['Device Type'] || 'Unknown'}</p>
+                                              {row.mappedDevice && row.mappedDevice !== 'Unknown Device' && row.mappedDevice !== (row.companyDevice || row['Device Type']) && (
+                                                <span className="inline-block mt-1 px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wider bg-indigo-50 text-indigo-500 border border-indigo-100 shadow-sm">
+                                                  AI: {row.mappedDevice}
+                                                </span>
+                                              )}
+                                            </td>
+                                            <td className="px-3 py-2 text-gray-600">{row.Condition || row.condition || 'Unknown'}</td>
+                                            <td className="px-3 py-2 text-gray-600">{row['SIM Type/Model/Processor'] || row.specification || row.sim || 'Unknown'}</td>
+                                            <td className="px-3 py-2 font-mono text-xs">{row['Storage Capacity/Configuration'] || row.storage || 'N/A'}</td>
+                                            <td className="px-3 py-2">
+                                              <span className="inline-flex items-center rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 px-2 py-0.5 text-[10px] font-black uppercase tracking-widest">{row.assignedVendor || 'Unassigned'}</span>
+                                            </td>
+                                            <td className="px-3 py-2 font-bold">{formatNaira(row.companyPrice)}</td>
+                                            <td className="px-3 py-2 text-gray-500">{row.hasVendorMatch ? formatNaira(row.vendorPrice) : 'N/A'}</td>
+                                            <td className="px-3 py-2 font-bold text-indigo-600">{row.hasVendorMatch ? formatNaira(row.target) : 'N/A'}</td>
+                                            <td className="px-3 py-2">
+                                              {row.hasVendorMatch ? (
+                                                <span className={`px-2 py-1 rounded text-xs font-bold ${row.adjustment > 0 ? 'bg-green-100 text-green-700' : row.adjustment < 0 ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-600'}`}>
+                                                  {row.adjustment > 0 ? '+' : ''}{formatNaira(row.adjustment)}
+                                                </span>
+                                              ) : 'N/A'}
+                                            </td>
+                                          </tr>
+                                        ))}
+                                      </tbody>
+                                    </table>
                                   </div>
                                 )}
                               </div>
@@ -2253,7 +2199,45 @@ const AdminDashboard = () => {
                     </div>
                   );
                 })}
+                {!pricingResults.length && (
+                  <div className="border border-gray-100 rounded-2xl bg-white/60 px-4 py-4 text-sm text-gray-500">No matched rows. Load CSV and choose a valid vendor.</div>
+                )}
               </div>
+              {isMarginModalOpen && (
+                <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm">
+                  <div className="bg-white rounded-2xl shadow-2xl w-[400px] p-6 overflow-hidden">
+                    <div className="flex justify-between items-center mb-6">
+                      <h2 className="text-xl font-black text-gray-800">Bulk Price Adjustment</h2>
+                      <button onClick={() => setIsMarginModalOpen(false)} className="text-gray-400 hover:text-red-500 font-bold text-xl">&times;</button>
+                    </div>
+
+                    <div className="space-y-4">
+                      <div>
+                        <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Direction</label>
+                        <div className="flex gap-2">
+                          <button onClick={() => setMarginDirection('increase')} className={`flex-1 py-2 rounded-lg font-bold text-sm transition-colors ${marginDirection === 'increase' ? 'bg-green-100 text-green-700 border-2 border-green-500' : 'bg-gray-50 text-gray-500 border-2 border-transparent hover:bg-gray-100'}`}>Increase (+)</button>
+                          <button onClick={() => setMarginDirection('decrease')} className={`flex-1 py-2 rounded-lg font-bold text-sm transition-colors ${marginDirection === 'decrease' ? 'bg-red-100 text-red-700 border-2 border-red-500' : 'bg-gray-50 text-gray-500 border-2 border-transparent hover:bg-gray-100'}`}>Decrease (-)</button>
+                        </div>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Adjustment Type</label>
+                        <div className="flex gap-2">
+                          <button onClick={() => setMarginType('percentage')} className={`flex-1 py-2 rounded-lg font-bold text-sm transition-colors ${marginType === 'percentage' ? 'bg-indigo-100 text-indigo-700 border-2 border-indigo-500' : 'bg-gray-50 text-gray-500 border-2 border-transparent hover:bg-gray-100'}`}>Percentage (%)</button>
+                          <button onClick={() => setMarginType('flat')} className={`flex-1 py-2 rounded-lg font-bold text-sm transition-colors ${marginType === 'flat' ? 'bg-indigo-100 text-indigo-700 border-2 border-indigo-500' : 'bg-gray-50 text-gray-500 border-2 border-transparent hover:bg-gray-100'}`}>Flat Amount (₦)</button>
+                        </div>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Value</label>
+                        <input type="number" value={marginValue} onChange={(e) => setMarginValue(e.target.value)} placeholder={marginType === 'percentage' ? 'e.g. 15' : 'e.g. 5000'} className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 font-bold text-gray-800" />
+                      </div>
+                    </div>
+                    <div className="mt-8 flex gap-3">
+                      <button onClick={() => setIsMarginModalOpen(false)} className="flex-1 py-3 rounded-xl font-bold text-gray-600 bg-gray-100 hover:bg-gray-200 transition-colors">Cancel</button>
+                      <button onClick={handleApplyBulkMargin} className="flex-1 py-3 rounded-xl font-black text-white bg-indigo-600 hover:bg-indigo-700 shadow-lg shadow-indigo-200 transition-all">Apply to {selectedProducts.length}</button>
+                    </div>
+                  </div>
+                </div>
+              )}
               <div className="border border-gray-100 rounded-2xl p-4 bg-white/60">
                 <p className="text-xs font-black uppercase tracking-wider text-gray-500 mb-3">Saved Sessions</p>
                 {savedPricingSessions.length ? (
