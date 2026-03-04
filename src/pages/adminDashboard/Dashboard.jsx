@@ -1255,7 +1255,7 @@ const AdminDashboard = () => {
 
 
   const getPricingRowKey = (row, index) => {
-    const device = String(row?.mappedDevice || getCsvValueByAliases(row, ['Device Type', 'device', 'product', 'model']) || 'unknown').toLowerCase();
+    const device = String(row?.mappedDevice || getCsvValueByAliases(row, ['Device Type', 'device type', 'device', 'product']) || 'unknown').toLowerCase();
     const condition = String(row?.Condition || row?.condition || 'unknown').toLowerCase();
     const spec = String(row?.['SIM Type/Model/Processor'] || row?.specification || row?.sim || 'unknown').toLowerCase();
     const storage = String(row?.['Storage Capacity/Configuration'] || row?.storage || 'na').toLowerCase();
