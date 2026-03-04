@@ -1056,3 +1056,6 @@ console.error('❌ Fatal Background Sync Error:', error);
 await db.collection('horleyTech_Settings').doc('syncStatus').set({ isSyncing: false, progress: 'Error during sync' }, { merge: true });
 }
 });
+app.listen(PORT, () => {
+  console.log(`✅ Server is running and listening on port ${PORT}`);
+});
