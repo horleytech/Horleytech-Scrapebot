@@ -26,7 +26,7 @@ dotenv.config();
 
 const require = createRequire(import.meta.url);
 
-const PM2_LOG_PATH = '/root/.pm2/logs/index-out.log';
+const PM2_LOG_PATH = '/root/.pm2/logs/scrapebot-backend-out.log';
 const OFFLINE_COLLECTION = 'horleyTech_OfflineInventories';
 const BACKUP_COLLECTION = 'horleyTech_Backups';
 const MESSAGE_COLLECTION = 'horleyTech_PlatformMessages';
