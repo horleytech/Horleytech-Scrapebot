@@ -900,7 +900,7 @@ for (let i = 0; i < candidates.length; i += 20) {
         model: "gpt-4o-mini",
         response_format: { type: "json_object" },
         messages: [
-            { role: "system", content: "You are an expert mobile device product detail extractor. You must output JSON with a 'data' array containing objects with properties: raw, brand, series, category, deviceType, condition, sim, isOthers. 'condition' strictly Brand New, Grade A UK Used, or Unknown. 'sim' strictly Physical SIM, ESIM, Physical SIM + ESIM, or Unknown." },
+            { role: "system", content: "You are an expert mobile device product detail extractor. You must output JSON with a 'data' array containing objects with properties: raw, brand, series, category, deviceType, condition, specification, isOthers. 'condition' strictly Brand New, Grade A UK Used, or Unknown. 'specification' MUST dynamically extract either the SIM Type (e.g. Physical SIM, ESIM), OR the Processor/Chip (e.g. M1, M2 Pro, Core i7), OR the Watch Size/Connectivity (e.g. 45mm, GPS, Cellular), depending on what the device is. Default to 'Unknown' if none found." },
             { role: "user", content: `Extract data for these products: ${JSON.stringify(chunk)}. Always return valid JSON with a 'data' array.` }
         ],
         temperature: 0.1,
@@ -915,7 +915,7 @@ for (let i = 0; i < candidates.length; i += 20) {
         accumulatedMappings[key] = {
           standardName: item.deviceType || 'Unknown Device',
           condition: item.condition || 'Unknown',
-          sim: item.sim || 'Unknown',
+          specification: item.specification || item.sim || 'Unknown', // Universal Spec field
           isOthers: Boolean(item.isOthers),
           category: item.category || 'Others',
           brand: item.brand || 'Others',
