@@ -1059,3 +1059,6 @@ await db.collection('horleyTech_Settings').doc('syncStatus').set({ isSyncing: fa
 app.listen(PORT, () => {
   console.log(`✅ Server is running and listening on port ${PORT}`);
 });
+app.listen(PORT, () => {
+  console.log(`✅ Server is running and listening on port ${PORT}`);
+});
