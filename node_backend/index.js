@@ -83,7 +83,8 @@ app.use(express.urlencoded({ extended: true }));
 app.use(morgan('dev'));
 
 const PORT = process.env.PORT || 8000;
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY }); // Dedicated to WhatsApp Webhook
+const openaiBackground = new OpenAI({ apiKey: process.env.OPENAI_API_KEY_SYNC || process.env.OPENAI_API_KEY }); // Dedicated to Heavy Tasks
 const CATS = "'Smartphones', 'Smartwatches', 'Laptops', 'Sounds', 'Accessories', 'Tablets', 'Gaming', 'Others'";
 
 // Initialize infrastructure
@@ -701,7 +702,7 @@ app.post('/api/ai/fix-inventory', async (req, res) => {
     if (normalizedActionType === 'fix') {
       const systemPrompt = `You are a data cleaner. Standardize the following electronics inventory list. Fix typos in 'Device Type', ensure 'Storage Capacity/Configuration' is formatted like '128GB' or '8GB/256GB', and ensure 'SIM Type/Model/Processor' is clear. Return the exact JSON structure provided.`;
 
-      const aiResponse = await openai.chat.completions.create({
+      const aiResponse = await openaiBackground.chat.completions.create({
         model: 'gpt-4o-mini',
         messages: [
           { role: 'system', content: systemPrompt },
@@ -732,7 +733,7 @@ app.post('/api/ai/fix-inventory', async (req, res) => {
       try {
         const imagePrompt = `A professional, realistic, studio-quality product photo of a ${product['Device Type'] || 'device'} ${product.Condition || ''} on a pure white background.`;
 
-        const imageResponse = await openai.images.generate({
+        const imageResponse = await openaiBackground.images.generate({
           model: 'dall-e-2',
           prompt: imagePrompt,
           size: '256x256',
@@ -821,17 +822,34 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
         If no products are found, return []. Only return valid JSON.
         `;
 
-    const aiResponse = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: senderMessage }
-      ],
-      temperature: 0,
-    });
+    let extractedProducts = [];
+    let retries = 3;
+    let success = false;
 
-    const cleanJson = aiResponse.choices[0].message.content.replace(/```json/g, '').replace(/```/g, '').trim();
-    const extractedProducts = JSON.parse(cleanJson);
+    while (retries > 0 && !success) {
+      try {
+        const aiResponse = await openai.chat.completions.create({
+          model: 'gpt-4o-mini',
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: senderMessage }
+          ],
+          temperature: 0,
+        });
+
+        const cleanJson = aiResponse.choices[0].message.content.replace(/```json/g, '').replace(/```/g, '').trim();
+        extractedProducts = JSON.parse(cleanJson);
+        success = true; // Mark as successful to break the loop
+      } catch (err) {
+        retries -= 1;
+        if (retries > 0) {
+          console.log(`⚠️ OpenAI Webhook Hiccup. Retrying... (${retries} left)`);
+          await new Promise(resolve => setTimeout(resolve, 2000)); // Wait 2 seconds before retrying
+        } else {
+          throw new Error(`OpenAI failed after 3 retries: ${err.message}`);
+        }
+      }
+    }
 
     if (extractedProducts.length > 0) {
       console.log(`✅ AI Extracted ${extractedProducts.length} items.`);
@@ -904,7 +922,7 @@ const fetchUnknownVendorsList = async () => {
 const runOpenAIExtraction = async (rows = [], signal) => {
   const systemPrompt = `You are a strict Two-Layer AI Judge. Given an array of objects with a "raw" string, extract details. You MUST return a JSON object with a single root key called "data" containing an array of objects. Each object must strictly have: - "raw": The exact original string - "category", "brand", "series": Standard classifications - "deviceType": The standard clean device name - "condition": STRICTLY evaluate to "Brand New", "Grade A UK Used", or "Unknown" - "sim": STRICTLY evaluate to "Physical SIM", "ESIM", "Physical SIM + ESIM", or "Unknown" - "isOthers": true if unknown/obscure, else false;`;
 
-  const aiResponse = await openai.chat.completions.create({
+  const aiResponse = await openaiBackground.chat.completions.create({
     model: 'gpt-4o-mini',
     response_format: { type: 'json_object' },
     messages: [
@@ -978,7 +996,7 @@ for (let i = 0; i < candidates.length; i += 20) {
   const chunk = candidates.slice(i, i + 20);
 
   try {
-    const completion = await openai.chat.completions.create({
+    const completion = await openaiBackground.chat.completions.create({
         model: "gpt-4o-mini",
         response_format: { type: "json_object" },
         messages: [
