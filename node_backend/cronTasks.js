@@ -283,6 +283,86 @@ export const runNightlyUnknownSweeper = async () => {
   };
 };
 
+export const forceBuildGlobalCache = async () => {
+  const firestore = admin.firestore();
+  const vendorsSnap = await firestore.collection('horleyTech_OfflineInventories').get();
+  const customMappings = await getLatestCustomMappings();
+
+  const masterDictionary = Array.isArray(customMappings)
+    ? customMappings.reduce((acc, entry) => {
+      const raw = entry?.raw || entry?.source || entry?.rawString || '';
+      const key = normalizeMappingKey(raw);
+      if (!key) return acc;
+
+      acc[key] = {
+        standardName: entry?.standardName || entry?.deviceType || 'Unknown Device',
+        category: entry?.category || 'Others',
+        brand: entry?.brand || 'Others',
+        series: entry?.series || 'Others',
+        condition: entry?.condition || 'Unknown',
+        specification: entry?.specification || entry?.sim || 'Unknown',
+      };
+
+      return acc;
+    }, {})
+    : (customMappings || {});
+
+  const allProducts = [];
+
+  vendorsSnap.forEach((docSnap) => {
+    const data = docSnap.data() || {};
+    const vendorName = data.vendorName || docSnap.id;
+    const vendorLink = data.shareableLink || '';
+
+    (data.products || []).forEach((product) => {
+      const priceValue = Number(String(product?.['Regular price'] || '').replace(/[^0-9.]/g, ''));
+      if (!priceValue || priceValue === 0) return;
+
+      const rawDescriptor = `${product?.['Device Type'] || ''} ${product?.Condition || ''} ${product?.['SIM Type/Model/Processor'] || ''}`.trim();
+      const rawKey = rawDescriptor.toLowerCase().replace(/[^a-z0-9]/g, '');
+
+      const mapping = masterDictionary[rawKey];
+      const standardName = mapping?.standardName || product?.['Device Type'] || 'Unknown Device';
+
+      allProducts.push({
+        id: `${docSnap.id}_${Math.random().toString(36).substr(2, 9)}`,
+        vendorName,
+        vendorLink,
+        price: String(product?.['Regular price'] || ''),
+        priceValue,
+        date: data.lastUpdated || new Date().toISOString(),
+        deviceType: standardName,
+        category: mapping?.category || 'Others',
+        brandSubCategory: mapping?.brand || 'Others',
+        series: mapping?.series || 'Others',
+        condition: mapping?.condition || product?.Condition || 'Unknown',
+        simType: mapping?.specification || product?.['SIM Type/Model/Processor'] || 'Unknown',
+        storage: product?.['Storage Capacity/Configuration'] || 'N/A',
+        raw: rawDescriptor,
+      });
+    });
+  });
+
+  const chunkSize = 2000;
+  const totalChunks = Math.ceil(allProducts.length / chunkSize);
+
+  const batch = firestore.batch();
+  batch.set(firestore.doc('horleyTech_Settings/globalProductsCache'), {
+    lastUpdated: new Date().toISOString(),
+    totalChunks,
+    totalProducts: allProducts.length,
+    officialTargets: Array.from(new Set(allProducts.map((p) => p.deviceType))),
+  });
+
+  for (let i = 0; i < totalChunks; i += 1) {
+    const chunk = allProducts.slice(i * chunkSize, (i + 1) * chunkSize);
+    batch.set(firestore.doc(`horleyTech_Settings/cache_chunk_${i}`), { products: chunk });
+  }
+
+  await batch.commit();
+  return allProducts.length;
+};
+
 export const initializeCronTasks = () => {
   cron.schedule('0 0 * * 0', async () => {
     console.log('🗂️ Running weekly automated backup...');

@@ -12,7 +12,7 @@ import OpenAI from 'openai';
 import admin from 'firebase-admin';
 import { processChatFile } from './fileProcessor.js';
 import { saveVendorsToFirebase } from './dataProcessor.js';
-import { initializeCronTasks, runRetroactiveSweep } from './cronTasks.js';
+import { initializeCronTasks, runRetroactiveSweep, forceBuildGlobalCache } from './cronTasks.js';
 import {
   initializeSystemCollections,
   runBackup,
@@ -587,19 +587,8 @@ app.post('/api/admin/retroactive-sweep', async (_req, res) => {
 
 app.post('/api/admin/force-build-cache', async (req, res) => {
   try {
-    const role = String(req.headers['x-user-role'] || '').toLowerCase();
-    if (role !== 'admin') {
-      return res.status(403).json({ success: false, error: 'Unauthorized' });
-    }
-
-    console.log('🛠️ Admin requested force cache build. Starting sweep...');
-    const result = await runRetroactiveSweep();
-
-    return res.json({
-      success: true,
-      message: 'Cache built successfully!',
-      details: result,
-    });
+    const total = await forceBuildGlobalCache();
+    return res.json({ success: true, message: `Cache built successfully with ${total} products!` });
   } catch (error) {
     console.error('Cache build failed:', error);
     return res.status(500).json({ success: false, error: error.message });
