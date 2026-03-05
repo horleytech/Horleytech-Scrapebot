@@ -822,17 +822,34 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
         If no products are found, return []. Only return valid JSON.
         `;
 
-    const aiResponse = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: senderMessage }
-      ],
-      temperature: 0,
-    });
+    let extractedProducts = [];
+    let retries = 3;
+    let success = false;
 
-    const cleanJson = aiResponse.choices[0].message.content.replace(/```json/g, '').replace(/```/g, '').trim();
-    const extractedProducts = JSON.parse(cleanJson);
+    while (retries > 0 && !success) {
+      try {
+        const aiResponse = await openai.chat.completions.create({
+          model: 'gpt-4o-mini',
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: senderMessage }
+          ],
+          temperature: 0,
+        });
+
+        const cleanJson = aiResponse.choices[0].message.content.replace(/```json/g, '').replace(/```/g, '').trim();
+        extractedProducts = JSON.parse(cleanJson);
+        success = true; // Mark as successful to break the loop
+      } catch (err) {
+        retries -= 1;
+        if (retries > 0) {
+          console.log(`⚠️ OpenAI Webhook Hiccup. Retrying... (${retries} left)`);
+          await new Promise(resolve => setTimeout(resolve, 2000)); // Wait 2 seconds before retrying
+        } else {
+          throw new Error(`OpenAI failed after 3 retries: ${err.message}`);
+        }
+      }
+    }
 
     if (extractedProducts.length > 0) {
       console.log(`✅ AI Extracted ${extractedProducts.length} items.`);
