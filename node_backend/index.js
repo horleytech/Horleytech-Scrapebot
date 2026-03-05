@@ -585,6 +585,27 @@ app.post('/api/admin/retroactive-sweep', async (_req, res) => {
   }
 });
 
+app.post('/api/admin/force-build-cache', async (req, res) => {
+  try {
+    const role = String(req.headers['x-user-role'] || '').toLowerCase();
+    if (role !== 'admin') {
+      return res.status(403).json({ success: false, error: 'Unauthorized' });
+    }
+
+    console.log('🛠️ Admin requested force cache build. Starting sweep...');
+    const result = await runRetroactiveSweep();
+
+    return res.json({
+      success: true,
+      message: 'Cache built successfully!',
+      details: result,
+    });
+  } catch (error) {
+    console.error('Cache build failed:', error);
+    return res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 // Admin Database Restore Endpoint
 app.post('/api/backup/restore', async (req, res) => {
   const { backupId } = req.body || {};

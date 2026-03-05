@@ -1160,6 +1160,26 @@ const AdminDashboard = () => {
       alert(`❌ ${error.message}`);
     }
   };
+  const forceBuildProductCache = async () => {
+    try {
+      alert('Starting cache build. This may take 10-30 seconds depending on inventory size...');
+      const res = await fetch(`${BASE_URL}/api/admin/force-build-cache`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-user-role': 'admin',
+        },
+      });
+      const data = await res.json();
+      if (data.success) {
+        alert('✅ Cache built successfully! Please refresh the page (F5) to see the products.');
+        return;
+      }
+      alert(`❌ Failed: ${data.error}`);
+    } catch (error) {
+      alert(`❌ Error: ${error.message}`);
+    }
+  };
   const restoreBackup = async (backupId) => {
     if (!window.confirm(`Restore backup ${backupId}? This will overwrite the live offline inventory.`)) return;
     setRestoringBackupId(backupId);
@@ -2368,6 +2388,7 @@ const AdminDashboard = () => {
                   <input type="file" accept="application/json,.json" className="hidden" onChange={uploadAndRestoreLocalBackup} disabled={uploadRestoreLoading} />
                 </label>
                 <button onClick={runRetroactiveCleanup} className="bg-emerald-600 text-white px-4 py-2 rounded-lg font-bold text-sm hover:bg-emerald-700">🧹 Run Retroactive Cleanup</button>
+                <button onClick={forceBuildProductCache} className="bg-purple-600 text-white px-4 py-2 rounded-lg font-bold text-sm hover:bg-purple-700">🏗️ Force Build Product Cache</button>
               </div>
               <div className="border-t pt-4">
                 <div className="flex items-center justify-between mb-3">
