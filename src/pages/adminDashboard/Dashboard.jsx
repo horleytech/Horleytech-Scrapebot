@@ -103,6 +103,39 @@ const isWithinDateRange = (value, startDate, endDate) => {
   }
   return true;
 };
+const buildGlobalRowsFromOfflineInventories = (vendorDocs = []) => {
+  const rows = [];
+  vendorDocs.forEach((docSnap) => {
+    const data = docSnap.data() || {};
+    const vendorName = data.vendorName || data.vendorId || docSnap.id;
+    const vendorLink = data.shareableLink || '';
+    const products = Array.isArray(data.products) ? data.products : [];
+
+    products.forEach((product, index) => {
+      const price = String(product?.['Regular price'] || '').trim();
+      const priceValue = Number(price.replace(/[^0-9.]/g, ''));
+      if (!priceValue || Number.isNaN(priceValue)) return;
+
+      rows.push({
+        id: `${docSnap.id}_${index}`,
+        vendorName,
+        vendorLink,
+        price,
+        priceValue,
+        date: product?.DatePosted || data.lastUpdated || new Date().toISOString(),
+        category: product?.Category || 'Others',
+        brandSubCategory: product?.Brand || 'Others',
+        series: product?.Series || inferSeries(product?.['Device Type'] || ''),
+        deviceType: product?.['Device Type'] || 'Unknown Device',
+        condition: product?.Condition || 'Unknown',
+        simType: product?.['SIM Type/Model/Processor'] || 'Unknown',
+        storage: product?.['Storage Capacity/Configuration'] || 'N/A',
+        raw: `${product?.['Device Type'] || ''} ${product?.Condition || ''} ${product?.['SIM Type/Model/Processor'] || ''}`.trim(),
+      });
+    });
+  });
+  return rows;
+};
 const normalizeDictionaryKey = (value) => String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
 const normalizeGoogleSheetCsvUrl = (url) => {
   const raw = String(url || '').trim();
@@ -692,9 +725,19 @@ const AdminDashboard = () => {
   useEffect(() => {
     const loadGlobalCache = async () => {
       try {
+        const loadFromOfflineInventories = async () => {
+          const vendorSnapshot = await getDocs(collection(db, COLLECTIONS.offline));
+          const fallbackRows = buildGlobalRowsFromOfflineInventories(vendorSnapshot.docs);
+          setGlobalProductsCacheRows(fallbackRows);
+          setOfficialTargets(Array.from(new Set(fallbackRows.map((row) => row.deviceType).filter(Boolean))));
+        };
+
         const cacheRef = doc(db, 'horleyTech_Settings', 'globalProductsCache');
         const snapshot = await getDoc(cacheRef);
-        if (!snapshot.exists()) return;
+        if (!snapshot.exists()) {
+          await loadFromOfflineInventories();
+          return;
+        }
         const metadata = snapshot.data() || {};
         const totalChunks = Number(metadata.totalChunks || 0);
         if (totalChunks > 0) {
@@ -702,12 +745,20 @@ const AdminDashboard = () => {
             Array.from({ length: totalChunks }, (_, index) => getDoc(doc(db, 'horleyTech_Settings', `cache_chunk_${index}`)))
           );
           const flattenedRows = chunkDocs.flatMap((chunkSnap) => (Array.isArray(chunkSnap.data()?.products) ? chunkSnap.data().products : []));
-          setGlobalProductsCacheRows(flattenedRows);
+          if (flattenedRows.length) {
+            setGlobalProductsCacheRows(flattenedRows);
+          } else {
+            await loadFromOfflineInventories();
+          }
           if (Array.isArray(metadata.officialTargets)) setOfficialTargets(metadata.officialTargets);
           return;
         }
         const rows = metadata.products;
-        if (Array.isArray(rows)) setGlobalProductsCacheRows(rows);
+        if (Array.isArray(rows) && rows.length) {
+          setGlobalProductsCacheRows(rows);
+        } else {
+          await loadFromOfflineInventories();
+        }
       } catch (error) {
         console.error('Failed to load global products cache:', error);
       }
