@@ -19,7 +19,7 @@ test('normalizeCondition maps slang and unknown', () => {
 
 test('normalizeSim maps expected formats and unknown', () => {
   assert.equal(__testables.normalizeSim('dual sim'), 'Dual SIM');
-  assert.equal(__testables.normalizeSim('physical + esim'), 'Dual SIM');
+  assert.equal(__testables.normalizeSim('physical + esim'), 'eSIM');
   assert.equal(__testables.normalizeSim('esim only'), 'eSIM');
   assert.equal(__testables.normalizeSim('single sim physical'), 'Physical SIM');
   assert.equal(__testables.normalizeSim('sim unknown'), 'Unknown');

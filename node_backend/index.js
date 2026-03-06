@@ -1015,8 +1015,10 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
           storage: 'UNKNOWN',
           condition: 'Unknown',
           sim: 'Unknown',
-          variationId: `others_unknown_unknown_unknown`,
+          variationId: null,
           trustedFastLane: false,
+          ignored: true,
+          ignoreReason: 'shadow-failure',
         });
       }
     }
@@ -1037,6 +1039,8 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
         rawProductString: product.rawProductString,
         variationId: product.variationId,
         trustedFastLane: product.trustedFastLane,
+        ignored: Boolean(product.ignored),
+        ignoreReason: product.ignoreReason || '',
         DatePosted: exactServerDate,
         isGroupMessage: isMessageFromGroup || false,
         groupName: isMessageFromGroup ? groupName : 'Direct Message'

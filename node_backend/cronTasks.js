@@ -307,6 +307,8 @@ export const forceBuildGlobalCache = async () => {
       const priceValue = Number(String(product?.['Regular price'] || '').replace(/[^0-9.]/g, ''));
       if (!priceValue || priceValue <= 0) return;
 
+      if (product?.ignored === true || String(product?.ignoreReason || '').trim()) return;
+
       const variationId = String(product?.variationId || '').trim().toLowerCase();
       if (!variationId) return;
 
