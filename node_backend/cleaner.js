@@ -8,6 +8,19 @@ export function convertString(stringResponse) {
   return convertedString;
 }
 
+export const appleSeries = [
+  'iPhone 17 Series',
+  'iPhone 16 Series',
+  'iPhone 15 Series',
+  'iPhone 14 Series',
+  'iPhone 13 Series',
+  'iPhone 12 Series',
+  'iPhone 11 Series',
+  'iPhone X Series',
+  'iPhone 8 Series',
+  'iPhone 7 Series',
+];
+
 // Example usage
 // var inc = `[
 //   {

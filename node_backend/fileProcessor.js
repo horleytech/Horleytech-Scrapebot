@@ -1,6 +1,6 @@
 import OpenAI from 'openai';
 import fs from 'fs';
-import { convertString } from './cleaner.js';
+import { convertString, appleSeries } from './cleaner.js';
 import dotenv from 'dotenv';
 dotenv.config();
 
@@ -29,7 +29,7 @@ const extractFromBatch = async (batchText, batchNumber, totalBatches) => {
   MASTER CATEGORIES + STRICT SUBCATEGORIES:
 
   1) Smartphones
-     - iPhones (iPhone 17 Series, iPhone 16 Series, iPhone 15 Series, iPhone 14 Series, iPhone 13 Series, iPhone 12 Series, iPhone 11 Series, iPhone X Series, iPhone 8 Series, iPhone 7 Series)
+     - iPhones (${appleSeries.join(', ')})
      - Samsung (Fold Series, Flip Series, S Series, Note Series, A Series)
      - Google Pixels (Pixel 10 Series, Pixel 9 Series, Pixel 8 Series, Pixel 7 Series, Pixel 6 Series)
      - Nokia

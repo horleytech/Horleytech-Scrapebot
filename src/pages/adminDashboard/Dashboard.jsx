@@ -392,6 +392,8 @@ const AdminDashboard = () => {
   const queueRef = useRef([]);
   const [bulkMetaDataValue, setBulkMetaDataValue] = useState('Electronics');
   const [globalProductsCacheRows, setGlobalProductsCacheRows] = useState([]);
+  const [, setAllProductRows] = useState([]);
+  const [, setFilteredProductRows] = useState([]);
   const [syncJobState, setSyncJobState] = useState({ isSyncing: false, progress: '' });
   const [companyCsvUrl, setCompanyCsvUrl] = useState(FALLBACK_COMPANY_PRICING_CSV);
   const [loadingCompanyCsv, setLoadingCompanyCsv] = useState(false);
@@ -735,6 +737,11 @@ const AdminDashboard = () => {
           const vendorSnapshot = await getDocs(collection(db, COLLECTIONS.offline));
           const fallbackRows = buildGlobalRowsFromOfflineInventories(vendorSnapshot.docs);
           setGlobalProductsCacheRows(fallbackRows);
+          setAllProductRows(fallbackRows);
+          if (!fallbackRows.length) {
+            setFilteredProductRows([]);
+            setAllProductRows([]);
+          }
           setOfficialTargets(Array.from(new Set(fallbackRows.map((row) => row.deviceType).filter(Boolean))));
         };
 
@@ -753,6 +760,7 @@ const AdminDashboard = () => {
           const flattenedRows = chunkDocs.flatMap((chunkSnap) => (Array.isArray(chunkSnap.data()?.products) ? chunkSnap.data().products : []));
           if (flattenedRows.length) {
             setGlobalProductsCacheRows(flattenedRows);
+            setAllProductRows(flattenedRows);
           } else {
             await loadFromOfflineInventories();
           }
@@ -762,11 +770,15 @@ const AdminDashboard = () => {
         const rows = metadata.products;
         if (Array.isArray(rows) && rows.length) {
           setGlobalProductsCacheRows(rows);
+          setAllProductRows(rows);
         } else {
           await loadFromOfflineInventories();
         }
       } catch (error) {
         console.error('Failed to load global products cache:', error);
+        setGlobalProductsCacheRows([]);
+        setFilteredProductRows([]);
+        setAllProductRows([]);
       }
     };
     const timeoutId = setTimeout(() => {
@@ -1347,6 +1359,46 @@ const AdminDashboard = () => {
         alert(`Error nuking dictionary: ${err.message}`);
       }
     }
+  };
+
+  const nukeLocalCache = async () => {
+    try {
+      const localKeysToDelete = [];
+      for (let index = 0; index < localStorage.length; index += 1) {
+        const key = localStorage.key(index);
+        if (!key) continue;
+        if (key === 'globalProducts' || key === 'globalProductsCache' || key.startsWith('lastCache')) {
+          localKeysToDelete.push(key);
+        }
+      }
+      localKeysToDelete.forEach((key) => localStorage.removeItem(key));
+
+      if (window.indexedDB) {
+        if (typeof window.indexedDB.databases === 'function') {
+          const dbList = await window.indexedDB.databases();
+          await Promise.allSettled(
+            (dbList || [])
+              .map((entry) => entry?.name)
+              .filter(Boolean)
+              .map((name) => new Promise((resolve) => {
+                const request = window.indexedDB.deleteDatabase(name);
+                request.onsuccess = () => resolve();
+                request.onerror = () => resolve();
+                request.onblocked = () => resolve();
+              }))
+          );
+        }
+      }
+    } catch (error) {
+      console.error('Failed to nuke local cache:', error);
+    }
+
+    window.location.reload(true);
+  };
+
+  const handleNukeAndRebuild = async () => {
+    await nukeAndRebuildDictionary();
+    await nukeLocalCache();
   };
 
 
@@ -2052,7 +2104,7 @@ const AdminDashboard = () => {
                       🛑 Stop Process
                     </button>
                   )}
-                  <button type="button" onClick={nukeAndRebuildDictionary} className="px-4 py-2.5 rounded-2xl text-xs font-black uppercase tracking-wider border border-red-200 text-red-700 bg-red-50 hover:bg-red-100">⚠️ Nuke & Rebuild Dictionary</button>
+                  <button type="button" onClick={handleNukeAndRebuild} className="px-4 py-2.5 rounded-2xl text-xs font-black uppercase tracking-wider border border-red-200 text-red-700 bg-red-50 hover:bg-red-100">⚠️ Nuke & Rebuild Dictionary</button>
                 </div>
               </div>
               <div className="space-y-3">
