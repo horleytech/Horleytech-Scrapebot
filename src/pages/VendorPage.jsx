@@ -1033,7 +1033,7 @@ const VendorPage = () => {
             <label className="block text-sm font-bold text-gray-700 mb-2">Allowed Inventory Groups</label>
             <div className="flex flex-wrap gap-4 p-4 bg-gray-50 rounded-lg border border-gray-100">
               {sourceGroups.map((group) => (
-                <label key={group} className="flex items-center gap-2 cursor-pointer select-none">
+                <label key={group} className="flex items-center gap-2 cursor-pointer">
                   <input type="checkbox" className="w-4 h-4 text-blue-600 rounded" checked={allowedGroups.includes(group)} onChange={() => toggleAllowedGroup(group)} />
                   <span className="text-sm font-medium text-gray-700">{group}</span>
                 </label>
@@ -1159,7 +1159,7 @@ const VendorPage = () => {
       {mainTab === 'advanced' && (
         <div className="bg-white border border-gray-200 rounded-[12px] p-5 mb-6 shadow-sm relative overflow-hidden">
           <h2 className="text-xl font-bold text-[#1A1C23] mb-4">Advanced Tools</h2>
-          <div className={`${(vendorData.advancedEnabled || isAdmin) ? '' : 'blur-sm pointer-events-none select-none'}`}>
+          <div className={`${(vendorData.advancedEnabled || isAdmin) ? '' : 'blur-sm'}`}>
             <p className="text-sm font-bold text-gray-600 mb-4">Use AI to clean inventory data or generate product imagery. Choose the action and target before running.</p>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">

@@ -11,8 +11,10 @@ import { createRequire } from 'module';
 import OpenAI from 'openai';
 import admin from 'firebase-admin';
 import { processChatFile } from './fileProcessor.js';
+import { Worker } from 'worker_threads';
+import { processWithShadowTesting } from './cleaner.js';
 import { saveVendorsToFirebase } from './dataProcessor.js';
-import { initializeCronTasks, runRetroactiveSweep, forceBuildGlobalCache, resetGlobalMemoryCache } from './cronTasks.js';
+import { initializeCronTasks, runRetroactiveSweep, resetGlobalMemoryCache } from './cronTasks.js';
 import {
   initializeSystemCollections,
   runBackup,
@@ -619,12 +621,42 @@ app.post('/api/admin/retroactive-sweep', async (_req, res) => {
   }
 });
 
-app.post('/api/admin/force-build-cache', async (req, res) => {
+app.post('/api/admin/force-build-cache', async (_req, res) => {
   try {
-    const total = await forceBuildGlobalCache();
-    return res.json({ success: true, message: `Cache built successfully with ${total} products!` });
+    const firestore = getAdminFirestore();
+    await firestore.collection(SETTINGS_COLLECTION).doc('cacheControl').set({
+      cacheAutomationEnabled: true,
+      cacheAutomationPausedByNuke: false,
+      lastForceStartedAt: new Date().toISOString(),
+    }, { merge: true });
+
+    const workerPath = path.join(__dirname, 'workers', 'cacheWorker.js');
+    const worker = new Worker(workerPath, { type: 'module' });
+
+    worker.on('message', (message) => {
+      if (message?.success) {
+        console.log(`✅ Background cache worker completed with ${message.total} products.`);
+      } else {
+        console.error('❌ Background cache worker failed:', message?.error || 'Unknown error');
+      }
+    });
+
+    worker.on('error', (error) => {
+      console.error('❌ Cache worker runtime error:', error.message);
+    });
+
+    worker.on('exit', (code) => {
+      if (code !== 0) {
+        console.error(`❌ Cache worker exited with code ${code}`);
+      }
+    });
+
+    return res.status(202).json({
+      success: true,
+      message: 'Cache build started in background. You will be notified upon completion.',
+    });
   } catch (error) {
-    console.error('Cache build failed:', error);
+    console.error('Cache worker spawn failed:', error);
     return res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -632,6 +664,38 @@ app.post('/api/admin/force-build-cache', async (req, res) => {
 app.post('/api/admin/nuke-server-memory', (_req, res) => {
   resetGlobalMemoryCache();
   return res.status(200).json({ message: 'Server memory wiped successfully' });
+});
+
+
+app.post('/api/admin/nuke-cache-system', async (_req, res) => {
+  try {
+    const firestore = getAdminFirestore();
+    const metaRef = firestore.collection(SETTINGS_COLLECTION).doc('globalProductsCache');
+    const metaSnap = await metaRef.get();
+    const previousChunkTotal = Number(metaSnap.data()?.totalChunks || 0);
+
+    for (let i = 0; i < previousChunkTotal; i += 1) {
+      await firestore.doc(`${SETTINGS_COLLECTION}/cache_chunk_${i}`).delete();
+    }
+
+    await metaRef.delete().catch(() => null);
+    await firestore.collection(SETTINGS_COLLECTION).doc('cacheControl').set({
+      cacheAutomationEnabled: false,
+      cacheAutomationPausedByNuke: true,
+      nukedAt: new Date().toISOString(),
+    }, { merge: true });
+
+    resetGlobalMemoryCache();
+
+    return res.status(200).json({
+      success: true,
+      message: 'Global cache nuked. Automation is OFF until force build is triggered.',
+      deletedChunks: previousChunkTotal,
+    });
+  } catch (error) {
+    console.error('❌ Cache nuke failed:', error);
+    return res.status(500).json({ success: false, error: error.message });
+  }
 });
 
 // Admin Database Restore Endpoint
@@ -855,21 +919,15 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
   res.status(200).json({ data: [{ message: '' }] });
 
   try {
-    const systemPrompt = `
-        You are an expert product data extractor reading WhatsApp messages.
-        Extract all relevant products.
-
-        Format output as a JSON array with EXACT keys:
-        - "Category": MUST be one of: ${CATS}. If unknown use 'Others'.
-        - "SubCategory": strict sub-category when possible; otherwise dynamic fallback.
-        - "Device Type"
-        - "Condition"
-        - "SIM Type/Model/Processor"
-        - "Storage Capacity/Configuration"
-        - "Regular price": numeric or 'Available' if no stated price.
-
-        If no products are found, return []. Only return valid JSON.
-        `;
+    const stageOnePrompt = `
+        You are Stage 1 Extractor.
+        Extract products from messy WhatsApp broadcasts.
+        Return JSON array only with EXACT keys:
+        - rawProductString
+        - price
+        Do NOT categorize, do NOT infer taxonomy names, do NOT add extra keys.
+        If no products are found, return [] only.
+      `;
 
     let extractedProducts = [];
     let retries = 3;
@@ -880,7 +938,7 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
         const aiResponse = await openai.chat.completions.create({
           model: 'gpt-4o-mini',
           messages: [
-            { role: 'system', content: systemPrompt },
+            { role: 'system', content: stageOnePrompt },
             { role: 'user', content: senderMessage }
           ],
           temperature: 0,
@@ -888,24 +946,59 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
 
         const cleanJson = aiResponse.choices[0].message.content.replace(/```json/g, '').replace(/```/g, '').trim();
         extractedProducts = JSON.parse(cleanJson);
-        success = true; // Mark as successful to break the loop
+        success = true;
       } catch (err) {
         retries -= 1;
         if (retries > 0) {
           console.log(`⚠️ OpenAI Webhook Hiccup. Retrying... (${retries} left)`);
-          await new Promise(resolve => setTimeout(resolve, 2000)); // Wait 2 seconds before retrying
+          await new Promise((resolve) => setTimeout(resolve, 2000));
         } else {
           throw new Error(`OpenAI failed after 3 retries: ${err.message}`);
         }
       }
     }
 
-    if (extractedProducts.length > 0) {
-      console.log(`✅ AI Extracted ${extractedProducts.length} items.`);
+    const shadowProcessed = [];
+    for (const item of extractedProducts) {
+      const rawProductString = String(item?.rawProductString || '').trim();
+      if (!rawProductString) continue;
+
+      const parsedPrice = Number(String(item?.price || '').replace(/[^0-9.]/g, '')) || 0;
+
+      try {
+        const shadowResult = await processWithShadowTesting({ rawProductString, price: parsedPrice });
+        shadowProcessed.push(shadowResult);
+      } catch (error) {
+        console.warn('⚠️ Shadow processing failed for one item. Falling back to Others:', error.message);
+        shadowProcessed.push({
+          rawProductString,
+          price: parsedPrice,
+          taxonomy: { Category: 'Others', Brand: 'Others', Series: 'Others' },
+          storage: 'UNKNOWN',
+          condition: 'Unknown',
+          sim: 'Unknown',
+          variationId: `others_unknown_unknown_unknown`,
+          trustedFastLane: false,
+        });
+      }
+    }
+
+    if (shadowProcessed.length > 0) {
+      console.log(`✅ Stage 1 extracted ${shadowProcessed.length} items.`);
       const exactServerDate = new Date().toLocaleString('en-US', { timeZone: 'Africa/Lagos' });
 
-      const enrichedProducts = extractedProducts.map((product) => ({
-        ...product,
+      const enrichedProducts = shadowProcessed.map((product) => ({
+        Category: product.taxonomy?.Category || 'Others',
+        Brand: product.taxonomy?.Brand || 'Others',
+        Series: product.taxonomy?.Series || 'Others',
+        'Device Type': product.taxonomy?.Series || product.rawProductString,
+        Condition: product.condition,
+        'SIM Type/Model/Processor': product.sim,
+        'Storage Capacity/Configuration': product.storage,
+        'Regular price': product.price || 'Available',
+        rawProductString: product.rawProductString,
+        variationId: product.variationId,
+        trustedFastLane: product.trustedFastLane,
         DatePosted: exactServerDate,
         isGroupMessage: isMessageFromGroup || false,
         groupName: isMessageFromGroup ? groupName : 'Direct Message'
@@ -985,144 +1078,192 @@ const runOpenAIExtraction = async (rows = [], signal) => {
   return Array.isArray(parsed.data) ? parsed.data : [];
 };
 
-app.post('/api/admin/trigger-background-sync', async (req, res) => {
+app.post('/api/admin/trigger-background-sync', async (_req, res) => {
   res.status(200).json({ message: 'Background sync started' });
-const db = getFirestore();
-try {
-console.log('🔄 Background Sync: Initializing...');
 
-// 2. Fetch all existing Categorical Mappings
-const CAT_LIST = ['Smartphones', 'Smartwatches', 'Laptops', 'Sounds', 'Accessories', 'Tablets', 'Gaming', 'Others'];
-const accumulatedMappings = {};
+  const db = getFirestore();
+  const CAT_LIST = ['Smartphones', 'Smartwatches', 'Laptops', 'Sounds', 'Accessories', 'Tablets', 'Gaming', 'Others'];
+  const CHUNK_SIZE = 20;
+  const CHUNK_TIMEOUT_MS = 45000;
 
-for (const cat of CAT_LIST) {
-  const catDoc = await db.collection(SETTINGS_COLLECTION).doc(`mappings_${cat}`).get();
-  if (catDoc.exists) {
-    const data = catDoc.data();
-    if (data && data.mappings) {
-      Object.assign(accumulatedMappings, data.mappings);
+  const withTimeout = async (promiseFactory, timeoutMs, timeoutMessage) => Promise.race([
+    promiseFactory(),
+    new Promise((_, reject) => setTimeout(() => reject(new Error(timeoutMessage)), timeoutMs)),
+  ]);
+
+  const safeSetSyncStatus = async (payload) => {
+    try {
+      await db.collection('horleyTech_Settings').doc('syncStatus').set(payload, { merge: true });
+    } catch (error) {
+      console.warn('⚠️ syncStatus write skipped:', error.message);
     }
-  }
-}
-const mappings = accumulatedMappings;
-const vendorsSnap = await db.collection('horleyTech_OfflineInventories').get();
-const unknownsSet = new Set();
-vendorsSnap.docs.forEach(docSnap => {
-  const products = docSnap.data().products || [];
-  products.forEach(p => {
-    const raw = String(p.raw || p.rawString || p['Device Type'] || '').trim();
-    if (!raw) return;
-    const key = raw.toLowerCase().replace(/[^a-z0-9]/g, '');
-    if (!mappings[key] || mappings[key].condition === 'Unknown' || mappings[key].deviceType === 'Unknown Device') {
-       unknownsSet.add(raw);
+  };
+
+  try {
+    console.log('🔄 Background Sync: Initializing...');
+
+    const accumulatedMappings = {};
+    for (const cat of CAT_LIST) {
+      try {
+        const catDoc = await withTimeout(
+          () => db.collection(SETTINGS_COLLECTION).doc(`mappings_${cat}`).get(),
+          20000,
+          `Timeout loading mappings_${cat}`,
+        );
+
+        if (catDoc.exists) {
+          const data = catDoc.data();
+          if (data?.mappings) Object.assign(accumulatedMappings, data.mappings);
+        }
+      } catch (error) {
+        console.warn(`⚠️ Could not load mappings_${cat}:`, error.message);
+      }
     }
-  });
-});
-const candidates = Array.from(unknownsSet).map(str => ({ raw: str }));
-console.log(`🔄 Background Sync: Found ${candidates.length} candidates for AI evaluation.`);
-if (candidates.length === 0) {
-  await db.collection('horleyTech_Settings').doc('syncStatus').set({ isSyncing: false, progress: 'No new items', justFinished: true }, { merge: true });
-  return;
-}
-// OPTIMIZATION: Accumulate mappings to reduce database writes by 80%
-let chunkMappings = {};
-for (let i = 0; i < candidates.length; i += 20) {
-  const isFifthChunk = ((i / 20) % 5 === 0);
-  const isLastChunk = (i + 20 >= candidates.length);
-  // 🛑 EMERGENCY STOP CHECK & UI UPDATE (Only every 5 chunks to save Firebase Read/Write costs)
-  if (isFifthChunk || isLastChunk) {
-    const statusCheck = await db.collection('horleyTech_Settings').doc('syncStatus').get();
-    if (statusCheck.exists && statusCheck.data().cancelRequested === true) {
-      console.log("🛑 Background sync stopped by Admin.");
-      await db.collection('horleyTech_Settings').doc('syncStatus').set({ isSyncing: false, progress: 'Stopped by Admin', cancelRequested: false, justFinished: true }, { merge: true });
+
+    const vendorsSnap = await withTimeout(
+      () => db.collection('horleyTech_OfflineInventories').get(),
+      30000,
+      'Timeout loading offline inventories',
+    );
+
+    const unknownsSet = new Set();
+    vendorsSnap.docs.forEach((docSnap) => {
+      const products = docSnap.data().products || [];
+      products.forEach((product) => {
+        const raw = String(product.raw || product.rawString || product['Device Type'] || '').trim();
+        if (!raw) return;
+        const key = raw.toLowerCase().replace(/[^a-z0-9]/g, '');
+        const mapping = accumulatedMappings[key];
+        if (!mapping || mapping.condition === 'Unknown' || mapping.deviceType === 'Unknown Device') {
+          unknownsSet.add(raw);
+        }
+      });
+    });
+
+    const candidates = Array.from(unknownsSet).map((raw) => ({ raw }));
+    console.log(`🔄 Background Sync: Found ${candidates.length} candidates for AI evaluation.`);
+
+    if (!candidates.length) {
+      await safeSetSyncStatus({ isSyncing: false, progress: 'No new items', justFinished: true });
       return;
     }
 
-    const progressText = `Backend AI Judging ${Math.min(i + 20, candidates.length)} / ${candidates.length}`;
-    console.log(progressText);
-    await db.collection('horleyTech_Settings').doc('syncStatus').set({ isSyncing: true, progress: progressText }, { merge: true });
-  }
-  const chunk = candidates.slice(i, i + 20);
+    let chunkMappings = {};
+    let failedChunks = 0;
 
-  try {
-    const completion = await openaiBackground.chat.completions.create({
-        model: "gpt-4o-mini",
-        response_format: { type: "json_object" },
-        messages: [
-            { role: "system", content: "You are an expert mobile device product detail extractor. You must output JSON with a 'data' array containing objects with properties: raw, brand, series, category, deviceType, condition, specification, isOthers. 'condition' strictly Brand New, Grade A UK Used, or Unknown. 'specification' MUST dynamically extract either the SIM Type (e.g. Physical SIM, ESIM), OR the Processor/Chip (e.g. M1, M2 Pro, Core i7), OR the Watch Size/Connectivity (e.g. 45mm, GPS, Cellular), depending on what the device is. Default to 'Unknown' if none found." },
-            { role: "user", content: `Extract data for these products: ${JSON.stringify(chunk)}. Always return valid JSON with a 'data' array.` }
-        ],
-        temperature: 0.1,
-    });
-    const parsed = JSON.parse(completion.choices[0].message.content);
-    const data = Array.isArray(parsed.data) ? parsed.data : [];
-    if (data.length > 0) {
-      data.forEach(item => {
-        const raw = String(item?.raw || '').trim();
-        if (!raw) return;
-        const key = raw.toLowerCase().replace(/[^a-z0-9]/g, '');
-        chunkMappings[key] = {
-          standardName: item.deviceType || 'Unknown Device',
-          condition: item.condition || 'Unknown',
-          specification: item.specification || item.sim || 'Unknown', // Universal Spec field
-          isOthers: Boolean(item.isOthers),
-          category: item.category || 'Others',
-          brand: item.brand || 'Others',
-          series: item.series || 'Others',
-          deviceType: item.deviceType || 'Unknown Device'
-        };
-      });
+    for (let i = 0; i < candidates.length; i += CHUNK_SIZE) {
+      const isCheckpoint = ((i / CHUNK_SIZE) % 5 === 0) || (i + CHUNK_SIZE >= candidates.length);
+      const chunk = candidates.slice(i, i + CHUNK_SIZE);
+
+      if (isCheckpoint) {
+        try {
+          const statusCheck = await withTimeout(
+            () => db.collection('horleyTech_Settings').doc('syncStatus').get(),
+            10000,
+            'Timeout reading syncStatus',
+          );
+
+          if (statusCheck.exists && statusCheck.data().cancelRequested === true) {
+            console.log('🛑 Background sync stopped by Admin.');
+            await safeSetSyncStatus({ isSyncing: false, progress: 'Stopped by Admin', cancelRequested: false, justFinished: true });
+            return;
+          }
+        } catch (error) {
+          console.warn('⚠️ syncStatus checkpoint read skipped:', error.message);
+        }
+
+        const progressText = `Backend AI Judging ${Math.min(i + CHUNK_SIZE, candidates.length)} / ${candidates.length} (failed chunks: ${failedChunks})`;
+        console.log(progressText);
+        await safeSetSyncStatus({ isSyncing: true, progress: progressText, heartbeatAt: new Date().toISOString() });
+      }
+
+      try {
+        const completion = await withTimeout(
+          () => openaiBackground.chat.completions.create({
+            model: 'gpt-4o-mini',
+            response_format: { type: 'json_object' },
+            messages: [
+              { role: 'system', content: "You are an expert mobile device product detail extractor. You must output JSON with a 'data' array containing objects with properties: raw, brand, series, category, deviceType, condition, specification, isOthers. 'condition' strictly Brand New, Grade A UK Used, or Unknown. 'specification' MUST dynamically extract either the SIM Type (e.g. Physical SIM, ESIM), OR the Processor/Chip (e.g. M1, M2 Pro, Core i7), OR the Watch Size/Connectivity (e.g. 45mm, GPS, Cellular), depending on what the device is. Default to 'Unknown' if none found." },
+              { role: 'user', content: `Extract data for these products: ${JSON.stringify(chunk)}. Always return valid JSON with a 'data' array.` },
+            ],
+            temperature: 0.1,
+          }),
+          CHUNK_TIMEOUT_MS,
+          `OpenAI chunk timeout at index ${i}`,
+        );
+
+        const parsed = JSON.parse(completion.choices?.[0]?.message?.content || '{}');
+        const data = Array.isArray(parsed.data) ? parsed.data : [];
+
+        data.forEach((item) => {
+          const raw = String(item?.raw || '').trim();
+          if (!raw) return;
+
+          const key = raw.toLowerCase().replace(/[^a-z0-9]/g, '');
+          chunkMappings[key] = {
+            standardName: item.deviceType || 'Unknown Device',
+            condition: item.condition || 'Unknown',
+            specification: item.specification || item.sim || 'Unknown',
+            isOthers: Boolean(item.isOthers),
+            category: item.category || 'Others',
+            brand: item.brand || 'Others',
+            series: item.series || 'Others',
+            deviceType: item.deviceType || 'Unknown Device',
+          };
+        });
+      } catch (error) {
+        failedChunks += 1;
+        console.error(`❌ Backend Chunk ${i} failed:`, error.message);
+      }
+
+      if (isCheckpoint && Object.keys(chunkMappings).length > 0) {
+        const shardUpdates = {};
+        for (const [key, mapping] of Object.entries(chunkMappings)) {
+          const safeCat = CAT_LIST.includes(mapping.category) ? mapping.category : 'Others';
+          if (!shardUpdates[safeCat]) shardUpdates[safeCat] = {};
+          shardUpdates[safeCat][key] = mapping;
+        }
+
+        for (const [catName, mapData] of Object.entries(shardUpdates)) {
+          await withTimeout(
+            () => db.collection(SETTINGS_COLLECTION).doc(`mappings_${catName}`).set({ mappings: mapData, lastUpdated: new Date().toISOString() }, { merge: true }),
+            20000,
+            `Timeout saving mappings_${catName}`,
+          );
+        }
+
+        console.log(`✅ Database Checkpoint - Sharded & Saved ${Object.keys(chunkMappings).length} mapped items.`);
+        chunkMappings = {};
+      }
     }
-  } catch (err) {
-    console.error(`❌ Backend Chunk ${i} failed:`, err.message);
-  }
-  // OPTIMIZED AGGRESSIVE SAVE: Only write to Firebase every 100 items (or on the last chunk)
-  if ((isFifthChunk || isLastChunk) && Object.keys(chunkMappings).length > 0) {
-    // 📦 Categorical Sharding Checkpoint Save
-    const shardUpdates = {};
-    for (const [key, mapping] of Object.entries(chunkMappings)) {
-      const safeCat = CAT_LIST.includes(mapping.category) ? mapping.category : 'Others';
-      if (!shardUpdates[safeCat]) shardUpdates[safeCat] = {};
-      shardUpdates[safeCat][key] = mapping;
+
+    if (Object.keys(chunkMappings).length > 0) {
+      const shardUpdates = {};
+      for (const [key, mapping] of Object.entries(chunkMappings)) {
+        const safeCat = CAT_LIST.includes(mapping.category) ? mapping.category : 'Others';
+        if (!shardUpdates[safeCat]) shardUpdates[safeCat] = {};
+        shardUpdates[safeCat][key] = mapping;
+      }
+
+      for (const [catName, mapData] of Object.entries(shardUpdates)) {
+        await withTimeout(
+          () => db.collection(SETTINGS_COLLECTION).doc(`mappings_${catName}`).set({ mappings: mapData, lastUpdated: new Date().toISOString() }, { merge: true }),
+          20000,
+          `Timeout final saving mappings_${catName}`,
+        );
+      }
+
+      console.log(`✅ Final Complete Save - Sharded & Saved ${Object.keys(chunkMappings).length} mapped items.`);
     }
 
-    for (const [catName, mapData] of Object.entries(shardUpdates)) {
-      await db.collection(SETTINGS_COLLECTION).doc(`mappings_${catName}`).set({
-        mappings: mapData,
-        lastUpdated: new Date().toISOString(),
-      }, { merge: true });
-    }
-    console.log(`✅ Database Checkpoint - Sharded & Saved ${Object.keys(chunkMappings).length} mapped items.`);
-    // Reset accumulators after save
-    chunkMappings = {};
+    console.log('🎉 Background Sync: Complete!');
+    await safeSetSyncStatus({ isSyncing: false, progress: failedChunks ? `Sync Complete (with ${failedChunks} failed chunks)` : 'Sync Complete', justFinished: true });
+  } catch (error) {
+    console.error('❌ Fatal Background Sync Error:', error);
+    await safeSetSyncStatus({ isSyncing: false, progress: 'Error during sync', justFinished: true });
   }
-}
-
-// 5. Final Complete Save
-if (Object.keys(chunkMappings).length > 0) {
-  const shardUpdates = {};
-  for (const [key, mapping] of Object.entries(chunkMappings)) {
-    const safeCat = CAT_LIST.includes(mapping.category) ? mapping.category : 'Others';
-    if (!shardUpdates[safeCat]) shardUpdates[safeCat] = {};
-    shardUpdates[safeCat][key] = mapping;
-  }
-
-  for (const [catName, mapData] of Object.entries(shardUpdates)) {
-    await db.collection(SETTINGS_COLLECTION).doc(`mappings_${catName}`).set({
-      mappings: mapData,
-      lastUpdated: new Date().toISOString(),
-    }, { merge: true });
-  }
-  console.log(`✅ Final Complete Save - Sharded & Saved ${Object.keys(chunkMappings).length} mapped items.`);
-}
-
-console.log('🎉 Background Sync: Complete!');
-await db.collection('horleyTech_Settings').doc('syncStatus').set({ isSyncing: false, progress: 'Sync Complete', justFinished: true }, { merge: true });
-} catch (error) {
-console.error('❌ Fatal Background Sync Error:', error);
-await db.collection('horleyTech_Settings').doc('syncStatus').set({ isSyncing: false, progress: 'Error during sync' }, { merge: true });
-}
 });
+
 app.listen(PORT, () => {
   console.log(`✅ Server is running and listening on port ${PORT}`);
 });

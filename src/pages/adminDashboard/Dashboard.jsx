@@ -33,6 +33,82 @@ const downloadCsv = (filename, rows) => {
   link.click();
   document.body.removeChild(link);
 };
+
+const normalizeDisplayCondition = (value = '') => {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (!normalized || normalized === 'unknown') return 'Unknown';
+  if (normalized === 'new' || normalized === 'brand new') return 'Brand New';
+  if (normalized === 'used' || normalized.includes('grade a') || normalized.includes('uk used')) return 'Grade A UK Used';
+  return value;
+};
+
+const normalizeDisplaySpec = (value = '') => {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (!normalized || normalized === 'unknown') return 'Unknown';
+  if (normalized === 'esim') return 'ESIM';
+  if (normalized === 'physical sim') return 'Physical SIM';
+  if (normalized === 'dual sim') return 'Dual SIM';
+  return value;
+};
+
+const normalizeDisplayStorage = (value = '') => {
+  const normalized = String(value || '').trim();
+  if (!normalized || normalized.toLowerCase() === 'unknown') return 'Unknown';
+  return normalized.toUpperCase();
+};
+
+const formatExportPrice = (vendors = []) => {
+  const validPrices = vendors
+    .map((vendor) => Number(vendor?.priceValue || 0))
+    .filter((value) => Number.isFinite(value) && value > 0)
+    .sort((a, b) => a - b);
+
+  if (!validPrices.length) return '';
+  return `N${validPrices[0].toLocaleString('en-NG')}.0`;
+};
+
+const toSheetLikeRows = (groupedTree = {}) => {
+  const rows = [];
+
+  Object.entries(groupedTree).forEach(([category, brands]) => {
+    rows.push({ Section: `#${String(category || 'others').toLowerCase()}`, Model: '', Condition: '', Spec: '', Storage: '', Price: '' });
+
+    Object.entries(brands).forEach(([_brand, seriesMap]) => {
+      Object.entries(seriesMap).forEach(([series, devices]) => {
+        rows.push({ Section: series, Model: '', Condition: '', Spec: '', Storage: '', Price: '' });
+
+        Object.entries(devices)
+          .sort(([a], [b]) => a.localeCompare(b))
+          .forEach(([deviceType, variations]) => {
+            const sortedVariations = Object.values(variations).sort((a, b) => {
+              const conditionCompare = normalizeDisplayCondition(a.condition).localeCompare(normalizeDisplayCondition(b.condition));
+              if (conditionCompare !== 0) return conditionCompare;
+              const specCompare = normalizeDisplaySpec(a.specification).localeCompare(normalizeDisplaySpec(b.specification));
+              if (specCompare !== 0) return specCompare;
+              return normalizeDisplayStorage(a.storage).localeCompare(normalizeDisplayStorage(b.storage), undefined, { numeric: true, sensitivity: 'base' });
+            });
+
+            sortedVariations.forEach((variation) => {
+              rows.push({
+                Section: '',
+                Model: deviceType,
+                Condition: normalizeDisplayCondition(variation.condition),
+                Spec: normalizeDisplaySpec(variation.specification),
+                Storage: normalizeDisplayStorage(variation.storage),
+                Price: formatExportPrice(variation.vendors),
+              });
+            });
+
+            rows.push({ Section: '', Model: '', Condition: '', Spec: '', Storage: '', Price: '' });
+          });
+      });
+    });
+
+    rows.push({ Section: '', Model: '', Condition: '', Spec: '', Storage: '', Price: '' });
+  });
+
+  return rows;
+};
 const parseNairaValue = (value) => {
   if (value === null || value === undefined) return 0;
   if (typeof value === 'number' && Number.isFinite(value)) return value;
@@ -692,6 +768,11 @@ const AdminDashboard = () => {
           progress: data.progress || '',
         });
 
+        if (data.isSyncing === true) {
+          // Keep dictionary count from appearing frozen at 0 during long sync runs.
+          fetchCustomMappings();
+        }
+
         if (data.isSyncing === false && data.justFinished === true) {
           fetchCustomMappings();
           setDoc(doc(db, 'horleyTech_Settings', 'syncStatus'), { justFinished: false }, { merge: true });
@@ -801,19 +882,7 @@ const AdminDashboard = () => {
   };
 
   const exportGlobalProductsCSV = () => {
-    const rows = filteredProductRows.map((row) => ({
-      Category: row.category,
-      Brand: row.brandSubCategory,
-      Series: row.series,
-      'Mapped Standard Name': row.deviceType,
-      Condition: row.condition,
-      'Spec / SIM': row.simType || row.specification || 'Unknown',
-      Storage: row.storage,
-      'Original Raw Text': row.raw,
-      Price: row.priceValue,
-      Vendor: row.vendorName,
-      Date: row.date,
-    }));
+    const rows = toSheetLikeRows(groupedGlobalProducts);
     downloadCsv('Global_Products_Export.csv', rows);
   };
 
@@ -1398,18 +1467,19 @@ const AdminDashboard = () => {
 
   const handleNukeAndRebuild = async () => {
     try {
-      const response = await fetch(`${BASE_URL}/api/admin/nuke-server-memory`, {
+      const response = await fetch(`${BASE_URL}/api/admin/nuke-cache-system`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
       });
       const payload = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(payload.error || 'Failed to wipe server memory cache');
+      if (!response.ok) throw new Error(payload.error || 'Failed to wipe global cache system');
     } catch (error) {
       alert(`❌ ${error.message}`);
       return;
     }
 
     await nukeAndRebuildDictionary();
+    alert('🛑 Cache automation is now OFF. Use "Force Build Product Cache" to turn it ON again.');
     await nukeLocalCache();
   };
 
