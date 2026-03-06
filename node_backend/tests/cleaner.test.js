@@ -9,8 +9,8 @@ test('normalizeStorage standardizes units and unknown', () => {
 });
 
 test('normalizeCondition maps slang and unknown', () => {
-  assert.equal(__testables.normalizeCondition('uk used clean'), 'Used');
-  assert.equal(__testables.normalizeCondition('brand new sealed'), 'New');
+  assert.equal(__testables.normalizeCondition('uk used clean'), 'Grade A UK Used');
+  assert.equal(__testables.normalizeCondition('brand new sealed'), 'Brand New');
   assert.equal(__testables.normalizeCondition('condition not stated'), 'Unknown');
 });
 
@@ -25,10 +25,10 @@ test('variation id is deterministic and lower-kebab', () => {
   const id = __testables.buildVariationId({
     series: 'iPhone 17 Pro Max',
     storage: '256GB',
-    condition: 'New',
+    condition: 'Brand New',
     sim: 'eSIM',
   });
-  assert.equal(id, 'iphone-17-pro-max_256gb_new_esim');
+  assert.equal(id, 'iphone-17-pro-max_256gb_brand-new_esim');
 });
 
 test('regexPredictTaxonomy returns Others fallback when no hit', () => {

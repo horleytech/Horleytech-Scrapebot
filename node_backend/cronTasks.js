@@ -14,6 +14,14 @@ const SETTINGS_COLLECTION = 'horleyTech_Settings';
 const AI_BATCH_SIZE = 20;
 let inMemoryGlobalProducts = [];
 
+const normalizeCacheCondition = (value = '') => {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (!normalized || normalized === 'unknown') return 'Unknown';
+  if (normalized === 'new' || normalized === 'brand new') return 'Brand New';
+  if (normalized === 'used' || normalized.includes('grade a') || normalized.includes('uk used')) return 'Grade A UK Used';
+  return String(value || 'Unknown');
+};
+
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 const normalizeMappingKey = (value) => String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -315,7 +323,7 @@ export const forceBuildGlobalCache = async () => {
         category: product?.Category || 'Others',
         brandSubCategory: product?.Brand || 'Others',
         series: product?.Series || 'Others',
-        condition: product?.Condition || 'Used',
+        condition: normalizeCacheCondition(product?.Condition || 'Unknown'),
         simType: product?.['SIM Type/Model/Processor'] || 'Physical SIM',
         storage: product?.['Storage Capacity/Configuration'] || 'NA',
         raw: product?.rawProductString || '',
