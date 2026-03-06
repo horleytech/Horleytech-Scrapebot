@@ -925,8 +925,23 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
       if (!rawProductString) continue;
 
       const parsedPrice = Number(String(item?.price || '').replace(/[^0-9.]/g, '')) || 0;
-      const shadowResult = await processWithShadowTesting({ rawProductString, price: parsedPrice });
-      shadowProcessed.push(shadowResult);
+
+      try {
+        const shadowResult = await processWithShadowTesting({ rawProductString, price: parsedPrice });
+        shadowProcessed.push(shadowResult);
+      } catch (error) {
+        console.warn('⚠️ Shadow processing failed for one item. Falling back to Others:', error.message);
+        shadowProcessed.push({
+          rawProductString,
+          price: parsedPrice,
+          taxonomy: { Category: 'Others', Brand: 'Others', Series: 'Others' },
+          storage: 'UNKNOWN',
+          condition: 'Unknown',
+          sim: 'Unknown',
+          variationId: `others_unknown_unknown_unknown`,
+          trustedFastLane: false,
+        });
+      }
     }
 
     if (shadowProcessed.length > 0) {

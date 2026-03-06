@@ -68,6 +68,26 @@ const buildVariationId = ({ series, storage, condition, sim }) => `${series}_${s
   .toLowerCase()
   .replace(/\s+/g, '-');
 
+
+const isTransientFirestoreError = (error) => {
+  const msg = String(error?.message || '').toLowerCase();
+  return msg.includes('deadline_exceeded') || msg.includes('unavailable') || msg.includes('resource_exhausted');
+};
+
+const withRetries = async (operation, { retries = 2, delayMs = 300 } = {}) => {
+  let attempt = 0;
+  while (attempt <= retries) {
+    try {
+      return await operation();
+    } catch (error) {
+      if (!isTransientFirestoreError(error) || attempt === retries) throw error;
+      await new Promise((resolve) => setTimeout(resolve, delayMs * (attempt + 1)));
+      attempt += 1;
+    }
+  }
+  return null;
+};
+
 const canonicalFallbackTaxonomy = () => ({ Category: 'Others', Brand: 'Others', Series: 'Others' });
 
 const collectMasterTaxonomy = async () => {
@@ -164,7 +184,11 @@ const incrementMetrics = async (delta = {}) => {
     payload[key] = admin.firestore.FieldValue.increment(value);
   });
 
-  await metricsRef.set(payload, { merge: true });
+  try {
+    await withRetries(() => metricsRef.set(payload, { merge: true }), { retries: 1, delayMs: 250 });
+  } catch (error) {
+    console.warn('⚠️ Metrics write skipped:', error.message);
+  }
 };
 
 const updateAliasTracker = async ({ variationId, alias, regexPrediction, aiTruth }) => {
@@ -178,7 +202,7 @@ const updateAliasTracker = async ({ variationId, alias, regexPrediction, aiTruth
 
   let promotedToTrusted = false;
 
-  await firestore.runTransaction(async (transaction) => {
+  await withRetries(() => firestore.runTransaction(async (transaction) => {
     const containerSnap = await transaction.get(containerRef);
     const existing = containerSnap.exists ? containerSnap.data() : {};
     const aliasTracker = existing.aliasTracker || {};
@@ -208,7 +232,7 @@ const updateAliasTracker = async ({ variationId, alias, regexPrediction, aiTruth
       isTrusted: nextTrusted,
       lastCheckedAt: new Date().toISOString(),
     }, { merge: true });
-  });
+  }), { retries: 1, delayMs: 300 });
 
   return { didMatch, promotedToTrusted };
 };
@@ -216,14 +240,26 @@ const updateAliasTracker = async ({ variationId, alias, regexPrediction, aiTruth
 const tryTrustedFastLane = async (alias) => {
   const firestore = getAdminFirestore();
   const aliasIndexRef = firestore.collection(PRODUCT_ALIAS_INDEX_COLLECTION).doc(toAliasDocId(alias));
-  const aliasSnap = await aliasIndexRef.get();
+  let aliasSnap;
+  try {
+    aliasSnap = await withRetries(() => aliasIndexRef.get(), { retries: 1, delayMs: 200 });
+  } catch (error) {
+    console.warn('⚠️ Trusted fast-lane lookup skipped:', error.message);
+    return null;
+  }
 
   if (!aliasSnap.exists) return null;
 
   const aliasData = aliasSnap.data() || {};
   if (!aliasData.isTrusted || !aliasData.variationId) return null;
 
-  const containerSnap = await firestore.collection(PRODUCT_CONTAINER_COLLECTION).doc(String(aliasData.variationId)).get();
+  let containerSnap;
+  try {
+    containerSnap = await withRetries(() => firestore.collection(PRODUCT_CONTAINER_COLLECTION).doc(String(aliasData.variationId)).get(), { retries: 1, delayMs: 200 });
+  } catch (error) {
+    console.warn('⚠️ Trusted container lookup skipped:', error.message);
+    return null;
+  }
   if (!containerSnap.exists) return null;
 
   const containerData = containerSnap.data() || {};
@@ -259,7 +295,16 @@ export const processWithShadowTesting = async ({ rawProductString, price }) => {
     };
   }
 
-  const { rows, canonicalTaxonomy } = await collectMasterTaxonomy();
+  let rows = [];
+  let canonicalTaxonomy = [];
+  try {
+    const collected = await collectMasterTaxonomy();
+    rows = collected.rows;
+    canonicalTaxonomy = collected.canonicalTaxonomy;
+  } catch (error) {
+    console.warn('⚠️ Master taxonomy fetch failed, using fallback:', error.message);
+  }
+
   const regexPrediction = regexPredictTaxonomy(alias, rows);
   const aiTruth = await runTwoLayerJudge(alias, canonicalTaxonomy);
 
@@ -274,12 +319,17 @@ export const processWithShadowTesting = async ({ rawProductString, price }) => {
     sim: parsedSim,
   });
 
-  const shadowResult = await updateAliasTracker({
-    variationId: aiVariationId,
-    alias,
-    regexPrediction,
-    aiTruth,
-  });
+  let shadowResult = { didMatch: false, promotedToTrusted: false };
+  try {
+    shadowResult = await updateAliasTracker({
+      variationId: aiVariationId,
+      alias,
+      regexPrediction,
+      aiTruth,
+    });
+  } catch (error) {
+    console.warn('⚠️ Alias tracker update skipped:', error.message);
+  }
 
   await incrementMetrics({
     shadowMatches: shadowResult.didMatch ? 1 : 0,
