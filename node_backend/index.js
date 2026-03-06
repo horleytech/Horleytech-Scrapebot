@@ -12,7 +12,7 @@ import OpenAI from 'openai';
 import admin from 'firebase-admin';
 import { processChatFile } from './fileProcessor.js';
 import { saveVendorsToFirebase } from './dataProcessor.js';
-import { initializeCronTasks, runRetroactiveSweep, forceBuildGlobalCache } from './cronTasks.js';
+import { initializeCronTasks, runRetroactiveSweep, forceBuildGlobalCache, resetGlobalMemoryCache } from './cronTasks.js';
 import {
   initializeSystemCollections,
   runBackup,
@@ -627,6 +627,11 @@ app.post('/api/admin/force-build-cache', async (req, res) => {
     console.error('Cache build failed:', error);
     return res.status(500).json({ success: false, error: error.message });
   }
+});
+
+app.post('/api/admin/nuke-server-memory', (_req, res) => {
+  resetGlobalMemoryCache();
+  return res.status(200).json({ message: 'Server memory wiped successfully' });
 });
 
 // Admin Database Restore Endpoint
