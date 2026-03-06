@@ -14,6 +14,14 @@ const SETTINGS_COLLECTION = 'horleyTech_Settings';
 const AI_BATCH_SIZE = 20;
 let inMemoryGlobalProducts = [];
 
+const normalizeCacheCondition = (value = '') => {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (!normalized || normalized === 'unknown') return 'Unknown';
+  if (normalized === 'new' || normalized === 'brand new') return 'Brand New';
+  if (normalized === 'used' || normalized.includes('grade a') || normalized.includes('uk used')) return 'Grade A UK Used';
+  return String(value || 'Unknown');
+};
+
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 const normalizeMappingKey = (value) => String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -286,18 +294,9 @@ export const runNightlyUnknownSweeper = async () => {
 
 export const forceBuildGlobalCache = async () => {
   const firestore = admin.firestore();
-  const CAT_LIST = ['Smartphones', 'Smartwatches', 'Laptops', 'Sounds', 'Accessories', 'Tablets', 'Gaming', 'Others'];
   const vendorsSnap = await firestore.collection('horleyTech_OfflineInventories').get();
-  const masterDictionary = {};
-  for (const cat of CAT_LIST) {
-    const mappingDoc = await firestore.collection(SETTINGS_COLLECTION).doc(`mappings_${cat}`).get();
-    if (!mappingDoc.exists) continue;
-    const mapData = mappingDoc.data() || {};
-    const mappings = mapData.mappings && typeof mapData.mappings === 'object' ? mapData.mappings : {};
-    Object.assign(masterDictionary, mappings);
-  }
 
-  const allProducts = [];
+  const groupedByVariation = {};
 
   vendorsSnap.forEach((docSnap) => {
     const data = docSnap.data() || {};
@@ -306,32 +305,37 @@ export const forceBuildGlobalCache = async () => {
 
     (data.products || []).forEach((product) => {
       const priceValue = Number(String(product?.['Regular price'] || '').replace(/[^0-9.]/g, ''));
-      if (!priceValue || priceValue === 0) return;
+      if (!priceValue || priceValue <= 0) return;
 
-      const rawDescriptor = `${product?.['Device Type'] || ''} ${product?.Condition || ''} ${product?.['SIM Type/Model/Processor'] || ''}`.trim();
-      const rawKey = rawDescriptor.toLowerCase().replace(/[^a-z0-9]/g, '');
+      if (product?.ignored === true || String(product?.ignoreReason || '').trim()) return;
 
-      const mapping = masterDictionary[rawKey];
-      const standardName = mapping?.standardName || product?.['Device Type'] || 'Unknown Device';
+      const variationId = String(product?.variationId || '').trim().toLowerCase();
+      if (!variationId) return;
 
-      allProducts.push({
-        id: `${docSnap.id}_${Math.random().toString(36).substr(2, 9)}`,
+      if (!groupedByVariation[variationId]) groupedByVariation[variationId] = [];
+
+      groupedByVariation[variationId].push({
+        id: `${docSnap.id}_${Math.random().toString(36).slice(2, 11)}`,
+        variationId,
         vendorName,
         vendorLink,
         price: String(product?.['Regular price'] || ''),
         priceValue,
         date: data.lastUpdated || new Date().toISOString(),
-        deviceType: standardName,
-        category: mapping?.category || 'Others',
-        brandSubCategory: mapping?.brand || 'Others',
-        series: mapping?.series || 'Others',
-        condition: mapping?.condition || product?.Condition || 'Unknown',
-        simType: mapping?.specification || product?.['SIM Type/Model/Processor'] || 'Unknown',
-        storage: product?.['Storage Capacity/Configuration'] || 'N/A',
-        raw: rawDescriptor,
+        category: product?.Category || 'Others',
+        brandSubCategory: product?.Brand || 'Others',
+        series: product?.Series || 'Others',
+        condition: normalizeCacheCondition(product?.Condition || 'Unknown'),
+        simType: product?.['SIM Type/Model/Processor'] || 'Physical SIM',
+        storage: product?.['Storage Capacity/Configuration'] || 'NA',
+        raw: product?.rawProductString || '',
       });
     });
   });
+
+  const allProducts = Object.values(groupedByVariation).flatMap((items) => items
+    .sort((a, b) => a.priceValue - b.priceValue)
+    .slice(0, 10));
 
   if (!allProducts.length) {
     throw new Error('Global cache build aborted: no products were found in offline inventories.');
@@ -339,10 +343,9 @@ export const forceBuildGlobalCache = async () => {
 
   inMemoryGlobalProducts = [...allProducts];
 
-  const chunkSize = 500; // Safely below the 1MB Firestore limit
+  const chunkSize = 500;
   const totalChunks = Math.ceil(allProducts.length / chunkSize);
 
-  // 1. Sequentially delete old chunks to prevent queue exhaustion
   const previousCacheMeta = await firestore.collection(SETTINGS_COLLECTION).doc('globalProductsCache').get();
   const previousChunkTotal = Number(previousCacheMeta.data()?.totalChunks || 0);
 
@@ -350,18 +353,16 @@ export const forceBuildGlobalCache = async () => {
     await firestore.doc(`${SETTINGS_COLLECTION}/cache_chunk_${i}`).delete();
   }
 
-  // 2. Sequentially save new chunks
   for (let i = 0; i < totalChunks; i += 1) {
     const chunk = allProducts.slice(i * chunkSize, (i + 1) * chunkSize);
     await firestore.doc(`${SETTINGS_COLLECTION}/cache_chunk_${i}`).set({ products: chunk });
   }
 
-  // 3. Save Master Index last
   await firestore.doc(`${SETTINGS_COLLECTION}/globalProductsCache`).set({
     lastUpdated: new Date().toISOString(),
     totalChunks,
     totalProducts: allProducts.length,
-    officialTargets: Array.from(new Set(allProducts.map((p) => p.deviceType))),
+    totalVariations: Object.keys(groupedByVariation).length,
   });
 
   return allProducts.length;
@@ -370,6 +371,24 @@ export const forceBuildGlobalCache = async () => {
 export const resetGlobalMemoryCache = () => {
   inMemoryGlobalProducts = [];
   return inMemoryGlobalProducts.length;
+};
+
+export const runScheduledCacheBuildIfEnabled = async () => {
+  const firestore = getAdminFirestore();
+  const controlSnap = await firestore.collection(SETTINGS_COLLECTION).doc('cacheControl').get();
+  const cacheAutomationEnabled = controlSnap.exists ? Boolean(controlSnap.data()?.cacheAutomationEnabled) : false;
+
+  if (!cacheAutomationEnabled) {
+    return { success: true, skipped: true, reason: 'Cache automation disabled' };
+  }
+
+  const total = await forceBuildGlobalCache();
+  await firestore.collection(SETTINGS_COLLECTION).doc('cacheControl').set({
+    lastAutomatedBuildAt: new Date().toISOString(),
+    lastAutomatedBuildTotal: total,
+  }, { merge: true });
+
+  return { success: true, skipped: false, total };
 };
 
 export const initializeCronTasks = () => {
@@ -395,6 +414,20 @@ export const initializeCronTasks = () => {
       console.log('✅ Nightly unknown mapping sweeper finished:', result);
     } catch (error) {
       console.error('❌ Nightly unknown mapping sweeper failed:', error.message);
+    }
+  }, { timezone: 'Africa/Lagos' });
+
+  cron.schedule('0 */6 * * *', async () => {
+    console.log('🧱 Running scheduled global cache build check...');
+    try {
+      const result = await runScheduledCacheBuildIfEnabled();
+      if (result.skipped) {
+        console.log('⏭️ Scheduled cache build skipped:', result.reason);
+      } else {
+        console.log('✅ Scheduled cache build completed:', result.total);
+      }
+    } catch (error) {
+      console.error('❌ Scheduled cache build failed:', error.message);
     }
   }, { timezone: 'Africa/Lagos' });
 
