@@ -1479,7 +1479,7 @@ const AdminDashboard = () => {
     }
 
     await nukeAndRebuildDictionary();
-    alert('🛑 Cache automation is now OFF. Use "Force Build Product Cache" to turn it ON again.');
+    alert('🛑 Global cache + product containers wiped. Cache automation is now OFF. Use "Force Build Product Cache" to turn it ON again.');
     await nukeLocalCache();
   };
 

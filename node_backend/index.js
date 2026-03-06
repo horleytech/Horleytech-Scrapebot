@@ -265,6 +265,24 @@ const runBatchInChunks = async (operations, maxPerBatch = 400) => {
   }
 };
 
+const deleteCollectionDocuments = async (collectionName, filterFn = null, maxPerBatch = 350) => {
+  const firestore = getAdminFirestore();
+  const snapshot = await firestore.collection(collectionName).get();
+
+  const docsToDelete = snapshot.docs.filter((docSnap) => {
+    if (!filterFn) return true;
+    return Boolean(filterFn(docSnap));
+  });
+
+  for (let i = 0; i < docsToDelete.length; i += maxPerBatch) {
+    const batch = firestore.batch();
+    docsToDelete.slice(i, i + maxPerBatch).forEach((docSnap) => batch.delete(docSnap.ref));
+    await batch.commit();
+  }
+
+  return docsToDelete.length;
+};
+
 app.get('/', (req, res) => {
   res.json({ message: 'Server Running' });
 });
@@ -680,27 +698,32 @@ app.post('/api/admin/nuke-server-memory', (_req, res) => {
 app.post('/api/admin/nuke-cache-system', async (_req, res) => {
   try {
     const firestore = getAdminFirestore();
-    const metaRef = firestore.collection(SETTINGS_COLLECTION).doc('globalProductsCache');
-    const metaSnap = await metaRef.get();
-    const previousChunkTotal = Number(metaSnap.data()?.totalChunks || 0);
 
-    for (let i = 0; i < previousChunkTotal; i += 1) {
-      await firestore.doc(`${SETTINGS_COLLECTION}/cache_chunk_${i}`).delete();
-    }
+    const deletedChunks = await deleteCollectionDocuments(SETTINGS_COLLECTION, (docSnap) => docSnap.id.startsWith('cache_chunk_'));
 
-    await metaRef.delete().catch(() => null);
+    await firestore.collection(SETTINGS_COLLECTION).doc('globalProductsCache').delete().catch(() => null);
+
+    // Also nuke shadow product caches/indexes so old polluted containers are removed.
+    const deletedProductContainers = await deleteCollectionDocuments('horleyTech_ProductContainers');
+    const deletedAliasIndex = await deleteCollectionDocuments('horleyTech_ProductAliasIndex');
+
     await firestore.collection(SETTINGS_COLLECTION).doc('cacheControl').set({
       cacheAutomationEnabled: false,
       cacheAutomationPausedByNuke: true,
       nukedAt: new Date().toISOString(),
+      deletedChunks,
+      deletedProductContainers,
+      deletedAliasIndex,
     }, { merge: true });
 
     resetGlobalMemoryCache();
 
     return res.status(200).json({
       success: true,
-      message: 'Global cache nuked. Automation is OFF until force build is triggered.',
-      deletedChunks: previousChunkTotal,
+      message: 'Global/product caches nuked. Automation is OFF until force build is triggered.',
+      deletedChunks,
+      deletedProductContainers,
+      deletedAliasIndex,
     });
   } catch (error) {
     console.error('❌ Cache nuke failed:', error);
