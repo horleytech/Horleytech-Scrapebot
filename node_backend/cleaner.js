@@ -51,8 +51,8 @@ const normalizeStorage = (value = '') => {
 
 const normalizeCondition = (value = '') => {
   const text = String(value || '').toLowerCase();
-  if (/(uk used|pre-owned|fair|open box|used)/i.test(text)) return 'Used';
-  if (/(brand new|sealed|new)/i.test(text)) return 'New';
+  if (/(uk used|pre-owned|fair|open box|used)/i.test(text)) return 'Grade A UK Used';
+  if (/(brand new|sealed|new)/i.test(text)) return 'Brand New';
   return 'Unknown';
 };
 

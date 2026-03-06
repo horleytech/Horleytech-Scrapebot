@@ -14,6 +14,14 @@ const SETTINGS_COLLECTION = 'horleyTech_Settings';
 const AI_BATCH_SIZE = 20;
 let inMemoryGlobalProducts = [];
 
+const normalizeCacheCondition = (value = '') => {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (!normalized || normalized === 'unknown') return 'Unknown';
+  if (normalized === 'new' || normalized === 'brand new') return 'Brand New';
+  if (normalized === 'used' || normalized.includes('grade a') || normalized.includes('uk used')) return 'Grade A UK Used';
+  return String(value || 'Unknown');
+};
+
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 const normalizeMappingKey = (value) => String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -315,7 +323,7 @@ export const forceBuildGlobalCache = async () => {
         category: product?.Category || 'Others',
         brandSubCategory: product?.Brand || 'Others',
         series: product?.Series || 'Others',
-        condition: product?.Condition || 'Used',
+        condition: normalizeCacheCondition(product?.Condition || 'Unknown'),
         simType: product?.['SIM Type/Model/Processor'] || 'Physical SIM',
         storage: product?.['Storage Capacity/Configuration'] || 'NA',
         raw: product?.rawProductString || '',
@@ -363,6 +371,24 @@ export const resetGlobalMemoryCache = () => {
   return inMemoryGlobalProducts.length;
 };
 
+export const runScheduledCacheBuildIfEnabled = async () => {
+  const firestore = getAdminFirestore();
+  const controlSnap = await firestore.collection(SETTINGS_COLLECTION).doc('cacheControl').get();
+  const cacheAutomationEnabled = controlSnap.exists ? Boolean(controlSnap.data()?.cacheAutomationEnabled) : false;
+
+  if (!cacheAutomationEnabled) {
+    return { success: true, skipped: true, reason: 'Cache automation disabled' };
+  }
+
+  const total = await forceBuildGlobalCache();
+  await firestore.collection(SETTINGS_COLLECTION).doc('cacheControl').set({
+    lastAutomatedBuildAt: new Date().toISOString(),
+    lastAutomatedBuildTotal: total,
+  }, { merge: true });
+
+  return { success: true, skipped: false, total };
+};
+
 export const initializeCronTasks = () => {
   cron.schedule('0 0 * * 0', async () => {
     console.log('🗂️ Running weekly automated backup...');
@@ -386,6 +412,20 @@ export const initializeCronTasks = () => {
       console.log('✅ Nightly unknown mapping sweeper finished:', result);
     } catch (error) {
       console.error('❌ Nightly unknown mapping sweeper failed:', error.message);
+    }
+  }, { timezone: 'Africa/Lagos' });
+
+  cron.schedule('0 */6 * * *', async () => {
+    console.log('🧱 Running scheduled global cache build check...');
+    try {
+      const result = await runScheduledCacheBuildIfEnabled();
+      if (result.skipped) {
+        console.log('⏭️ Scheduled cache build skipped:', result.reason);
+      } else {
+        console.log('✅ Scheduled cache build completed:', result.total);
+      }
+    } catch (error) {
+      console.error('❌ Scheduled cache build failed:', error.message);
     }
   }, { timezone: 'Africa/Lagos' });
 

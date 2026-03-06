@@ -1462,18 +1462,19 @@ const AdminDashboard = () => {
 
   const handleNukeAndRebuild = async () => {
     try {
-      const response = await fetch(`${BASE_URL}/api/admin/nuke-server-memory`, {
+      const response = await fetch(`${BASE_URL}/api/admin/nuke-cache-system`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
       });
       const payload = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(payload.error || 'Failed to wipe server memory cache');
+      if (!response.ok) throw new Error(payload.error || 'Failed to wipe global cache system');
     } catch (error) {
       alert(`❌ ${error.message}`);
       return;
     }
 
     await nukeAndRebuildDictionary();
+    alert('🛑 Cache automation is now OFF. Use "Force Build Product Cache" to turn it ON again.');
     await nukeLocalCache();
   };
 

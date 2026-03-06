@@ -623,6 +623,13 @@ app.post('/api/admin/retroactive-sweep', async (_req, res) => {
 
 app.post('/api/admin/force-build-cache', async (_req, res) => {
   try {
+    const firestore = getAdminFirestore();
+    await firestore.collection(SETTINGS_COLLECTION).doc('cacheControl').set({
+      cacheAutomationEnabled: true,
+      cacheAutomationPausedByNuke: false,
+      lastForceStartedAt: new Date().toISOString(),
+    }, { merge: true });
+
     const workerPath = path.join(__dirname, 'workers', 'cacheWorker.js');
     const worker = new Worker(workerPath, { type: 'module' });
 
@@ -657,6 +664,38 @@ app.post('/api/admin/force-build-cache', async (_req, res) => {
 app.post('/api/admin/nuke-server-memory', (_req, res) => {
   resetGlobalMemoryCache();
   return res.status(200).json({ message: 'Server memory wiped successfully' });
+});
+
+
+app.post('/api/admin/nuke-cache-system', async (_req, res) => {
+  try {
+    const firestore = getAdminFirestore();
+    const metaRef = firestore.collection(SETTINGS_COLLECTION).doc('globalProductsCache');
+    const metaSnap = await metaRef.get();
+    const previousChunkTotal = Number(metaSnap.data()?.totalChunks || 0);
+
+    for (let i = 0; i < previousChunkTotal; i += 1) {
+      await firestore.doc(`${SETTINGS_COLLECTION}/cache_chunk_${i}`).delete();
+    }
+
+    await metaRef.delete().catch(() => null);
+    await firestore.collection(SETTINGS_COLLECTION).doc('cacheControl').set({
+      cacheAutomationEnabled: false,
+      cacheAutomationPausedByNuke: true,
+      nukedAt: new Date().toISOString(),
+    }, { merge: true });
+
+    resetGlobalMemoryCache();
+
+    return res.status(200).json({
+      success: true,
+      message: 'Global cache nuked. Automation is OFF until force build is triggered.',
+      deletedChunks: previousChunkTotal,
+    });
+  } catch (error) {
+    console.error('❌ Cache nuke failed:', error);
+    return res.status(500).json({ success: false, error: error.message });
+  }
 });
 
 // Admin Database Restore Endpoint
