@@ -12,6 +12,7 @@ const __dirname = path.dirname(__filename);
 const OFFLINE_COLLECTION = 'horleyTech_OfflineInventories';
 const SETTINGS_COLLECTION = 'horleyTech_Settings';
 const AI_BATCH_SIZE = 20;
+let inMemoryGlobalProducts = [];
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
@@ -332,6 +333,12 @@ export const forceBuildGlobalCache = async () => {
     });
   });
 
+  if (!allProducts.length) {
+    throw new Error('Global cache build aborted: no products were found in offline inventories.');
+  }
+
+  inMemoryGlobalProducts = [...allProducts];
+
   const chunkSize = 500; // Safely below the 1MB Firestore limit
   const totalChunks = Math.ceil(allProducts.length / chunkSize);
 
@@ -358,6 +365,11 @@ export const forceBuildGlobalCache = async () => {
   });
 
   return allProducts.length;
+};
+
+export const resetGlobalMemoryCache = () => {
+  inMemoryGlobalProducts = [];
+  return inMemoryGlobalProducts.length;
 };
 
 export const initializeCronTasks = () => {

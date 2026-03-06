@@ -1397,6 +1397,18 @@ const AdminDashboard = () => {
   };
 
   const handleNukeAndRebuild = async () => {
+    try {
+      const response = await fetch(`${BASE_URL}/api/admin/nuke-server-memory`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.error || 'Failed to wipe server memory cache');
+    } catch (error) {
+      alert(`❌ ${error.message}`);
+      return;
+    }
+
     await nukeAndRebuildDictionary();
     await nukeLocalCache();
   };
