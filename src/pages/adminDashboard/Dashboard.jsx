@@ -826,9 +826,21 @@ const AdminDashboard = () => {
           setOfficialTargets(Array.from(new Set(fallbackRows.map((row) => row.deviceType).filter(Boolean))));
         };
 
+        const cacheControlRef = doc(db, 'horleyTech_Settings', 'cacheControl');
+        const cacheControlSnap = await getDoc(cacheControlRef);
+        const cacheAutomationPausedByNuke = Boolean(cacheControlSnap.data()?.cacheAutomationPausedByNuke);
+
         const cacheRef = doc(db, 'horleyTech_Settings', 'globalProductsCache');
         const snapshot = await getDoc(cacheRef);
         if (!snapshot.exists()) {
+          if (cacheAutomationPausedByNuke) {
+            setGlobalProductsCacheRows([]);
+            setFilteredProductRows([]);
+            setAllProductRows([]);
+            setOfficialTargets([]);
+            return;
+          }
+
           await loadFromOfflineInventories();
           return;
         }
