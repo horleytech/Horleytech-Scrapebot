@@ -332,30 +332,43 @@ export const forceBuildGlobalCache = async () => {
     });
   });
 
+  // Fetch existing to delete old chunks
+  const cacheIndexRef = firestore.doc('horleyTech_Settings/globalProductsCache');
+  const existingIndex = await cacheIndexRef.get();
+  const oldTotalChunks = existingIndex.exists ? Number(existingIndex.data().totalChunks || 0) : 0;
+  const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+  // Delete old chunks in a safe, isolated batch
+  if (oldTotalChunks > 0) {
+    const deleteBatch = firestore.batch();
+    for (let i = 0; i < oldTotalChunks; i += 1) {
+      deleteBatch.delete(firestore.doc(`horleyTech_Settings/cache_chunk_${i}`));
+    }
+    await deleteBatch.commit();
+    await delay(1000); // 1 second cooldown for Firebase to breathe
+  }
+
+  // Chunk and prepare new data
   const chunkSize = 2000;
   const totalChunks = Math.ceil(allProducts.length / chunkSize);
 
-  const batch = firestore.batch();
-  const previousCacheMeta = await firestore.collection(SETTINGS_COLLECTION).doc('globalProductsCache').get();
-  const previousChunkTotal = Number(previousCacheMeta.data()?.totalChunks || 0);
-
-  for (let i = 0; i < previousChunkTotal; i += 1) {
-    batch.delete(firestore.doc(`${SETTINGS_COLLECTION}/cache_chunk_${i}`));
-  }
-
-  batch.set(firestore.doc('horleyTech_Settings/globalProductsCache'), {
+  // Save Master Index
+  await cacheIndexRef.set({
     lastUpdated: new Date().toISOString(),
     totalChunks,
     totalProducts: allProducts.length,
     officialTargets: Array.from(new Set(allProducts.map((p) => p.deviceType))),
   });
+  await delay(1000); // 1 second cooldown
 
+  // Save new chunks sequentially to prevent RESOURCE_EXHAUSTED
   for (let i = 0; i < totalChunks; i += 1) {
     const chunk = allProducts.slice(i * chunkSize, (i + 1) * chunkSize);
-    batch.set(firestore.doc(`horleyTech_Settings/cache_chunk_${i}`), { products: chunk });
+    await firestore.doc(`horleyTech_Settings/cache_chunk_${i}`).set({ products: chunk });
+    console.log(`✅ Saved Cache Chunk ${i + 1} of ${totalChunks}`);
+    await delay(1500); // 1.5 second cooldown between massive array writes
   }
 
-  await batch.commit();
   return allProducts.length;
 };
 
