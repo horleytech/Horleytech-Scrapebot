@@ -11,8 +11,10 @@ import { createRequire } from 'module';
 import OpenAI from 'openai';
 import admin from 'firebase-admin';
 import { processChatFile } from './fileProcessor.js';
+import { Worker } from 'worker_threads';
+import { processWithShadowTesting } from './cleaner.js';
 import { saveVendorsToFirebase } from './dataProcessor.js';
-import { initializeCronTasks, runRetroactiveSweep, forceBuildGlobalCache, resetGlobalMemoryCache } from './cronTasks.js';
+import { initializeCronTasks, runRetroactiveSweep, resetGlobalMemoryCache } from './cronTasks.js';
 import {
   initializeSystemCollections,
   runBackup,
@@ -619,12 +621,35 @@ app.post('/api/admin/retroactive-sweep', async (_req, res) => {
   }
 });
 
-app.post('/api/admin/force-build-cache', async (req, res) => {
+app.post('/api/admin/force-build-cache', async (_req, res) => {
   try {
-    const total = await forceBuildGlobalCache();
-    return res.json({ success: true, message: `Cache built successfully with ${total} products!` });
+    const workerPath = path.join(__dirname, 'workers', 'cacheWorker.js');
+    const worker = new Worker(workerPath, { type: 'module' });
+
+    worker.on('message', (message) => {
+      if (message?.success) {
+        console.log(`✅ Background cache worker completed with ${message.total} products.`);
+      } else {
+        console.error('❌ Background cache worker failed:', message?.error || 'Unknown error');
+      }
+    });
+
+    worker.on('error', (error) => {
+      console.error('❌ Cache worker runtime error:', error.message);
+    });
+
+    worker.on('exit', (code) => {
+      if (code !== 0) {
+        console.error(`❌ Cache worker exited with code ${code}`);
+      }
+    });
+
+    return res.status(202).json({
+      success: true,
+      message: 'Cache build started in background. You will be notified upon completion.',
+    });
   } catch (error) {
-    console.error('Cache build failed:', error);
+    console.error('Cache worker spawn failed:', error);
     return res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -855,21 +880,15 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
   res.status(200).json({ data: [{ message: '' }] });
 
   try {
-    const systemPrompt = `
-        You are an expert product data extractor reading WhatsApp messages.
-        Extract all relevant products.
-
-        Format output as a JSON array with EXACT keys:
-        - "Category": MUST be one of: ${CATS}. If unknown use 'Others'.
-        - "SubCategory": strict sub-category when possible; otherwise dynamic fallback.
-        - "Device Type"
-        - "Condition"
-        - "SIM Type/Model/Processor"
-        - "Storage Capacity/Configuration"
-        - "Regular price": numeric or 'Available' if no stated price.
-
-        If no products are found, return []. Only return valid JSON.
-        `;
+    const stageOnePrompt = `
+        You are Stage 1 Extractor.
+        Extract products from messy WhatsApp broadcasts.
+        Return JSON array only with EXACT keys:
+        - rawProductString
+        - price
+        Do NOT categorize, do NOT infer taxonomy names, do NOT add extra keys.
+        If no products are found, return [] only.
+      `;
 
     let extractedProducts = [];
     let retries = 3;
@@ -880,7 +899,7 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
         const aiResponse = await openai.chat.completions.create({
           model: 'gpt-4o-mini',
           messages: [
-            { role: 'system', content: systemPrompt },
+            { role: 'system', content: stageOnePrompt },
             { role: 'user', content: senderMessage }
           ],
           temperature: 0,
@@ -888,24 +907,59 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
 
         const cleanJson = aiResponse.choices[0].message.content.replace(/```json/g, '').replace(/```/g, '').trim();
         extractedProducts = JSON.parse(cleanJson);
-        success = true; // Mark as successful to break the loop
+        success = true;
       } catch (err) {
         retries -= 1;
         if (retries > 0) {
           console.log(`⚠️ OpenAI Webhook Hiccup. Retrying... (${retries} left)`);
-          await new Promise(resolve => setTimeout(resolve, 2000)); // Wait 2 seconds before retrying
+          await new Promise((resolve) => setTimeout(resolve, 2000));
         } else {
           throw new Error(`OpenAI failed after 3 retries: ${err.message}`);
         }
       }
     }
 
-    if (extractedProducts.length > 0) {
-      console.log(`✅ AI Extracted ${extractedProducts.length} items.`);
+    const shadowProcessed = [];
+    for (const item of extractedProducts) {
+      const rawProductString = String(item?.rawProductString || '').trim();
+      if (!rawProductString) continue;
+
+      const parsedPrice = Number(String(item?.price || '').replace(/[^0-9.]/g, '')) || 0;
+
+      try {
+        const shadowResult = await processWithShadowTesting({ rawProductString, price: parsedPrice });
+        shadowProcessed.push(shadowResult);
+      } catch (error) {
+        console.warn('⚠️ Shadow processing failed for one item. Falling back to Others:', error.message);
+        shadowProcessed.push({
+          rawProductString,
+          price: parsedPrice,
+          taxonomy: { Category: 'Others', Brand: 'Others', Series: 'Others' },
+          storage: 'UNKNOWN',
+          condition: 'Unknown',
+          sim: 'Unknown',
+          variationId: `others_unknown_unknown_unknown`,
+          trustedFastLane: false,
+        });
+      }
+    }
+
+    if (shadowProcessed.length > 0) {
+      console.log(`✅ Stage 1 extracted ${shadowProcessed.length} items.`);
       const exactServerDate = new Date().toLocaleString('en-US', { timeZone: 'Africa/Lagos' });
 
-      const enrichedProducts = extractedProducts.map((product) => ({
-        ...product,
+      const enrichedProducts = shadowProcessed.map((product) => ({
+        Category: product.taxonomy?.Category || 'Others',
+        Brand: product.taxonomy?.Brand || 'Others',
+        Series: product.taxonomy?.Series || 'Others',
+        'Device Type': product.taxonomy?.Series || product.rawProductString,
+        Condition: product.condition,
+        'SIM Type/Model/Processor': product.sim,
+        'Storage Capacity/Configuration': product.storage,
+        'Regular price': product.price || 'Available',
+        rawProductString: product.rawProductString,
+        variationId: product.variationId,
+        trustedFastLane: product.trustedFastLane,
         DatePosted: exactServerDate,
         isGroupMessage: isMessageFromGroup || false,
         groupName: isMessageFromGroup ? groupName : 'Direct Message'
