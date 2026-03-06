@@ -42,17 +42,33 @@ const normalizeAlias = (value = '') => String(value || '').trim().toLowerCase();
 const normalizeComparable = (value = '') => normalizeAlias(value).replace(/[^a-z0-9]/g, '');
 const toAliasDocId = (alias) => encodeURIComponent(normalizeAlias(alias));
 
+const USED_QUALIFIERS = /(uk used|pre-?owned|fair|open box|used|mint|pristine|almost new|basically new|just like new|like new|new phone only|clean as new)/i;
+const NEW_QUALIFIERS = /(brand new|new sealed|sealed|^new$)/i;
+
 const normalizeStorage = (value = '') => {
   const raw = String(value || '').toUpperCase().replace(/\s+/g, '');
   const storageMatch = raw.match(/(\d+)(GB|TB)/i);
   if (!storageMatch) return 'UNKNOWN';
-  return `${storageMatch[1]}${storageMatch[2].toUpperCase()}`;
+
+  const amount = Number(storageMatch[1]);
+  const unit = storageMatch[2].toUpperCase();
+
+  // Guard against malformed joins like 13128GB which create noisy container IDs.
+  if ((unit === 'GB' && amount > 2048) || (unit === 'TB' && amount > 8)) return 'UNKNOWN';
+
+  return `${amount}${unit}`;
 };
 
 const normalizeCondition = (value = '') => {
-  const text = String(value || '').toLowerCase();
-  if (/(uk used|pre-owned|fair|open box|used)/i.test(text)) return 'Grade A UK Used';
-  if (/(brand new|sealed|new)/i.test(text)) return 'Brand New';
+  const text = String(value || '').toLowerCase().trim();
+  if (!text) return 'Unknown';
+
+  // Important business rule: mint/pristine/like-new/new-phone-only are still Used.
+  if (USED_QUALIFIERS.test(text)) return 'Grade A UK Used';
+
+  // New is allowed only for explicit clean qualifiers.
+  if (NEW_QUALIFIERS.test(text)) return 'Brand New';
+
   return 'Unknown';
 };
 
@@ -88,6 +104,45 @@ const withRetries = async (operation, { retries = 2, delayMs = 300 } = {}) => {
   return null;
 };
 
+let excludedPhraseCache = [];
+let excludedPhraseCacheAt = 0;
+const EXCLUDED_PHRASE_CACHE_TTL_MS = 60000;
+
+const getExcludedPhrases = async () => {
+  const now = Date.now();
+  if ((now - excludedPhraseCacheAt) < EXCLUDED_PHRASE_CACHE_TTL_MS) return excludedPhraseCache;
+
+  try {
+    const firestore = getAdminFirestore();
+    const prefSnap = await withRetries(() => firestore.collection(SETTINGS_COLLECTION).doc('adminPreferences').get(), { retries: 1, delayMs: 200 });
+    const raw = String(prefSnap.data()?.excludedPhrases || '');
+    excludedPhraseCache = raw.split(',').map((v) => v.trim().toLowerCase()).filter(Boolean);
+    excludedPhraseCacheAt = now;
+  } catch (error) {
+    console.warn('⚠️ Excluded phrase read skipped:', error.message);
+  }
+
+  return excludedPhraseCache;
+};
+
+const shouldIgnoreRawString = async (rawText = '') => {
+  const text = String(rawText || '').toLowerCase();
+  if (!text) return true;
+  const phrases = await getExcludedPhrases();
+  return phrases.some((phrase) => text.includes(phrase));
+};
+
+const isTaxonomyEntryValid = (entry = {}) => {
+  const category = String(entry.Category || '').trim();
+  const brand = String(entry.Brand || '').trim();
+  const series = String(entry.Series || '').trim();
+  const brandLower = brand.toLowerCase();
+
+  if (!category || !brand || !series) return false;
+  if (brandLower === 'mint' || brandLower === 'pristine' || brandLower === 'like new') return false;
+  return true;
+};
+
 const canonicalFallbackTaxonomy = () => ({ Category: 'Others', Brand: 'Others', Series: 'Others' });
 
 const collectMasterTaxonomy = async () => {
@@ -97,7 +152,7 @@ const collectMasterTaxonomy = async () => {
   const uniqueTriples = new Set();
 
   for (const category of categories) {
-    const docSnap = await firestore.collection(SETTINGS_COLLECTION).doc(`mappings_${category}`).get();
+    const docSnap = await withRetries(() => firestore.collection(SETTINGS_COLLECTION).doc(`mappings_${category}`).get(), { retries: 1, delayMs: 200 });
     if (!docSnap.exists) continue;
 
     const mappings = docSnap.data()?.mappings || {};
@@ -110,6 +165,7 @@ const collectMasterTaxonomy = async () => {
         Series: mapped?.series || 'Others',
       };
 
+      if (!isTaxonomyEntryValid(candidate)) return;
       const tripleKey = `${candidate.Category}::${candidate.Brand}::${candidate.Series}`;
       uniqueTriples.add(tripleKey);
       rows.push(candidate);
@@ -278,6 +334,22 @@ export const processWithShadowTesting = async ({ rawProductString, price }) => {
   const parsedCondition = normalizeCondition(rawProductString);
   const parsedSim = normalizeSim(rawProductString);
 
+  const ignoredByPhrase = await shouldIgnoreRawString(rawProductString);
+  if (ignoredByPhrase) {
+    return {
+      rawProductString,
+      price,
+      taxonomy: canonicalFallbackTaxonomy(),
+      storage: parsedStorage,
+      condition: parsedCondition,
+      sim: parsedSim,
+      variationId: null,
+      trustedFastLane: false,
+      ignored: true,
+      ignoreReason: 'excluded-phrase',
+    };
+  }
+
   await incrementMetrics({ totalProcessed: 1 });
 
   const fastLane = await tryTrustedFastLane(alias);
@@ -292,6 +364,7 @@ export const processWithShadowTesting = async ({ rawProductString, price }) => {
       sim: parsedSim,
       variationId: fastLane.variationId,
       trustedFastLane: true,
+      ignored: false,
     };
   }
 
@@ -310,6 +383,22 @@ export const processWithShadowTesting = async ({ rawProductString, price }) => {
 
   if (aiTruth.Category === 'Others' && aiTruth.Brand === 'Others' && aiTruth.Series === 'Others') {
     await incrementMetrics({ stage2OthersFallbacks: 1 });
+  }
+
+  const hasUnknownVariantAttr = parsedStorage === 'UNKNOWN' || parsedCondition === 'Unknown' || parsedSim === 'Unknown';
+  if (hasUnknownVariantAttr || (aiTruth.Category === 'Others' && aiTruth.Brand === 'Others' && aiTruth.Series === 'Others')) {
+    return {
+      rawProductString,
+      price,
+      taxonomy: aiTruth,
+      storage: parsedStorage,
+      condition: parsedCondition,
+      sim: parsedSim,
+      variationId: null,
+      trustedFastLane: false,
+      ignored: true,
+      ignoreReason: hasUnknownVariantAttr ? 'unknown-variant-attribute' : 'taxonomy-others',
+    };
   }
 
   const aiVariationId = buildVariationId({
@@ -346,6 +435,7 @@ export const processWithShadowTesting = async ({ rawProductString, price }) => {
     sim: parsedSim,
     variationId: aiVariationId,
     trustedFastLane: false,
+    ignored: false,
   };
 };
 

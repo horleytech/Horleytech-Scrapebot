@@ -768,6 +768,11 @@ const AdminDashboard = () => {
           progress: data.progress || '',
         });
 
+        if (data.isSyncing === true) {
+          // Keep dictionary count from appearing frozen at 0 during long sync runs.
+          fetchCustomMappings();
+        }
+
         if (data.isSyncing === false && data.justFinished === true) {
           fetchCustomMappings();
           setDoc(doc(db, 'horleyTech_Settings', 'syncStatus'), { justFinished: false }, { merge: true });
@@ -1474,7 +1479,7 @@ const AdminDashboard = () => {
     }
 
     await nukeAndRebuildDictionary();
-    alert('🛑 Cache automation is now OFF. Use "Force Build Product Cache" to turn it ON again.');
+    alert('🛑 Global cache + product containers wiped. Cache automation is now OFF. Use "Force Build Product Cache" to turn it ON again.');
     await nukeLocalCache();
   };
 
