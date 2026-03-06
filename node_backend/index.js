@@ -75,7 +75,7 @@ const isAllowedOrigin = (origin) => {
   return allowedOriginRegex.test(origin);
 };
 
-app.use(cors({
+const corsOptions = {
   origin: function (origin, callback) {
     // allow requests with no origin (like mobile apps or curl requests)
     if (isAllowedOrigin(origin)) return callback(null, true);
@@ -87,7 +87,30 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization', 'x-api-key', 'x-user-role'],
   credentials: true,
   optionsSuccessStatus: 200, // some legacy browsers (IE11, various SmartTVs) choke on 204
-}));
+};
+
+app.use(cors(corsOptions));
+app.options('*', cors(corsOptions));
+
+// Ensure CORS headers are present even when upstream middleware throws,
+// so browser clients get actionable responses instead of opaque CORS failures.
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  if (isAllowedOrigin(origin)) {
+    if (origin) res.header('Access-Control-Allow-Origin', origin);
+    else res.header('Access-Control-Allow-Origin', '*');
+    res.header('Vary', 'Origin');
+    res.header('Access-Control-Allow-Credentials', 'true');
+    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-api-key, x-user-role');
+    res.header('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS');
+  }
+
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(200);
+  }
+
+  return next();
+});
 app.use(compression());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
