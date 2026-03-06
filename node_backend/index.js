@@ -56,21 +56,32 @@ const upload = multer({
 });
 
 const app = express();
-const allowedOrigins = [
+const allowedOrigins = new Set([
   'http://localhost:5173', // Local React Dev
   'http://localhost:3000', // Alternative Local Dev
   'https://scrapebot.horleytech.com', // Production Frontend
   'https://www.scrapebot.horleytech.com', // Production Frontend (www)
-];
+  ...String(process.env.CORS_ALLOWED_ORIGINS || '')
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean),
+]);
+
+const allowedOriginRegex = /^https:\/\/(?:[a-z0-9-]+\.)*horleytech\.com$/i;
+
+const isAllowedOrigin = (origin) => {
+  if (!origin) return true;
+  if (allowedOrigins.has(origin)) return true;
+  return allowedOriginRegex.test(origin);
+};
+
 app.use(cors({
   origin: function (origin, callback) {
     // allow requests with no origin (like mobile apps or curl requests)
-    if (!origin) return callback(null, true);
-    if (allowedOrigins.indexOf(origin) === -1) {
-      const msg = 'The CORS policy for this site does not allow access from the specified Origin.';
-      return callback(new Error(msg), false);
-    }
-    return callback(null, true);
+    if (isAllowedOrigin(origin)) return callback(null, true);
+
+    const msg = `The CORS policy for this site does not allow access from origin: ${origin}`;
+    return callback(new Error(msg), false);
   },
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'x-api-key', 'x-user-role'],
