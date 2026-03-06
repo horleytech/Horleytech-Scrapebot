@@ -42,22 +42,39 @@ const normalizeAlias = (value = '') => String(value || '').trim().toLowerCase();
 const normalizeComparable = (value = '') => normalizeAlias(value).replace(/[^a-z0-9]/g, '');
 const toAliasDocId = (alias) => encodeURIComponent(normalizeAlias(alias));
 
+const USED_QUALIFIERS = /(uk used|pre-?owned|fair|open box|used|mint|pristine|almost new|basically new|just like new|like new|new phone only|clean as new)/i;
+const NEW_QUALIFIERS = /(brand new|new sealed|sealed|^new$)/i;
+
 const normalizeStorage = (value = '') => {
   const raw = String(value || '').toUpperCase().replace(/\s+/g, '');
   const storageMatch = raw.match(/(\d+)(GB|TB)/i);
   if (!storageMatch) return 'UNKNOWN';
-  return `${storageMatch[1]}${storageMatch[2].toUpperCase()}`;
+
+  const amount = Number(storageMatch[1]);
+  const unit = storageMatch[2].toUpperCase();
+
+  // Guard against malformed joins like 13128GB which create noisy container IDs.
+  if ((unit === 'GB' && amount > 2048) || (unit === 'TB' && amount > 8)) return 'UNKNOWN';
+
+  return `${amount}${unit}`;
 };
 
 const normalizeCondition = (value = '') => {
-  const text = String(value || '').toLowerCase();
-  if (/(uk used|pre-owned|fair|open box|used)/i.test(text)) return 'Grade A UK Used';
-  if (/(brand new|sealed|new)/i.test(text)) return 'Brand New';
+  const text = String(value || '').toLowerCase().trim();
+  if (!text) return 'Unknown';
+
+  // Important business rule: mint/pristine/like-new/new-phone-only are still Used.
+  if (USED_QUALIFIERS.test(text)) return 'Grade A UK Used';
+
+  // New is allowed only for explicit clean qualifiers.
+  if (NEW_QUALIFIERS.test(text)) return 'Brand New';
+
   return 'Unknown';
 };
 
 const normalizeSim = (value = '') => {
   const text = String(value || '').toLowerCase();
+  if (/physical\s*(\+|and|&)\s*e-?sim|e-?sim\s*(\+|and|&)\s*physical/.test(text)) return 'Dual SIM';
   if (/dual/.test(text)) return 'Dual SIM';
   if (/esim|e-sim/.test(text)) return 'eSIM';
   if (/physical|single/.test(text)) return 'Physical SIM';
