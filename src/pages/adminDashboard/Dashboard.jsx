@@ -368,6 +368,12 @@ const inferSeries = (deviceType) => {
   return 'Others';
 };
 const AdminDashboard = () => {
+  const currentMonthRange = useMemo(() => {
+    const now = new Date();
+    const firstDay = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
+    const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().split('T')[0];
+    return { firstDay, lastDay };
+  }, []);
   const location = useLocation();
   const isAdmin = true;
   const [activeTab, setActiveTab] = useState('offline');
@@ -404,8 +410,8 @@ const AdminDashboard = () => {
   const [sessionNameInput, setSessionNameInput] = useState('');
   const [assignVendorModalOpen, setAssignVendorModalOpen] = useState(false);
   const [assignVendorValue, setAssignVendorValue] = useState('');
-  const [startDate, setStartDate] = useState('');
-  const [endDate, setEndDate] = useState('');
+  const [startDate, setStartDate] = useState(currentMonthRange.firstDay);
+  const [endDate, setEndDate] = useState(currentMonthRange.lastDay);
   const [expandedProductGroups, setExpandedProductGroups] = useState([]);
   const itemsPerPage = 50;
   
@@ -763,7 +769,11 @@ const AdminDashboard = () => {
         console.error('Failed to load global products cache:', error);
       }
     };
-    loadGlobalCache();
+    const timeoutId = setTimeout(() => {
+      loadGlobalCache();
+    }, 2000);
+
+    return () => clearTimeout(timeoutId);
   }, []);
 
   const saveExcludedPhrasesFilter = async () => {
@@ -776,6 +786,23 @@ const AdminDashboard = () => {
     } catch (error) {
       alert(`❌ Failed to save filter: ${error.message}`);
     }
+  };
+
+  const exportGlobalProductsCSV = () => {
+    const rows = filteredProductRows.map((row) => ({
+      Category: row.category,
+      Brand: row.brandSubCategory,
+      Series: row.series,
+      'Mapped Standard Name': row.deviceType,
+      Condition: row.condition,
+      'Spec / SIM': row.simType || row.specification || 'Unknown',
+      Storage: row.storage,
+      'Original Raw Text': row.raw,
+      Price: row.priceValue,
+      Vendor: row.vendorName,
+      Date: row.date,
+    }));
+    downloadCsv('Global_Products_Export.csv', rows);
   };
 
   const runMasterAutoSync = async () => {
@@ -1730,7 +1757,7 @@ const AdminDashboard = () => {
   return (
     <AdminDashboardLayout notificationCount={unreadMessages.length} onNotificationClick={() => setNotificationOpen(true)}>
       {location.pathname === '/dashboard' || location.pathname === '/dashboard/' ? (
-        <div className="p-6 cursor-default select-none">
+        <div className="p-6">
           {/* Analytics Hub Top Row */}
           <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6 gap-4 mb-6">
             <button type="button" onClick={() => setActiveTab('offline')} className="group text-left bg-gradient-to-br from-white to-slate-50 border border-slate-200/80 rounded-2xl p-5 shadow-sm hover:shadow-md transition-all cursor-pointer">
@@ -1998,6 +2025,7 @@ const AdminDashboard = () => {
                     className="flex-1 px-4 py-3 rounded-2xl border border-gray-100 bg-white/80 text-sm outline-none focus:ring-2 focus:ring-gray-300 cursor-text select-text"
                   />
                   <button type="button" onClick={saveExcludedPhrasesFilter} className="px-3 py-2 rounded-2xl text-[11px] font-black uppercase tracking-wider border border-gray-100 bg-white/80 hover:bg-white whitespace-nowrap">Save Filter</button>
+                  <button type="button" onClick={exportGlobalProductsCSV} className="px-3 py-2 rounded-2xl text-[11px] font-black uppercase tracking-wider border border-gray-700 bg-gray-800 text-white hover:bg-gray-900 whitespace-nowrap">📥 Export CSV</button>
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="px-4 py-3 rounded-2xl border border-gray-100 bg-white/80 text-sm outline-none focus:ring-2 focus:ring-gray-300 cursor-text select-text" />
@@ -2082,6 +2110,7 @@ const AdminDashboard = () => {
                                                                   <div className="flex overflow-x-auto hide-scrollbar gap-4 snap-x snap-mandatory pb-2">
                                                                     {variation.vendors
                                                                       .sort((a, b) => (productSortMode === 'lowest_price' ? a.priceValue - b.priceValue : b.priceValue - a.priceValue))
+                                                                      .slice(0, 10)
                                                                       .map((item) => (
                                                                         <article key={item.id} className="min-w-[200px] snap-center bg-gray-50 border border-gray-100 rounded-xl p-3 shadow-sm flex-shrink-0">
                                                                           <p className="text-xs font-bold text-gray-900">{item.vendorName}</p>
