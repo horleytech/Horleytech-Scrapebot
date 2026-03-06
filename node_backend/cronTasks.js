@@ -285,27 +285,16 @@ export const runNightlyUnknownSweeper = async () => {
 
 export const forceBuildGlobalCache = async () => {
   const firestore = admin.firestore();
+  const CAT_LIST = ['Smartphones', 'Smartwatches', 'Laptops', 'Sounds', 'Accessories', 'Tablets', 'Gaming', 'Others'];
   const vendorsSnap = await firestore.collection('horleyTech_OfflineInventories').get();
-  const customMappings = await getLatestCustomMappings();
-
-  const masterDictionary = Array.isArray(customMappings)
-    ? customMappings.reduce((acc, entry) => {
-      const raw = entry?.raw || entry?.source || entry?.rawString || '';
-      const key = normalizeMappingKey(raw);
-      if (!key) return acc;
-
-      acc[key] = {
-        standardName: entry?.standardName || entry?.deviceType || 'Unknown Device',
-        category: entry?.category || 'Others',
-        brand: entry?.brand || 'Others',
-        series: entry?.series || 'Others',
-        condition: entry?.condition || 'Unknown',
-        specification: entry?.specification || entry?.sim || 'Unknown',
-      };
-
-      return acc;
-    }, {})
-    : (customMappings || {});
+  const masterDictionary = {};
+  for (const cat of CAT_LIST) {
+    const mappingDoc = await firestore.collection(SETTINGS_COLLECTION).doc(`mappings_${cat}`).get();
+    if (!mappingDoc.exists) continue;
+    const mapData = mappingDoc.data() || {};
+    const mappings = mapData.mappings && typeof mapData.mappings === 'object' ? mapData.mappings : {};
+    Object.assign(masterDictionary, mappings);
+  }
 
   const allProducts = [];
 
@@ -347,6 +336,13 @@ export const forceBuildGlobalCache = async () => {
   const totalChunks = Math.ceil(allProducts.length / chunkSize);
 
   const batch = firestore.batch();
+  const previousCacheMeta = await firestore.collection(SETTINGS_COLLECTION).doc('globalProductsCache').get();
+  const previousChunkTotal = Number(previousCacheMeta.data()?.totalChunks || 0);
+
+  for (let i = 0; i < previousChunkTotal; i += 1) {
+    batch.delete(firestore.doc(`${SETTINGS_COLLECTION}/cache_chunk_${i}`));
+  }
+
   batch.set(firestore.doc('horleyTech_Settings/globalProductsCache'), {
     lastUpdated: new Date().toISOString(),
     totalChunks,
