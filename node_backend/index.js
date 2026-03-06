@@ -36,6 +36,16 @@ const MESSAGE_COLLECTION = 'horleyTech_PlatformMessages';
 const AUDIT_COLLECTION = 'horleyTech_AuditLogs';
 const SETTINGS_COLLECTION = 'horleyTech_Settings';
 
+let messagesCache = [];
+let messagesCacheUpdatedAt = 0;
+const MESSAGES_CACHE_TTL_MS = 15000;
+const MESSAGE_FETCH_TIMEOUT_MS = 8000;
+
+const withTimeout = async (promiseFactory, timeoutMs, timeoutMessage) => Promise.race([
+  promiseFactory(),
+  new Promise((_, reject) => setTimeout(() => reject(new Error(timeoutMessage)), timeoutMs)),
+]);
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const uploadsDir = path.join(__dirname, 'uploads');
@@ -749,7 +759,10 @@ app.post('/api/messages/send', async (req, res) => {
     };
 
     const docRef = await firestore.collection(MESSAGE_COLLECTION).add(payload);
-    return res.json({ success: true, message: { id: docRef.id, ...payload } });
+    const saved = { id: docRef.id, ...payload };
+    messagesCache = [saved, ...messagesCache].slice(0, 200);
+    messagesCacheUpdatedAt = Date.now();
+    return res.json({ success: true, message: saved });
   } catch (error) {
     console.error('❌ Send message error:', error);
     return res.status(500).json({ success: false, error: error.message });
@@ -757,13 +770,38 @@ app.post('/api/messages/send', async (req, res) => {
 });
 
 app.get('/api/messages', async (_req, res) => {
+  const now = Date.now();
+  const cacheFresh = messagesCache.length > 0 && (now - messagesCacheUpdatedAt) < MESSAGES_CACHE_TTL_MS;
+
+  if (cacheFresh) {
+    return res.json({ success: true, messages: messagesCache, source: 'cache' });
+  }
+
   try {
     const firestore = getAdminFirestore();
-    const snapshot = await firestore.collection(MESSAGE_COLLECTION).orderBy('createdAt', 'desc').limit(200).get();
+    const snapshot = await withTimeout(
+      () => firestore.collection(MESSAGE_COLLECTION).orderBy('createdAt', 'desc').limit(200).get(),
+      MESSAGE_FETCH_TIMEOUT_MS,
+      'Messages fetch timed out',
+    );
+
     const messages = snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }));
-    return res.json({ success: true, messages });
+    messagesCache = messages;
+    messagesCacheUpdatedAt = Date.now();
+
+    return res.json({ success: true, messages, source: 'firestore' });
   } catch (error) {
-    console.error('❌ Fetch all messages error:', error);
+    console.error('❌ Fetch all messages error:', error.message);
+
+    if (messagesCache.length > 0) {
+      return res.status(200).json({
+        success: true,
+        messages: messagesCache,
+        source: 'stale-cache',
+        warning: 'Serving stale messages due to backend timeout.',
+      });
+    }
+
     return res.status(500).json({ success: false, error: error.message });
   }
 });
