@@ -34,7 +34,10 @@ const getTextModel = (provider) => {
   return process.env.AI_TEXT_MODEL_OPENAI || 'gpt-4o-mini';
 };
 
-const getImageModel = () => process.env.AI_IMAGE_MODEL_OPENAI || 'dall-e-2';
+const getImageModel = (provider) => {
+  if (provider === 'qwen') return process.env.AI_IMAGE_MODEL_QWEN || 'qwen-image';
+  return process.env.AI_IMAGE_MODEL_OPENAI || 'dall-e-2';
+};
 
 const buildOpenAIClient = ({ provider, background = false }) => {
   if (provider === 'qwen') {
@@ -76,16 +79,12 @@ export const resolveTextAIConfig = async ({ background = false } = {}) => {
 
 export const resolveImageAIConfig = async () => {
   const control = await loadAIControl();
-  const imageProvider = normalizeProvider(control.imageProvider || 'openai');
-
-  if (imageProvider !== 'openai') {
-    console.warn('⚠️ Non-openai image provider selected, falling back to OpenAI Images API.');
-  }
+  const imageProvider = normalizeProvider(control.imageProvider || getDefaultProvider());
 
   return {
-    provider: 'openai',
-    model: String(control.imageModel || getImageModel()),
-    client: buildOpenAIClient({ provider: 'openai', background: true }),
+    provider: imageProvider,
+    model: String(control.imageModel || getImageModel(imageProvider)),
+    client: buildOpenAIClient({ provider: imageProvider, background: true }),
   };
 };
 

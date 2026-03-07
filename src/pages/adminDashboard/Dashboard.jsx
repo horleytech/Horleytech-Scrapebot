@@ -472,6 +472,7 @@ const AdminDashboard = () => {
   const [, setFilteredProductRows] = useState([]);
   const [syncJobState, setSyncJobState] = useState({ isSyncing: false, progress: '' });
   const [selectedAIProvider, setSelectedAIProvider] = useState('openai');
+  const [selectedImageAIProvider, setSelectedImageAIProvider] = useState('openai');
   const [companyCsvUrl, setCompanyCsvUrl] = useState(FALLBACK_COMPANY_PRICING_CSV);
   const [loadingCompanyCsv, setLoadingCompanyCsv] = useState(false);
   const [companyCsvRows, setCompanyCsvRows] = useState([]);
@@ -743,7 +744,9 @@ const AdminDashboard = () => {
     try {
       const aiControlSnap = await getDoc(doc(db, 'horleyTech_Settings', 'aiControl'));
       const savedProvider = String(aiControlSnap.data()?.selectedProvider || 'openai').toLowerCase();
+      const savedImageProvider = String(aiControlSnap.data()?.imageProvider || savedProvider || 'openai').toLowerCase();
       setSelectedAIProvider(savedProvider === 'qwen' ? 'qwen' : 'openai');
+      setSelectedImageAIProvider(savedImageProvider === 'qwen' ? 'qwen' : 'openai');
     } catch (error) {
       console.error('Failed to load AI provider setting:', error);
     }
@@ -760,6 +763,20 @@ const AdminDashboard = () => {
       alert(`✅ AI provider set to ${safeProvider.toUpperCase()}.`);
     } catch (error) {
       alert(`❌ Failed to save AI provider: ${error.message}`);
+    }
+  };
+
+  const saveImageAIProviderSetting = async (provider) => {
+    const safeProvider = provider === 'qwen' ? 'qwen' : 'openai';
+    setSelectedImageAIProvider(safeProvider);
+    try {
+      await setDoc(doc(db, 'horleyTech_Settings', 'aiControl'), {
+        imageProvider: safeProvider,
+        updatedAt: new Date().toISOString(),
+      }, { merge: true });
+      alert(`✅ Image AI provider set to ${safeProvider.toUpperCase()}.`);
+    } catch (error) {
+      alert(`❌ Failed to save Image AI provider: ${error.message}`);
     }
   };
 
@@ -2217,6 +2234,16 @@ const AdminDashboard = () => {
                   >
                     <option value="openai">OpenAI</option>
                     <option value="qwen">Qwen</option>
+                  </select>
+                  <select
+                    value={selectedImageAIProvider}
+                    onChange={(e) => saveImageAIProviderSetting(e.target.value)}
+                    className="px-3 py-2 rounded-lg border border-gray-300 bg-white text-xs font-semibold"
+                    title="Choose which image AI provider powers container image generation"
+                    disabled={syncJobState.isSyncing}
+                  >
+                    <option value="openai">Image: OpenAI</option>
+                    <option value="qwen">Image: Qwen</option>
                   </select>
                   <button
                     type="button"

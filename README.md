@@ -12,8 +12,8 @@ AI Engine: Configurable (OpenAI or Qwen for text tasks, OpenAI image generation 
 
 ## AI Provider Setup (OpenAI + Qwen)
 
-You can now choose the text AI provider from the Admin Dashboard (`OpenAI` or `Qwen`).
-The backend reads this from `horleyTech_Settings/aiControl.selectedProvider`.
+You can now choose the text AI provider and image AI provider from the Admin Dashboard (`OpenAI` or `Qwen`).
+The backend reads these from `horleyTech_Settings/aiControl.selectedProvider` and `horleyTech_Settings/aiControl.imageProvider`.
 
 ### .env variables (backend)
 
@@ -34,6 +34,7 @@ QWEN_API_KEY=your_qwen_key
 QWEN_API_KEY_SYNC=your_optional_background_qwen_key
 QWEN_BASE_URL=https://dashscope-intl.aliyuncs.com/compatible-mode/v1
 AI_TEXT_MODEL_QWEN=qwen-plus
+AI_IMAGE_MODEL_QWEN=qwen-image
 ```
 
 ### What to install on DigitalOcean
