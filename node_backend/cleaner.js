@@ -1,6 +1,6 @@
 import admin from 'firebase-admin';
-import OpenAI from 'openai';
 import { getAdminFirestore } from './backup.js';
+import { resolveTextAIConfig } from './aiConfig.js';
 
 export function convertString(stringResponse) {
   if (stringResponse.slice(-1) !== ']') {
@@ -27,16 +27,6 @@ const PRODUCT_CONTAINER_COLLECTION = 'horleyTech_ProductContainers';
 const PRODUCT_ALIAS_INDEX_COLLECTION = 'horleyTech_ProductAliasIndex';
 const SETTINGS_COLLECTION = 'horleyTech_Settings';
 const SHADOW_METRICS_DOC = 'shadowTestingMetrics';
-
-let openaiClient = null;
-const getOpenAIClient = () => {
-  if (openaiClient) return openaiClient;
-  if (!process.env.OPENAI_API_KEY) {
-    throw new Error('OPENAI_API_KEY is required for Stage 2 AI mapping.');
-  }
-  openaiClient = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-  return openaiClient;
-};
 
 const normalizeAlias = (value = '') => String(value || '').trim().toLowerCase();
 const normalizeComparable = (value = '') => normalizeAlias(value).replace(/[^a-z0-9]/g, '');
@@ -202,8 +192,9 @@ const runTwoLayerJudge = async (rawProductString, canonicalTaxonomy = []) => {
 
   const systemPrompt = 'You are a strict taxonomy judge. Choose EXACTLY one item from provided taxonomy list. Return JSON object with keys: Category, Brand, Series, confidence (0-1), exactMatched (boolean). If not confident exact match, return Others/ Others/ Others with confidence <= 0.5 and exactMatched false.';
 
-  const response = await getOpenAIClient().chat.completions.create({
-    model: 'gpt-4o-mini',
+  const aiConfig = await resolveTextAIConfig({ background: false });
+  const response = await aiConfig.client.chat.completions.create({
+    model: aiConfig.model,
     response_format: { type: 'json_object' },
     messages: [
       { role: 'system', content: systemPrompt },

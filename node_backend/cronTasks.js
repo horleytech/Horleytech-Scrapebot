@@ -3,8 +3,8 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import admin from 'firebase-admin';
-import OpenAI from 'openai';
 import { runBackup, getAdminFirestore } from './backup.js';
+import { resolveTextAIConfig } from './aiConfig.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -21,8 +21,6 @@ const normalizeCacheCondition = (value = '') => {
   if (normalized === 'used' || normalized.includes('grade a') || normalized.includes('uk used')) return 'Grade A UK Used';
   return String(value || 'Unknown');
 };
-
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 const normalizeMappingKey = (value) => String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
 
@@ -182,8 +180,9 @@ const chunkArray = (arr = [], size = AI_BATCH_SIZE) => {
 const runTwoLayerJudge = async (rows = []) => {
   const systemPrompt = 'You are a strict Two-Layer AI Judge. Given an array of objects with a "raw" string, extract details. You MUST return a JSON object with a single root key called "data" containing an array of objects. Each object must strictly have: "raw", "category", "brand", "series", "deviceType", "condition", "sim", and "isOthers". "condition" must be one of "Brand New", "Grade A UK Used", or "Unknown". "sim" must be one of "Physical SIM", "ESIM", "Physical SIM + ESIM", or "Unknown".';
 
-  const aiResponse = await openai.chat.completions.create({
-    model: 'gpt-4o-mini',
+  const textAI = await resolveTextAIConfig({ background: true });
+  const aiResponse = await textAI.client.chat.completions.create({
+    model: textAI.model,
     response_format: { type: 'json_object' },
     messages: [
       { role: 'system', content: systemPrompt },
@@ -197,8 +196,8 @@ const runTwoLayerJudge = async (rows = []) => {
 };
 
 export const runNightlyUnknownSweeper = async () => {
-  if (!process.env.OPENAI_API_KEY) {
-    console.warn('⚠️ OPENAI_API_KEY missing. Nightly unknown sweeper skipped.');
+  if (!process.env.OPENAI_API_KEY && !process.env.QWEN_API_KEY) {
+    console.warn('⚠️ No AI key configured (OPENAI_API_KEY or QWEN_API_KEY). Nightly unknown sweeper skipped.');
     return { success: false, judged: 0, skipped: true };
   }
 

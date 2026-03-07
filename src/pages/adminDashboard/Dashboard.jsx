@@ -471,6 +471,7 @@ const AdminDashboard = () => {
   const [, setAllProductRows] = useState([]);
   const [, setFilteredProductRows] = useState([]);
   const [syncJobState, setSyncJobState] = useState({ isSyncing: false, progress: '' });
+  const [selectedAIProvider, setSelectedAIProvider] = useState('openai');
   const [companyCsvUrl, setCompanyCsvUrl] = useState(FALLBACK_COMPANY_PRICING_CSV);
   const [loadingCompanyCsv, setLoadingCompanyCsv] = useState(false);
   const [companyCsvRows, setCompanyCsvRows] = useState([]);
@@ -737,10 +738,36 @@ const AdminDashboard = () => {
       console.error('Failed to load Firebase custom mappings:', error);
     }
   };
+
+  const fetchAIProviderSetting = async () => {
+    try {
+      const aiControlSnap = await getDoc(doc(db, 'horleyTech_Settings', 'aiControl'));
+      const savedProvider = String(aiControlSnap.data()?.selectedProvider || 'openai').toLowerCase();
+      setSelectedAIProvider(savedProvider === 'qwen' ? 'qwen' : 'openai');
+    } catch (error) {
+      console.error('Failed to load AI provider setting:', error);
+    }
+  };
+
+  const saveAIProviderSetting = async (provider) => {
+    const safeProvider = provider === 'qwen' ? 'qwen' : 'openai';
+    setSelectedAIProvider(safeProvider);
+    try {
+      await setDoc(doc(db, 'horleyTech_Settings', 'aiControl'), {
+        selectedProvider: safeProvider,
+        updatedAt: new Date().toISOString(),
+      }, { merge: true });
+      alert(`✅ AI provider set to ${safeProvider.toUpperCase()}.`);
+    } catch (error) {
+      alert(`❌ Failed to save AI provider: ${error.message}`);
+    }
+  };
+
   useEffect(() => {
     if (location.pathname === '/dashboard' || location.pathname === '/dashboard/') {
       fetchInventory();
       fetchBackups();
+      fetchAIProviderSetting();
     }
   }, [location.pathname]);
   useEffect(() => {
@@ -2181,6 +2208,16 @@ const AdminDashboard = () => {
               <div className="mb-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 bg-white/70 backdrop-blur-xl rounded-2xl border border-gray-100 shadow-sm p-4">
                 <p className="text-xs font-bold uppercase tracking-wider text-gray-500">Dictionary Mappings: {Object.keys(masterDictionary).length}</p>
                 <div className="flex items-center gap-3">
+                  <select
+                    value={selectedAIProvider}
+                    onChange={(e) => saveAIProviderSetting(e.target.value)}
+                    className="px-3 py-2 rounded-lg border border-gray-300 bg-white text-xs font-semibold"
+                    title="Choose which text AI model provider powers sync/judging"
+                    disabled={syncJobState.isSyncing}
+                  >
+                    <option value="openai">OpenAI</option>
+                    <option value="qwen">Qwen</option>
+                  </select>
                   <button
                     type="button"
                     onClick={runMasterAutoSync}

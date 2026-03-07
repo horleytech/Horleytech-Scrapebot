@@ -8,13 +8,13 @@ import compression from 'compression';
 import cors from 'cors';
 import { fileURLToPath } from 'url';
 import { createRequire } from 'module';
-import OpenAI from 'openai';
 import admin from 'firebase-admin';
 import { processChatFile } from './fileProcessor.js';
 import { Worker } from 'worker_threads';
 import { processWithShadowTesting } from './cleaner.js';
 import { saveVendorsToFirebase } from './dataProcessor.js';
 import { initializeCronTasks, runRetroactiveSweep, resetGlobalMemoryCache } from './cronTasks.js';
+import { resolveImageAIConfig, resolveTextAIConfig } from './aiConfig.js';
 import {
   initializeSystemCollections,
   runBackup,
@@ -129,8 +129,6 @@ app.use(express.urlencoded({ extended: true }));
 app.use(morgan('dev'));
 
 const PORT = process.env.PORT || 8000;
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY }); // Dedicated to WhatsApp Webhook
-const openaiBackground = new OpenAI({ apiKey: process.env.OPENAI_API_KEY_SYNC || process.env.OPENAI_API_KEY }); // Dedicated to Heavy Tasks
 const CATS = "'Smartphones', 'Smartwatches', 'Laptops', 'Sounds', 'Accessories', 'Tablets', 'Gaming', 'Others'";
 
 // Initialize infrastructure
@@ -876,8 +874,9 @@ app.post('/api/ai/fix-inventory', async (req, res) => {
     if (normalizedActionType === 'fix') {
       const systemPrompt = `You are a data cleaner. Standardize the following electronics inventory list. Fix typos in 'Device Type', ensure 'Storage Capacity/Configuration' is formatted like '128GB' or '8GB/256GB', and ensure 'SIM Type/Model/Processor' is clear. Return the exact JSON structure provided.`;
 
-      const aiResponse = await openaiBackground.chat.completions.create({
-        model: 'gpt-4o-mini',
+      const textAI = await resolveTextAIConfig({ background: true });
+      const aiResponse = await textAI.client.chat.completions.create({
+        model: textAI.model,
         messages: [
           { role: 'system', content: systemPrompt },
           {
@@ -907,8 +906,9 @@ app.post('/api/ai/fix-inventory', async (req, res) => {
       try {
         const imagePrompt = `A professional, realistic, studio-quality product photo of a ${product['Device Type'] || 'device'} ${product.Condition || ''} on a pure white background.`;
 
-        const imageResponse = await openaiBackground.images.generate({
-          model: 'dall-e-2',
+        const imageAI = await resolveImageAIConfig();
+        const imageResponse = await imageAI.client.images.generate({
+          model: imageAI.model,
           prompt: imagePrompt,
           size: '256x256',
           response_format: 'b64_json',
@@ -996,8 +996,9 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
 
     while (retries > 0 && !success) {
       try {
-        const aiResponse = await openai.chat.completions.create({
-          model: 'gpt-4o-mini',
+        const webhookAI = await resolveTextAIConfig({ background: false });
+        const aiResponse = await webhookAI.client.chat.completions.create({
+          model: webhookAI.model,
           messages: [
             { role: 'system', content: stageOnePrompt },
             { role: 'user', content: senderMessage }
@@ -1129,8 +1130,9 @@ const fetchUnknownVendorsList = async () => {
 const runOpenAIExtraction = async (rows = [], signal) => {
   const systemPrompt = `You are a strict Two-Layer AI Judge. Given an array of objects with a "raw" string, extract details. You MUST return a JSON object with a single root key called "data" containing an array of objects. Each object must strictly have: - "raw": The exact original string - "category", "brand", "series": Standard classifications - "deviceType": The standard clean device name - "condition": STRICTLY evaluate to "Brand New", "Grade A UK Used", or "Unknown" - "sim": STRICTLY evaluate to "Physical SIM", "ESIM", "Physical SIM + ESIM", or "Unknown" - "isOthers": true if unknown/obscure, else false;`;
 
-  const aiResponse = await openaiBackground.chat.completions.create({
-    model: 'gpt-4o-mini',
+  const backgroundAI = await resolveTextAIConfig({ background: true });
+  const aiResponse = await backgroundAI.client.chat.completions.create({
+    model: backgroundAI.model,
     response_format: { type: 'json_object' },
     messages: [
       { role: 'system', content: systemPrompt },
@@ -1244,15 +1246,18 @@ app.post('/api/admin/trigger-background-sync', async (_req, res) => {
 
       try {
         const completion = await withTimeout(
-          () => openaiBackground.chat.completions.create({
-            model: 'gpt-4o-mini',
-            response_format: { type: 'json_object' },
-            messages: [
-              { role: 'system', content: "You are an expert mobile device product detail extractor. You must output JSON with a 'data' array containing objects with properties: raw, brand, series, category, deviceType, condition, specification, isOthers. 'condition' strictly Brand New, Grade A UK Used, or Unknown. 'specification' MUST dynamically extract either the SIM Type (e.g. Physical SIM, ESIM), OR the Processor/Chip (e.g. M1, M2 Pro, Core i7), OR the Watch Size/Connectivity (e.g. 45mm, GPS, Cellular), depending on what the device is. Default to 'Unknown' if none found." },
-              { role: 'user', content: `Extract data for these products: ${JSON.stringify(chunk)}. Always return valid JSON with a 'data' array.` },
-            ],
-            temperature: 0.1,
-          }),
+          async () => {
+            const aiConfig = await resolveTextAIConfig({ background: true });
+            return aiConfig.client.chat.completions.create({
+              model: aiConfig.model,
+              response_format: { type: 'json_object' },
+              messages: [
+                { role: 'system', content: "You are an expert mobile device product detail extractor. You must output JSON with a 'data' array containing objects with properties: raw, brand, series, category, deviceType, condition, specification, isOthers. 'condition' strictly Brand New, Grade A UK Used, or Unknown. 'specification' MUST dynamically extract either the SIM Type (e.g. Physical SIM, ESIM), OR the Processor/Chip (e.g. M1, M2 Pro, Core i7), OR the Watch Size/Connectivity (e.g. 45mm, GPS, Cellular), depending on what the device is. Default to 'Unknown' if none found." },
+                { role: 'user', content: `Extract data for these products: ${JSON.stringify(chunk)}. Always return valid JSON with a 'data' array.` },
+              ],
+              temperature: 0.1,
+            });
+          },
           CHUNK_TIMEOUT_MS,
           `OpenAI chunk timeout at index ${i}`,
         );
