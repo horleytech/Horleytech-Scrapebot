@@ -8,7 +8,46 @@ Backend: Node.js + Express (Deployed on Ubuntu/Nginx via DigitalOcean)
 
 Database: Google Firebase (Firestore) - Enterprise Blaze Plan
 
-AI Engine: OpenAI gpt-4o-mini
+AI Engine: Configurable (OpenAI or Qwen for text tasks, OpenAI image generation by default)
+
+## AI Provider Setup (OpenAI + Qwen)
+
+You can now choose the text AI provider and image AI provider from the Admin Dashboard (`OpenAI` or `Qwen`).
+The backend reads these from `horleyTech_Settings/aiControl.selectedProvider` and `horleyTech_Settings/aiControl.imageProvider`.
+
+### .env variables (backend)
+
+Add these on your DigitalOcean backend server in `node_backend/.env`:
+
+```env
+# Default provider if dashboard setting is missing
+AI_PROVIDER_DEFAULT=openai
+
+# OpenAI keys (used for text when provider=openai, and for images)
+OPENAI_API_KEY=your_openai_key
+OPENAI_API_KEY_SYNC=your_optional_background_openai_key
+AI_TEXT_MODEL_OPENAI=gpt-4o-mini
+AI_IMAGE_MODEL_OPENAI=dall-e-2
+
+# Qwen keys (used for text when provider=qwen)
+QWEN_API_KEY=your_qwen_key
+QWEN_API_KEY_SYNC=your_optional_background_qwen_key
+QWEN_BASE_URL=https://dashscope-intl.aliyuncs.com/compatible-mode/v1
+AI_TEXT_MODEL_QWEN=qwen-plus
+AI_IMAGE_MODEL_QWEN=qwen-image
+```
+
+### What to install on DigitalOcean
+
+No extra package is required beyond project dependencies (`npm install` / `pnpm install`).
+Qwen is called through OpenAI-compatible HTTP API using the existing `openai` SDK.
+
+After updating `.env`, restart backend:
+
+```bash
+pm2 restart all
+pm2 log 0
+```
 
 🧠 The Master Sync Engine
 Categorical Sharding: To bypass Firebase's 1MB document limit, the AI groups mappings dynamically into 8 distinct categorical shards (e.g., mappings_Smartphones, mappings_Laptops).
