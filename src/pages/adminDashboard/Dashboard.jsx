@@ -33,6 +33,85 @@ const downloadCsv = (filename, rows) => {
   link.click();
   document.body.removeChild(link);
 };
+
+const normalizeDisplayCondition = (value = '') => {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (!normalized || normalized === 'unknown') return 'Unknown';
+  if (normalized.includes('non active') || normalized.includes('non-active')) return 'Brand New';
+  if (normalized === 'new' || normalized === 'brand new') return 'Brand New';
+  if (normalized === 'used' || normalized.includes('grade a') || normalized.includes('uk used')) return 'Grade A UK Used';
+  return value;
+};
+
+const normalizeDisplaySpec = (value = '') => {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (!normalized || normalized === 'unknown') return 'Unknown';
+  if (normalized.includes('esim') || normalized.includes('e-sim')) return 'ESIM';
+  if (normalized.includes('unlocked')) return 'ESIM';
+  if (normalized === 'esim') return 'ESIM';
+  if (normalized === 'physical sim') return 'Physical SIM';
+  if (normalized === 'dual sim') return 'Dual SIM';
+  return value;
+};
+
+const normalizeDisplayStorage = (value = '') => {
+  const normalized = String(value || '').trim();
+  if (!normalized || normalized.toLowerCase() === 'unknown') return 'Unknown';
+  return normalized.toUpperCase();
+};
+
+const formatExportPrice = (vendors = []) => {
+  const validPrices = vendors
+    .map((vendor) => Number(vendor?.priceValue || 0))
+    .filter((value) => Number.isFinite(value) && value > 0)
+    .sort((a, b) => a - b);
+
+  if (!validPrices.length) return '';
+  return `N${validPrices[0].toLocaleString('en-NG')}.0`;
+};
+
+const toSheetLikeRows = (groupedTree = {}) => {
+  const rows = [];
+
+  Object.entries(groupedTree).forEach(([category, brands]) => {
+    rows.push({ Section: `#${String(category || 'others').toLowerCase()}`, Model: '', Condition: '', Spec: '', Storage: '', Price: '' });
+
+    Object.entries(brands).forEach(([_brand, seriesMap]) => {
+      Object.entries(seriesMap).forEach(([series, devices]) => {
+        rows.push({ Section: series, Model: '', Condition: '', Spec: '', Storage: '', Price: '' });
+
+        Object.entries(devices)
+          .sort(([a], [b]) => a.localeCompare(b))
+          .forEach(([deviceType, variations]) => {
+            const sortedVariations = Object.values(variations).sort((a, b) => {
+              const conditionCompare = normalizeDisplayCondition(a.condition).localeCompare(normalizeDisplayCondition(b.condition));
+              if (conditionCompare !== 0) return conditionCompare;
+              const specCompare = normalizeDisplaySpec(a.specification).localeCompare(normalizeDisplaySpec(b.specification));
+              if (specCompare !== 0) return specCompare;
+              return normalizeDisplayStorage(a.storage).localeCompare(normalizeDisplayStorage(b.storage), undefined, { numeric: true, sensitivity: 'base' });
+            });
+
+            sortedVariations.forEach((variation) => {
+              rows.push({
+                Section: '',
+                Model: deviceType,
+                Condition: normalizeDisplayCondition(variation.condition),
+                Spec: normalizeDisplaySpec(variation.specification),
+                Storage: normalizeDisplayStorage(variation.storage),
+                Price: formatExportPrice(variation.vendors),
+              });
+            });
+
+            rows.push({ Section: '', Model: '', Condition: '', Spec: '', Storage: '', Price: '' });
+          });
+      });
+    });
+
+    rows.push({ Section: '', Model: '', Condition: '', Spec: '', Storage: '', Price: '' });
+  });
+
+  return rows;
+};
 const parseNairaValue = (value) => {
   if (value === null || value === undefined) return 0;
   if (typeof value === 'number' && Number.isFinite(value)) return value;
@@ -127,9 +206,9 @@ const buildGlobalRowsFromOfflineInventories = (vendorDocs = []) => {
         brandSubCategory: product?.Brand || 'Others',
         series: product?.Series || inferSeries(product?.['Device Type'] || ''),
         deviceType: product?.['Device Type'] || 'Unknown Device',
-        condition: product?.Condition || 'Unknown',
-        simType: product?.['SIM Type/Model/Processor'] || 'Unknown',
-        storage: product?.['Storage Capacity/Configuration'] || 'N/A',
+        condition: normalizeDisplayCondition(product?.Condition || 'Unknown'),
+        simType: normalizeDisplaySpec(product?.['SIM Type/Model/Processor'] || 'Unknown'),
+        storage: normalizeDisplayStorage(product?.['Storage Capacity/Configuration'] || 'Unknown'),
         raw: `${product?.['Device Type'] || ''} ${product?.Condition || ''} ${product?.['SIM Type/Model/Processor'] || ''}`.trim(),
       });
     });
@@ -395,6 +474,8 @@ const AdminDashboard = () => {
   const [, setAllProductRows] = useState([]);
   const [, setFilteredProductRows] = useState([]);
   const [syncJobState, setSyncJobState] = useState({ isSyncing: false, progress: '' });
+  const [selectedAIProvider, setSelectedAIProvider] = useState('openai');
+  const [selectedImageAIProvider, setSelectedImageAIProvider] = useState('openai');
   const [companyCsvUrl, setCompanyCsvUrl] = useState(FALLBACK_COMPANY_PRICING_CSV);
   const [loadingCompanyCsv, setLoadingCompanyCsv] = useState(false);
   const [companyCsvRows, setCompanyCsvRows] = useState([]);
@@ -661,10 +742,52 @@ const AdminDashboard = () => {
       console.error('Failed to load Firebase custom mappings:', error);
     }
   };
+
+  const fetchAIProviderSetting = async () => {
+    try {
+      const aiControlSnap = await getDoc(doc(db, 'horleyTech_Settings', 'aiControl'));
+      const savedProvider = String(aiControlSnap.data()?.selectedProvider || 'openai').toLowerCase();
+      const savedImageProvider = String(aiControlSnap.data()?.imageProvider || savedProvider || 'openai').toLowerCase();
+      setSelectedAIProvider(savedProvider === 'qwen' ? 'qwen' : 'openai');
+      setSelectedImageAIProvider(savedImageProvider === 'qwen' ? 'qwen' : 'openai');
+    } catch (error) {
+      console.error('Failed to load AI provider setting:', error);
+    }
+  };
+
+  const saveAIProviderSetting = async (provider) => {
+    const safeProvider = provider === 'qwen' ? 'qwen' : 'openai';
+    setSelectedAIProvider(safeProvider);
+    try {
+      await setDoc(doc(db, 'horleyTech_Settings', 'aiControl'), {
+        selectedProvider: safeProvider,
+        updatedAt: new Date().toISOString(),
+      }, { merge: true });
+      alert(`✅ AI provider set to ${safeProvider.toUpperCase()}.`);
+    } catch (error) {
+      alert(`❌ Failed to save AI provider: ${error.message}`);
+    }
+  };
+
+  const saveImageAIProviderSetting = async (provider) => {
+    const safeProvider = provider === 'qwen' ? 'qwen' : 'openai';
+    setSelectedImageAIProvider(safeProvider);
+    try {
+      await setDoc(doc(db, 'horleyTech_Settings', 'aiControl'), {
+        imageProvider: safeProvider,
+        updatedAt: new Date().toISOString(),
+      }, { merge: true });
+      alert(`✅ Image AI provider set to ${safeProvider.toUpperCase()}.`);
+    } catch (error) {
+      alert(`❌ Failed to save Image AI provider: ${error.message}`);
+    }
+  };
+
   useEffect(() => {
     if (location.pathname === '/dashboard' || location.pathname === '/dashboard/') {
       fetchInventory();
       fetchBackups();
+      fetchAIProviderSetting();
     }
   }, [location.pathname]);
   useEffect(() => {
@@ -691,6 +814,11 @@ const AdminDashboard = () => {
           isSyncing: Boolean(data.isSyncing),
           progress: data.progress || '',
         });
+
+        if (data.isSyncing === true) {
+          // Keep dictionary count from appearing frozen at 0 during long sync runs.
+          fetchCustomMappings();
+        }
 
         if (data.isSyncing === false && data.justFinished === true) {
           fetchCustomMappings();
@@ -745,9 +873,21 @@ const AdminDashboard = () => {
           setOfficialTargets(Array.from(new Set(fallbackRows.map((row) => row.deviceType).filter(Boolean))));
         };
 
+        const cacheControlRef = doc(db, 'horleyTech_Settings', 'cacheControl');
+        const cacheControlSnap = await getDoc(cacheControlRef);
+        const cacheAutomationPausedByNuke = Boolean(cacheControlSnap.data()?.cacheAutomationPausedByNuke);
+
         const cacheRef = doc(db, 'horleyTech_Settings', 'globalProductsCache');
         const snapshot = await getDoc(cacheRef);
         if (!snapshot.exists()) {
+          if (cacheAutomationPausedByNuke) {
+            setGlobalProductsCacheRows([]);
+            setFilteredProductRows([]);
+            setAllProductRows([]);
+            setOfficialTargets([]);
+            return;
+          }
+
           await loadFromOfflineInventories();
           return;
         }
@@ -801,19 +941,7 @@ const AdminDashboard = () => {
   };
 
   const exportGlobalProductsCSV = () => {
-    const rows = filteredProductRows.map((row) => ({
-      Category: row.category,
-      Brand: row.brandSubCategory,
-      Series: row.series,
-      'Mapped Standard Name': row.deviceType,
-      Condition: row.condition,
-      'Spec / SIM': row.simType || row.specification || 'Unknown',
-      Storage: row.storage,
-      'Original Raw Text': row.raw,
-      Price: row.priceValue,
-      Vendor: row.vendorName,
-      Date: row.date,
-    }));
+    const rows = toSheetLikeRows(groupedGlobalProducts);
     downloadCsv('Global_Products_Export.csv', rows);
   };
 
@@ -883,15 +1011,17 @@ const AdminDashboard = () => {
         return true;
       })
       .map((row, index) => {
-        const storageRaw = String(row.storage || row['Storage Capacity/Configuration'] || 'N/A').trim();
-        const storage = storageRaw !== 'N/A' ? storageRaw.toUpperCase() : 'N/A';
+        const storage = normalizeDisplayStorage(row.storage || row['Storage Capacity/Configuration'] || 'Unknown');
+        const condition = normalizeDisplayCondition(row.condition || row.Condition || 'Unknown');
+        const specSource = row.specification || row.simType || row['SIM Type/Model/Processor'] || 'Unknown';
+        const specification = normalizeDisplaySpec(specSource);
         const haystack = [
           row.category,
           row.brandSubCategory,
           row.series,
           row.deviceType,
-          row.condition,
-          row.simType,
+          condition,
+          specification,
           storage,
           row.raw,
         ].join(' ').toLowerCase();
@@ -900,6 +1030,9 @@ const AdminDashboard = () => {
         return {
           ...row,
           id: row.id || `cache-${index}`,
+          condition,
+          simType: specification,
+          specification,
           storage,
           cleanStatus,
         };
@@ -931,12 +1064,14 @@ const AdminDashboard = () => {
       tree[row.category][row.brandSubCategory][row.series] ??= {};
       tree[row.category][row.brandSubCategory][row.series][row.deviceType] ??= {};
       // Use raw.specification if mapped, otherwise fallback to simType from older scraper runs
-      const specVal = row.specification || row.simType || 'Unknown';
-      const variationKey = `${row.condition}__${specVal}__${row.storage}`;
+      const specVal = normalizeDisplaySpec(row.specification || row.simType || 'Unknown');
+      const condition = normalizeDisplayCondition(row.condition || 'Unknown');
+      const storage = normalizeDisplayStorage(row.storage || 'Unknown');
+      const variationKey = `${condition}__${specVal}__${storage}`;
       tree[row.category][row.brandSubCategory][row.series][row.deviceType][variationKey] ??= {
-        condition: row.condition,
+        condition,
         specification: specVal,
-        storage: row.storage,
+        storage,
         totalAccumulatedPrice: 0,
         stockCount: 0,
         vendors: [],
@@ -1398,18 +1533,19 @@ const AdminDashboard = () => {
 
   const handleNukeAndRebuild = async () => {
     try {
-      const response = await fetch(`${BASE_URL}/api/admin/nuke-server-memory`, {
+      const response = await fetch(`${BASE_URL}/api/admin/nuke-cache-system`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
       });
       const payload = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(payload.error || 'Failed to wipe server memory cache');
+      if (!response.ok) throw new Error(payload.error || 'Failed to wipe global cache system');
     } catch (error) {
       alert(`❌ ${error.message}`);
       return;
     }
 
     await nukeAndRebuildDictionary();
+    alert('🛑 Global cache + product containers wiped. Cache automation is now OFF. Use "Force Build Product Cache" to turn it ON again.');
     await nukeLocalCache();
   };
 
@@ -2099,6 +2235,26 @@ const AdminDashboard = () => {
               <div className="mb-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 bg-white/70 backdrop-blur-xl rounded-2xl border border-gray-100 shadow-sm p-4">
                 <p className="text-xs font-bold uppercase tracking-wider text-gray-500">Dictionary Mappings: {Object.keys(masterDictionary).length}</p>
                 <div className="flex items-center gap-3">
+                  <select
+                    value={selectedAIProvider}
+                    onChange={(e) => saveAIProviderSetting(e.target.value)}
+                    className="px-3 py-2 rounded-lg border border-gray-300 bg-white text-xs font-semibold"
+                    title="Choose which text AI model provider powers sync/judging"
+                    disabled={syncJobState.isSyncing}
+                  >
+                    <option value="openai">OpenAI</option>
+                    <option value="qwen">Qwen</option>
+                  </select>
+                  <select
+                    value={selectedImageAIProvider}
+                    onChange={(e) => saveImageAIProviderSetting(e.target.value)}
+                    className="px-3 py-2 rounded-lg border border-gray-300 bg-white text-xs font-semibold"
+                    title="Choose which image AI provider powers container image generation"
+                    disabled={syncJobState.isSyncing}
+                  >
+                    <option value="openai">Image: OpenAI</option>
+                    <option value="qwen">Image: Qwen</option>
+                  </select>
                   <button
                     type="button"
                     onClick={runMasterAutoSync}

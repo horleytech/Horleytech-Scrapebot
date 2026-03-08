@@ -1,12 +1,8 @@
-import OpenAI from 'openai';
 import fs from 'fs';
 import { convertString, appleSeries } from './cleaner.js';
+import { resolveTextAIConfig } from './aiConfig.js';
 import dotenv from 'dotenv';
 dotenv.config();
-
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
 
 const createBatches = (rawText, linesPerBatch = 50) => {
   const lines = rawText.split('\n');
@@ -85,8 +81,9 @@ const extractFromBatch = async (batchText, batchNumber, totalBatches) => {
   `;
 
   try {
-    const response = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
+    const textAI = await resolveTextAIConfig({ background: true });
+    const response = await textAI.client.chat.completions.create({
+      model: textAI.model,
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: batchText }
