@@ -446,6 +446,47 @@ const inferSeries = (deviceType) => {
   }
   return 'Others';
 };
+
+const normalizeDisplayDeviceType = (value = '') => {
+  const raw = String(value || '').trim();
+  if (!raw) return 'Unknown Device';
+
+  const lower = raw.toLowerCase().replace(/\s+/g, ' ');
+  const iphoneMatch = lower.match(/iphone\s*(\d+)\s*(pro\s*max|pro|max|plus)?/i);
+  if (iphoneMatch) {
+    const suffix = String(iphoneMatch[2] || '').replace(/\s+/g, ' ').trim();
+    const normalizedSuffix = suffix
+      ? suffix.split(' ').map((part) => part.charAt(0).toUpperCase() + part.slice(1)).join(' ')
+      : '';
+    return `iPhone ${iphoneMatch[1]}${normalizedSuffix ? ` ${normalizedSuffix}` : ''}`;
+  }
+
+  const samsungMatch = lower.match(/(?:samsung\s*)?s\s*(\d{1,2})(\s*ultra|\s*plus|\s*fe)?/i);
+  if (samsungMatch && !lower.includes('series')) {
+    const suffix = String(samsungMatch[2] || '').trim().toUpperCase();
+    return `Samsung S${samsungMatch[1]}${suffix ? ` ${suffix}` : ''}`;
+  }
+
+  return raw.replace(/\s+/g, ' ').replace(/\b\w/g, (m) => m.toUpperCase());
+};
+
+const inferCategoryFromDevice = (deviceType = '', fallbackCategory = 'Others') => {
+  const normalized = String(deviceType || '').toLowerCase();
+  if (normalized.includes('iphone') || normalized.includes('samsung') || normalized.includes('pixel') || normalized.includes('smartphone')) return 'Smartphones';
+  if (normalized.includes('watch')) return 'Smartwatches';
+  if (normalized.includes('macbook') || normalized.includes('laptop')) return 'Laptops';
+  if (normalized.includes('ipad') || normalized.includes('tablet')) return 'Tablets';
+  return fallbackCategory || 'Others';
+};
+
+const inferBrandFromDevice = (deviceType = '', fallbackBrand = 'Others') => {
+  const normalized = String(deviceType || '').toLowerCase();
+  if (normalized.includes('iphone')) return 'Apple';
+  if (normalized.includes('samsung') || normalized.match(/^s\d{1,2}/)) return 'Samsung';
+  if (normalized.includes('pixel')) return 'Google';
+  if (normalized.includes('macbook') || normalized.includes('ipad')) return 'Apple';
+  return fallbackBrand || 'Others';
+};
 const AdminDashboard = () => {
   const currentMonthRange = useMemo(() => {
     const now = new Date();
@@ -1011,15 +1052,43 @@ const AdminDashboard = () => {
         return true;
       })
       .map((row, index) => {
+        const mappingCandidates = [
+          normalizeDictionaryKey(row.raw),
+          normalizeDictionaryKey(row.deviceType),
+        ].filter(Boolean);
+        const mappingEntry = mappingCandidates
+          .map((key) => masterDictionary?.[key])
+          .find(Boolean);
+
+        const mappedDeviceType = typeof mappingEntry === 'object'
+          ? (mappingEntry.deviceType || mappingEntry.standardName || row.deviceType)
+          : row.deviceType;
+        const canonicalDeviceType = normalizeDisplayDeviceType(mappedDeviceType || row.deviceType || 'Unknown Device');
+
+        const mappedCategory = typeof mappingEntry === 'object' ? (mappingEntry.category || row.category) : row.category;
+        const canonicalCategory = mappedCategory && mappedCategory !== 'Others'
+          ? mappedCategory
+          : inferCategoryFromDevice(canonicalDeviceType, mappedCategory || 'Others');
+
+        const mappedBrand = typeof mappingEntry === 'object' ? (mappingEntry.brand || row.brandSubCategory) : row.brandSubCategory;
+        const canonicalBrand = mappedBrand && mappedBrand !== 'Others'
+          ? mappedBrand
+          : inferBrandFromDevice(canonicalDeviceType, mappedBrand || 'Others');
+
+        const mappedSeries = typeof mappingEntry === 'object' ? (mappingEntry.series || row.series) : row.series;
+        const canonicalSeries = mappedSeries && mappedSeries !== 'Others'
+          ? mappedSeries
+          : inferSeries(canonicalDeviceType);
+
         const storage = normalizeDisplayStorage(row.storage || row['Storage Capacity/Configuration'] || 'Unknown');
         const condition = normalizeDisplayCondition(row.condition || row.Condition || 'Unknown');
         const specSource = row.specification || row.simType || row['SIM Type/Model/Processor'] || 'Unknown';
         const specification = normalizeDisplaySpec(specSource);
         const haystack = [
-          row.category,
-          row.brandSubCategory,
-          row.series,
-          row.deviceType,
+          canonicalCategory,
+          canonicalBrand,
+          canonicalSeries,
+          canonicalDeviceType,
           condition,
           specification,
           storage,
@@ -1030,6 +1099,10 @@ const AdminDashboard = () => {
         return {
           ...row,
           id: row.id || `cache-${index}`,
+          category: canonicalCategory,
+          brandSubCategory: canonicalBrand,
+          series: canonicalSeries,
+          deviceType: canonicalDeviceType,
           condition,
           simType: specification,
           specification,
@@ -1037,7 +1110,7 @@ const AdminDashboard = () => {
           cleanStatus,
         };
       });
-  }, [globalProductsCacheRows, startDate, endDate, selectedVendorFilter, dataViewMode, excludedPhrases]);
+  }, [globalProductsCacheRows, startDate, endDate, selectedVendorFilter, dataViewMode, excludedPhrases, masterDictionary]);
   const filteredProductRows = useMemo(() => {
     const queryText = productSearchQuery.trim().toLowerCase();
     return normalizedProductRows.filter((row) => {
