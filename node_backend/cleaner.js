@@ -53,6 +53,8 @@ const normalizeCondition = (value = '') => {
   const text = String(value || '').toLowerCase().trim();
   if (!text) return 'Unknown';
 
+  if (/non\s*-?\s*active/.test(text)) return 'Brand New';
+
   // Important business rule: mint/pristine/like-new/new-phone-only are still Used.
   if (USED_QUALIFIERS.test(text)) return 'Grade A UK Used';
 
@@ -67,6 +69,7 @@ const normalizeSim = (value = '') => {
   if (/dual/.test(text)) return 'Dual SIM';
   if (/esim|e-sim/.test(text)) return 'eSIM';
   if (/physical|single/.test(text)) return 'Physical SIM';
+  if (/unlocked/.test(text)) return 'eSIM';
   return 'Unknown';
 };
 

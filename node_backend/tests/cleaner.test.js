@@ -12,6 +12,7 @@ test('normalizeStorage standardizes units and unknown', () => {
 test('normalizeCondition maps slang and unknown', () => {
   assert.equal(__testables.normalizeCondition('uk used clean'), 'Grade A UK Used');
   assert.equal(__testables.normalizeCondition('brand new sealed'), 'Brand New');
+  assert.equal(__testables.normalizeCondition('non active'), 'Brand New');
   assert.equal(__testables.normalizeCondition('mint pristine like new'), 'Grade A UK Used');
   assert.equal(__testables.normalizeCondition('new phone only'), 'Grade A UK Used');
   assert.equal(__testables.normalizeCondition('condition not stated'), 'Unknown');
@@ -21,6 +22,8 @@ test('normalizeSim maps expected formats and unknown', () => {
   assert.equal(__testables.normalizeSim('dual sim'), 'Dual SIM');
   assert.equal(__testables.normalizeSim('physical + esim'), 'eSIM');
   assert.equal(__testables.normalizeSim('esim only'), 'eSIM');
+  assert.equal(__testables.normalizeSim('eSIM unlocked'), 'eSIM');
+  assert.equal(__testables.normalizeSim('factory unlocked'), 'eSIM');
   assert.equal(__testables.normalizeSim('single sim physical'), 'Physical SIM');
   assert.equal(__testables.normalizeSim('sim unknown'), 'Unknown');
 });
