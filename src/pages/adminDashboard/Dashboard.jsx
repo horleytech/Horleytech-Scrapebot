@@ -203,9 +203,9 @@ const buildGlobalRowsFromOfflineInventories = (vendorDocs = []) => {
         brandSubCategory: product?.Brand || 'Others',
         series: product?.Series || inferSeries(product?.['Device Type'] || ''),
         deviceType: product?.['Device Type'] || 'Unknown Device',
-        condition: product?.Condition || 'Unknown',
-        simType: product?.['SIM Type/Model/Processor'] || 'Unknown',
-        storage: product?.['Storage Capacity/Configuration'] || 'N/A',
+        condition: normalizeDisplayCondition(product?.Condition || 'Unknown'),
+        simType: normalizeDisplaySpec(product?.['SIM Type/Model/Processor'] || 'Unknown'),
+        storage: normalizeDisplayStorage(product?.['Storage Capacity/Configuration'] || 'Unknown'),
         raw: `${product?.['Device Type'] || ''} ${product?.Condition || ''} ${product?.['SIM Type/Model/Processor'] || ''}`.trim(),
       });
     });
@@ -1008,15 +1008,17 @@ const AdminDashboard = () => {
         return true;
       })
       .map((row, index) => {
-        const storageRaw = String(row.storage || row['Storage Capacity/Configuration'] || 'N/A').trim();
-        const storage = storageRaw !== 'N/A' ? storageRaw.toUpperCase() : 'N/A';
+        const storage = normalizeDisplayStorage(row.storage || row['Storage Capacity/Configuration'] || 'Unknown');
+        const condition = normalizeDisplayCondition(row.condition || row.Condition || 'Unknown');
+        const specSource = row.specification || row.simType || row['SIM Type/Model/Processor'] || 'Unknown';
+        const specification = normalizeDisplaySpec(specSource);
         const haystack = [
           row.category,
           row.brandSubCategory,
           row.series,
           row.deviceType,
-          row.condition,
-          row.simType,
+          condition,
+          specification,
           storage,
           row.raw,
         ].join(' ').toLowerCase();
@@ -1025,6 +1027,9 @@ const AdminDashboard = () => {
         return {
           ...row,
           id: row.id || `cache-${index}`,
+          condition,
+          simType: specification,
+          specification,
           storage,
           cleanStatus,
         };
@@ -1056,12 +1061,14 @@ const AdminDashboard = () => {
       tree[row.category][row.brandSubCategory][row.series] ??= {};
       tree[row.category][row.brandSubCategory][row.series][row.deviceType] ??= {};
       // Use raw.specification if mapped, otherwise fallback to simType from older scraper runs
-      const specVal = row.specification || row.simType || 'Unknown';
-      const variationKey = `${row.condition}__${specVal}__${row.storage}`;
+      const specVal = normalizeDisplaySpec(row.specification || row.simType || 'Unknown');
+      const condition = normalizeDisplayCondition(row.condition || 'Unknown');
+      const storage = normalizeDisplayStorage(row.storage || 'Unknown');
+      const variationKey = `${condition}__${specVal}__${storage}`;
       tree[row.category][row.brandSubCategory][row.series][row.deviceType][variationKey] ??= {
-        condition: row.condition,
+        condition,
         specification: specVal,
-        storage: row.storage,
+        storage,
         totalAccumulatedPrice: 0,
         stockCount: 0,
         vendors: [],
