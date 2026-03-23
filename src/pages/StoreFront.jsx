@@ -194,7 +194,8 @@ const StoreFront = () => {
   }, [location.search]);
 
   const storeLayout = vendorData.storeLayout || 'classic';
-  const activeStoreLayout = selectedStoreBranch === 'store2' ? 'premium' : storeLayout;
+  const normalizedBaseLayout = storeLayout === 'premium' ? 'classic' : storeLayout;
+  const activeStoreLayout = selectedStoreBranch === 'store2' ? 'premium' : normalizedBaseLayout;
   const isDarkLayout = activeStoreLayout === 'dark';
 
   const getStorefrontPrice = (product) => {

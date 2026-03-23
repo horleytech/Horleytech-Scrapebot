@@ -1061,16 +1061,16 @@ const VendorPage = () => {
                 <option value="minimal">minimal (Clean List)</option>
                 <option value="compact">compact (Dense List)</option>
                 <option value="dark">dark (Dark Mode)</option>
-                <option value="premium">premium (Luxury Cards)</option>
               </select>
+              <p className="text-xs text-gray-500 mt-2">Store 2 uses Premium layout automatically (no separate premium selector needed).</p>
             </div>
 
             <div className="md:col-span-2 rounded-2xl border border-indigo-100 bg-indigo-50/60 p-4">
-              <label className="block text-sm font-bold text-indigo-900 mb-3">Tinbr Link Controls</label>
+              <label className="block text-sm font-bold text-indigo-900 mb-3">Tinbr (URL Shortener) Link Controls</label>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                 <label className="flex items-center gap-3 text-sm font-semibold text-indigo-900">
                   <input type="checkbox" checked={tinbrLinksEnabled} onChange={(e) => setTinbrLinksEnabled(e.target.checked)} className="w-4 h-4" />
-                  Use Tinbr links as primary store links
+                  Use Tinbr short links as primary store links
                 </label>
                 <label className="flex items-center gap-3 text-sm font-semibold text-indigo-900">
                   <input type="checkbox" checked={showBothTinbrAndNormalLinks} onChange={(e) => setShowBothTinbrAndNormalLinks(e.target.checked)} className="w-4 h-4" />
