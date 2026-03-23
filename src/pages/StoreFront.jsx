@@ -322,6 +322,62 @@ const StoreFront = () => {
     </div>
   );
 
+
+  const renderPremiumLayout = () => (
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
+      {visibleProducts.map((product, index) => (
+        <div key={index} className={`group relative rounded-[2rem] overflow-hidden shadow-xl border transition-all duration-300 ${isDarkLayout ? 'bg-[#1a1a1a] border-[#2b2b2b] hover:shadow-[0_0_30px_rgba(255,255,255,0.05)]' : 'bg-white border-gray-100 hover:shadow-2xl'}`}>
+          <div className="relative h-96 overflow-hidden cursor-pointer bg-gray-50">
+            {product.productImageBase64 ? (
+              <img
+                src={product.productImageBase64}
+                alt={product['Device Type'] || 'Product'}
+                style={HD_IMAGE_STYLE}
+                className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700 ease-out"
+              />
+            ) : (
+              <div className={`w-full h-full flex items-center justify-center text-sm font-bold ${isDarkLayout ? 'bg-[#202020] text-gray-500' : 'bg-gray-100 text-gray-400'}`}>No Image Available</div>
+            )}
+
+            <div className="absolute inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+              <span className="text-white font-black text-lg tracking-widest px-6 py-3 border-2 border-white/50 rounded-xl">
+                CLICK TO SEE FULL DETAILS
+              </span>
+            </div>
+          </div>
+
+          <div className="p-8 space-y-4">
+            <div className="flex justify-between items-start gap-4">
+              <h3 className={`font-black text-3xl leading-tight ${isDarkLayout ? 'text-white' : 'text-[#1A1C23]'}`}>
+                {product['Device Type'] || 'N/A'}
+              </h3>
+              <span className={`px-4 py-1.5 rounded-full text-xs font-black uppercase shrink-0 ${product.Condition?.toLowerCase().includes('new') ? 'bg-green-50 text-green-600' : 'bg-orange-50 text-orange-600'}`}>
+                {product.Condition || 'N/A'}
+              </span>
+            </div>
+
+            <p className={`text-base leading-relaxed h-12 overflow-hidden ${isDarkLayout ? 'text-gray-400' : 'text-gray-600'}`}>
+              Features {product['Storage Capacity/Configuration']} configuration. {product['SIM Type/Model/Processor'] ? `Powered by ${product['SIM Type/Model/Processor']}.` : ''} Excellent device for daily use.
+            </p>
+
+            <div className="flex items-center justify-between pt-6 border-t border-gray-100/10">
+              <span className="font-black text-4xl" style={{ color: themeColor }}>
+                {product['Regular price'] || 'N/A'}
+              </span>
+              <button
+                onClick={() => handleWhatsAppClick(product)}
+                style={{ backgroundColor: themeColor }}
+                className="flex items-center gap-2 text-white px-8 py-4 rounded-2xl font-black text-sm uppercase shadow-lg hover:brightness-110 hover:-translate-y-1 transition-all active:scale-95"
+              >
+                Order Now
+              </button>
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+
   const renderProductsByLayout = () => {
     if (visibleProducts.length === 0) {
       return (
@@ -332,6 +388,7 @@ const StoreFront = () => {
       );
     }
 
+    if (storeLayout === 'premium') return renderPremiumLayout();
     if (storeLayout === 'grid') return renderGridLayout();
     if (storeLayout === 'minimal') return renderListLayout('minimal');
     if (storeLayout === 'compact') return renderListLayout('compact');
