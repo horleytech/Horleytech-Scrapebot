@@ -1094,6 +1094,7 @@ const VendorPage = () => {
                 <option value="minimal">minimal (Clean List)</option>
                 <option value="compact">compact (Dense List)</option>
                 <option value="dark">dark (Dark Mode)</option>
+                <option value="premium">premium (Luxury Cards)</option>
               </select>
               <p className="text-xs text-gray-500 mt-2">Store 2 uses Premium layout automatically (no separate premium selector needed).</p>
             </div>
