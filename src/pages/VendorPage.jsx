@@ -208,6 +208,10 @@ const VendorPage = () => {
   const [tutorialVideoUrl, setTutorialVideoUrl] = useState('');
   const [businessTypeInput, setBusinessTypeInput] = useState('Other');
   const [storefrontDisplayLimit, setStorefrontDisplayLimit] = useState(20);
+  const [tinbrLinksEnabled, setTinbrLinksEnabled] = useState(false);
+  const [showBothTinbrAndNormalLinks, setShowBothTinbrAndNormalLinks] = useState(false);
+  const [tinbrStoreOneLinkInput, setTinbrStoreOneLinkInput] = useState('');
+  const [tinbrStoreTwoLinkInput, setTinbrStoreTwoLinkInput] = useState('');
 
   // Timeline & Chat State
   const [timelineTab, setTimelineTab] = useState('vendor');
@@ -215,6 +219,7 @@ const VendorPage = () => {
   const [supportLoading, setSupportLoading] = useState(false);
   const [supportInput, setSupportInput] = useState('');
   const [sendingSupportMessage, setSendingSupportMessage] = useState(false);
+  const [shorteningLinkKey, setShorteningLinkKey] = useState('');
 
   // Inline Edit State
   const [editingIndex, setEditingIndex] = useState(null);
@@ -259,6 +264,10 @@ const VendorPage = () => {
           ]);
           setBusinessTypeInput(payload.metaData || payload.businessType || 'Other');
           setStorefrontDisplayLimit(Number(payload.storefrontDisplayLimit) > 0 ? Number(payload.storefrontDisplayLimit) : 20);
+          setTinbrLinksEnabled(Boolean(payload.tinbrLinksEnabled));
+          setShowBothTinbrAndNormalLinks(Boolean(payload.showBothTinbrAndNormalLinks));
+          setTinbrStoreOneLinkInput(String(payload.tinbrStoreOneLink || ''));
+          setTinbrStoreTwoLinkInput(String(payload.tinbrStoreTwoLink || ''));
 
           const storedSessionTime = localStorage.getItem(`vendor_session_${vendorId}`);
           if (storedSessionTime) {
@@ -428,6 +437,29 @@ const VendorPage = () => {
   const handleCopyLink = async (link) => {
     await navigator.clipboard.writeText(link);
     alert(`✅ Link copied to clipboard!\n\n${link}`);
+  };
+
+  const handleTinyUrlCopy = async (link, keyLabel) => {
+    if (!link || !/^https?:\/\//i.test(link)) {
+      alert('❌ Invalid link. Please provide a full URL first.');
+      return;
+    }
+
+    setShorteningLinkKey(keyLabel);
+    try {
+      const tinyUrlRes = await fetch(`https://tinyurl.com/api-create.php?url=${encodeURIComponent(link)}`);
+      const shortUrl = await tinyUrlRes.text();
+      if (!tinyUrlRes.ok || !/^https?:\/\//i.test(shortUrl)) {
+        throw new Error('TinyURL generation failed.');
+      }
+
+      await navigator.clipboard.writeText(shortUrl);
+      alert(`✅ Shortened link copied to clipboard!\n\n${shortUrl}`);
+    } catch (error) {
+      alert(`❌ ${error.message}`);
+    } finally {
+      setShorteningLinkKey('');
+    }
   };
 
   const toggleSelectAll = () => {
@@ -703,6 +735,17 @@ const VendorPage = () => {
       actions.push('Updated Storefront Display Limit');
     }
 
+
+    if (Boolean(previousVendorData.tinbrLinksEnabled) !== Boolean(nextState.tinbrLinksEnabled)) {
+      actions.push(nextState.tinbrLinksEnabled ? 'Enabled Tinbr Links' : 'Disabled Tinbr Links');
+    }
+
+    if (Boolean(previousVendorData.showBothTinbrAndNormalLinks) !== Boolean(nextState.showBothTinbrAndNormalLinks)) {
+      actions.push(nextState.showBothTinbrAndNormalLinks ? 'Enabled Both Tinbr + Normal Links View' : 'Disabled Both Tinbr + Normal Links View');
+    }
+
+    if ((previousVendorData.tinbrStoreOneLink || '') !== nextState.tinbrStoreOneLink) actions.push('Updated Tinbr Store 1 Link');
+    if ((previousVendorData.tinbrStoreTwoLink || '') !== nextState.tinbrStoreTwoLink) actions.push('Updated Tinbr Store 2 Link');
     if (!actions.length) actions.push('Saved Settings (No Field Changes Detected)');
     return actions;
   };
@@ -725,6 +768,10 @@ const VendorPage = () => {
       businessType: businessTypeInput || 'Other',
       metaData: businessTypeInput || 'Other',
       storefrontDisplayLimit: Number(storefrontDisplayLimit) > 0 ? Number(storefrontDisplayLimit) : 20,
+      tinbrLinksEnabled: Boolean(tinbrLinksEnabled),
+      showBothTinbrAndNormalLinks: Boolean(showBothTinbrAndNormalLinks),
+      tinbrStoreOneLink: tinbrStoreOneLinkInput.trim(),
+      tinbrStoreTwoLink: tinbrStoreTwoLinkInput.trim(),
     };
 
     const actions = buildDeepComparisonActions(vendorData || {}, nextState);
@@ -908,6 +955,11 @@ const VendorPage = () => {
   const vendorBackendLink = `${window.location.origin}/vendor/${vendorId}`;
   const customerStoreOneLink = `${window.location.origin}/store/${vendorId}?branch=store1`;
   const customerStoreTwoLink = `${window.location.origin}/store/${vendorId}?branch=store2`;
+  const tinbrStoreOneLink = tinbrStoreOneLinkInput.trim();
+  const tinbrStoreTwoLink = tinbrStoreTwoLinkInput.trim();
+  const canVendorSeeBothLinkSets = isAdmin || showBothTinbrAndNormalLinks;
+  const primaryStoreOneLink = (tinbrLinksEnabled && tinbrStoreOneLink) ? tinbrStoreOneLink : customerStoreOneLink;
+  const primaryStoreTwoLink = (tinbrLinksEnabled && tinbrStoreTwoLink) ? tinbrStoreTwoLink : customerStoreTwoLink;
   const timelineLogs = normalizeLogs(vendorData.logs);
   const timelineEntries = {
     vendor: [...timelineLogs.vendor].sort((a, b) => new Date(b.date) - new Date(a.date)),
@@ -930,17 +982,38 @@ const VendorPage = () => {
           <div className="border rounded-[10px] p-4 bg-gray-50">
             <p className="text-xs font-bold text-gray-500 mb-2 uppercase tracking-wider">Vendor Backend Link</p>
             <p className="text-sm break-all text-[#1A1C23] mb-3 font-mono bg-white p-2 rounded border">{vendorBackendLink}</p>
-            <button onClick={() => handleCopyLink(vendorBackendLink)} className="bg-blue-600 text-white px-4 py-2 rounded-[8px] text-sm font-bold hover:bg-blue-700 transition-colors shadow-sm">Copy Backend Link</button>
+            <div className="flex gap-2 flex-wrap">
+              <button onClick={() => handleCopyLink(vendorBackendLink)} className="bg-blue-600 text-white px-4 py-2 rounded-[8px] text-sm font-bold hover:bg-blue-700 transition-colors shadow-sm">Copy Backend Link</button>
+              <button onClick={() => handleTinyUrlCopy(vendorBackendLink, 'vendor')} disabled={shorteningLinkKey === 'vendor'} className="bg-slate-700 text-white px-4 py-2 rounded-[8px] text-sm font-bold hover:bg-slate-800 transition-colors shadow-sm disabled:opacity-50">{shorteningLinkKey === 'vendor' ? 'Shortening...' : 'Copy TinyURL'}</button>
+            </div>
           </div>
           <div className="border rounded-[10px] p-4 bg-gray-50">
-            <p className="text-xs font-bold text-gray-500 mb-2 uppercase tracking-wider">Customer Store One Link</p>
-            <p className="text-sm break-all text-[#1A1C23] mb-3 font-mono bg-white p-2 rounded border">{customerStoreOneLink}</p>
-            <button onClick={() => handleCopyLink(customerStoreOneLink)} className="bg-green-600 text-white px-4 py-2 rounded-[8px] text-sm font-bold hover:bg-green-700 transition-colors shadow-sm">Copy Store 1 Link</button>
+            <p className="text-xs font-bold text-gray-500 mb-2 uppercase tracking-wider">Customer Store One Link {tinbrLinksEnabled ? '(Tinbr Active)' : '(Normal Active)'}</p>
+            <p className="text-sm break-all text-[#1A1C23] mb-2 font-mono bg-white p-2 rounded border">{primaryStoreOneLink}</p>
+            {canVendorSeeBothLinkSets && (
+              <div className="mb-3 text-[11px] space-y-1 text-gray-600">
+                <p><span className="font-black">Normal:</span> {customerStoreOneLink}</p>
+                <p><span className="font-black">Tinbr:</span> {tinbrStoreOneLink || 'Not set'}</p>
+              </div>
+            )}
+            <div className="flex gap-2 flex-wrap">
+              <button onClick={() => handleCopyLink(primaryStoreOneLink)} className="bg-green-600 text-white px-4 py-2 rounded-[8px] text-sm font-bold hover:bg-green-700 transition-colors shadow-sm">Copy Store 1 Link</button>
+              <button onClick={() => handleTinyUrlCopy(primaryStoreOneLink, 'store1')} disabled={shorteningLinkKey === 'store1'} className="bg-slate-700 text-white px-4 py-2 rounded-[8px] text-sm font-bold hover:bg-slate-800 transition-colors shadow-sm disabled:opacity-50">{shorteningLinkKey === 'store1' ? 'Shortening...' : 'Copy TinyURL'}</button>
+            </div>
           </div>
           <div className="border rounded-[10px] p-4 bg-gray-50">
-            <p className="text-xs font-bold text-gray-500 mb-2 uppercase tracking-wider">Customer Store Two Link</p>
-            <p className="text-sm break-all text-[#1A1C23] mb-3 font-mono bg-white p-2 rounded border">{customerStoreTwoLink}</p>
-            <button onClick={() => handleCopyLink(customerStoreTwoLink)} className="bg-emerald-600 text-white px-4 py-2 rounded-[8px] text-sm font-bold hover:bg-emerald-700 transition-colors shadow-sm">Copy Store 2 Link</button>
+            <p className="text-xs font-bold text-gray-500 mb-2 uppercase tracking-wider">Customer Store Two Link {tinbrLinksEnabled ? '(Tinbr Active)' : '(Normal Active)'}</p>
+            <p className="text-sm break-all text-[#1A1C23] mb-2 font-mono bg-white p-2 rounded border">{primaryStoreTwoLink}</p>
+            {canVendorSeeBothLinkSets && (
+              <div className="mb-3 text-[11px] space-y-1 text-gray-600">
+                <p><span className="font-black">Normal:</span> {customerStoreTwoLink}</p>
+                <p><span className="font-black">Tinbr:</span> {tinbrStoreTwoLink || 'Not set'}</p>
+              </div>
+            )}
+            <div className="flex gap-2 flex-wrap">
+              <button onClick={() => handleCopyLink(primaryStoreTwoLink)} className="bg-emerald-600 text-white px-4 py-2 rounded-[8px] text-sm font-bold hover:bg-emerald-700 transition-colors shadow-sm">Copy Store 2 Link</button>
+              <button onClick={() => handleTinyUrlCopy(primaryStoreTwoLink, 'store2')} disabled={shorteningLinkKey === 'store2'} className="bg-slate-700 text-white px-4 py-2 rounded-[8px] text-sm font-bold hover:bg-slate-800 transition-colors shadow-sm disabled:opacity-50">{shorteningLinkKey === 'store2' ? 'Shortening...' : 'Copy TinyURL'}</button>
+            </div>
           </div>
         </div>
       </div>
@@ -1023,6 +1096,32 @@ const VendorPage = () => {
                 <option value="dark">dark (Dark Mode)</option>
                 <option value="premium">premium (Luxury Cards)</option>
               </select>
+              <p className="text-xs text-gray-500 mt-2">Store 2 uses Premium layout automatically (no separate premium selector needed).</p>
+            </div>
+
+            <div className="md:col-span-2 rounded-2xl border border-indigo-100 bg-indigo-50/60 p-4">
+              <label className="block text-sm font-bold text-indigo-900 mb-3">Tinbr / TinyURL (URL Shortener) Link Controls</label>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                <label className="flex items-center gap-3 text-sm font-semibold text-indigo-900">
+                  <input type="checkbox" checked={tinbrLinksEnabled} onChange={(e) => setTinbrLinksEnabled(e.target.checked)} className="w-4 h-4" />
+                  Use Tinbr short links as primary store links
+                </label>
+                <label className="flex items-center gap-3 text-sm font-semibold text-indigo-900">
+                  <input type="checkbox" checked={showBothTinbrAndNormalLinks} onChange={(e) => setShowBothTinbrAndNormalLinks(e.target.checked)} className="w-4 h-4" />
+                  Let vendor see both Tinbr and normal links
+                </label>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-black uppercase tracking-wider text-indigo-700 mb-1">Tinbr Store 1 URL</label>
+                  <input type="text" value={tinbrStoreOneLinkInput} onChange={(e) => setTinbrStoreOneLinkInput(e.target.value)} className="w-full p-3 border rounded-[8px] focus:ring-2 focus:ring-indigo-300 outline-none" placeholder="https://tinbr.../store-1" />
+                </div>
+                <div>
+                  <label className="block text-xs font-black uppercase tracking-wider text-indigo-700 mb-1">Tinbr Store 2 URL</label>
+                  <input type="text" value={tinbrStoreTwoLinkInput} onChange={(e) => setTinbrStoreTwoLinkInput(e.target.value)} className="w-full p-3 border rounded-[8px] focus:ring-2 focus:ring-indigo-300 outline-none" placeholder="https://tinbr.../store-2" />
+                </div>
+              </div>
+              <p className="text-xs text-indigo-800 mt-3">When enabled, customer store links use Tinbr URLs. Admin always sees both normal + Tinbr links; vendors see both only if enabled above.</p>
             </div>
 
             <div>

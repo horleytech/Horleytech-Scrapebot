@@ -184,8 +184,25 @@ const StoreFront = () => {
 
   const themeColor = vendorData.themeColor || '#16a34a';
   const lighterTheme = lightenHex(themeColor, 0.22);
+
+  const selectedStoreBranch = useMemo(() => {
+    const params = new URLSearchParams(location.search);
+    const raw = String(params.get('branch') || '').trim().toLowerCase();
+    if (raw === 'store1' || raw === 'store-1') return 'store1';
+    if (raw === 'store2' || raw === 'store-2') return 'store2';
+    return 'default';
+  }, [location.search]);
+
   const storeLayout = vendorData.storeLayout || 'classic';
-  const isDarkLayout = storeLayout === 'dark';
+  const normalizedBaseLayout = storeLayout === 'premium' ? 'classic' : storeLayout;
+  const activeStoreLayout = selectedStoreBranch === 'store2' ? 'premium' : normalizedBaseLayout;
+  const isDarkLayout = activeStoreLayout === 'dark';
+
+  const getStorefrontPrice = (product) => {
+    if (selectedStoreBranch === 'store1') return product['Store 1 price'] || product.storeOnePrice || product['Regular price'] || 'N/A';
+    if (selectedStoreBranch === 'store2') return product['Store 2 price'] || product.storeTwoPrice || product['Regular price'] || 'N/A';
+    return product['Regular price'] || product['Store 1 price'] || product['Store 2 price'] || 'N/A';
+  };
 
   const selectedStoreBranch = useMemo(() => {
     const params = new URLSearchParams(location.search);
@@ -403,11 +420,11 @@ const StoreFront = () => {
       );
     }
 
-    if (storeLayout === 'premium') return renderPremiumLayout();
-    if (storeLayout === 'grid') return renderGridLayout();
-    if (storeLayout === 'minimal') return renderListLayout('minimal');
-    if (storeLayout === 'compact') return renderListLayout('compact');
-    if (storeLayout === 'dark') return renderClassicTable();
+    if (activeStoreLayout === 'premium') return renderPremiumLayout();
+    if (activeStoreLayout === 'grid') return renderGridLayout();
+    if (activeStoreLayout === 'minimal') return renderListLayout('minimal');
+    if (activeStoreLayout === 'compact') return renderListLayout('compact');
+    if (activeStoreLayout === 'dark') return renderClassicTable();
     return renderClassicTable();
   };
 
@@ -417,10 +434,10 @@ const StoreFront = () => {
         <div
           className="mb-6 p-6 rounded-3xl text-white shadow-[0_8px_30px_rgb(0,0,0,0.14)] transition-all"
           style={{
-            background: storeLayout === 'dark'
+            background: activeStoreLayout === 'dark'
               ? `linear-gradient(135deg, ${themeColor}, #000000)`
               : `linear-gradient(135deg, ${themeColor}, #1A1C23)`,
-            boxShadow: storeLayout === 'dark' ? `0 0 20px ${themeColor}55` : undefined,
+            boxShadow: activeStoreLayout === 'dark' ? `0 0 20px ${themeColor}55` : undefined,
           }}
         >
           <div className="flex flex-col md:flex-row items-center gap-6">
