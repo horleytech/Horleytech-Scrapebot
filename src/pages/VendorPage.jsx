@@ -219,6 +219,7 @@ const VendorPage = () => {
   const [supportLoading, setSupportLoading] = useState(false);
   const [supportInput, setSupportInput] = useState('');
   const [sendingSupportMessage, setSendingSupportMessage] = useState(false);
+  const [shorteningLinkKey, setShorteningLinkKey] = useState('');
 
   // Inline Edit State
   const [editingIndex, setEditingIndex] = useState(null);
@@ -436,6 +437,29 @@ const VendorPage = () => {
   const handleCopyLink = async (link) => {
     await navigator.clipboard.writeText(link);
     alert(`✅ Link copied to clipboard!\n\n${link}`);
+  };
+
+  const handleTinyUrlCopy = async (link, keyLabel) => {
+    if (!link || !/^https?:\/\//i.test(link)) {
+      alert('❌ Invalid link. Please provide a full URL first.');
+      return;
+    }
+
+    setShorteningLinkKey(keyLabel);
+    try {
+      const tinyUrlRes = await fetch(`https://tinyurl.com/api-create.php?url=${encodeURIComponent(link)}`);
+      const shortUrl = await tinyUrlRes.text();
+      if (!tinyUrlRes.ok || !/^https?:\/\//i.test(shortUrl)) {
+        throw new Error('TinyURL generation failed.');
+      }
+
+      await navigator.clipboard.writeText(shortUrl);
+      alert(`✅ Shortened link copied to clipboard!\n\n${shortUrl}`);
+    } catch (error) {
+      alert(`❌ ${error.message}`);
+    } finally {
+      setShorteningLinkKey('');
+    }
   };
 
   const toggleSelectAll = () => {
@@ -958,7 +982,10 @@ const VendorPage = () => {
           <div className="border rounded-[10px] p-4 bg-gray-50">
             <p className="text-xs font-bold text-gray-500 mb-2 uppercase tracking-wider">Vendor Backend Link</p>
             <p className="text-sm break-all text-[#1A1C23] mb-3 font-mono bg-white p-2 rounded border">{vendorBackendLink}</p>
-            <button onClick={() => handleCopyLink(vendorBackendLink)} className="bg-blue-600 text-white px-4 py-2 rounded-[8px] text-sm font-bold hover:bg-blue-700 transition-colors shadow-sm">Copy Backend Link</button>
+            <div className="flex gap-2 flex-wrap">
+              <button onClick={() => handleCopyLink(vendorBackendLink)} className="bg-blue-600 text-white px-4 py-2 rounded-[8px] text-sm font-bold hover:bg-blue-700 transition-colors shadow-sm">Copy Backend Link</button>
+              <button onClick={() => handleTinyUrlCopy(vendorBackendLink, 'vendor')} disabled={shorteningLinkKey === 'vendor'} className="bg-slate-700 text-white px-4 py-2 rounded-[8px] text-sm font-bold hover:bg-slate-800 transition-colors shadow-sm disabled:opacity-50">{shorteningLinkKey === 'vendor' ? 'Shortening...' : 'Copy TinyURL'}</button>
+            </div>
           </div>
           <div className="border rounded-[10px] p-4 bg-gray-50">
             <p className="text-xs font-bold text-gray-500 mb-2 uppercase tracking-wider">Customer Store One Link {tinbrLinksEnabled ? '(Tinbr Active)' : '(Normal Active)'}</p>
@@ -969,7 +996,10 @@ const VendorPage = () => {
                 <p><span className="font-black">Tinbr:</span> {tinbrStoreOneLink || 'Not set'}</p>
               </div>
             )}
-            <button onClick={() => handleCopyLink(primaryStoreOneLink)} className="bg-green-600 text-white px-4 py-2 rounded-[8px] text-sm font-bold hover:bg-green-700 transition-colors shadow-sm">Copy Store 1 Link</button>
+            <div className="flex gap-2 flex-wrap">
+              <button onClick={() => handleCopyLink(primaryStoreOneLink)} className="bg-green-600 text-white px-4 py-2 rounded-[8px] text-sm font-bold hover:bg-green-700 transition-colors shadow-sm">Copy Store 1 Link</button>
+              <button onClick={() => handleTinyUrlCopy(primaryStoreOneLink, 'store1')} disabled={shorteningLinkKey === 'store1'} className="bg-slate-700 text-white px-4 py-2 rounded-[8px] text-sm font-bold hover:bg-slate-800 transition-colors shadow-sm disabled:opacity-50">{shorteningLinkKey === 'store1' ? 'Shortening...' : 'Copy TinyURL'}</button>
+            </div>
           </div>
           <div className="border rounded-[10px] p-4 bg-gray-50">
             <p className="text-xs font-bold text-gray-500 mb-2 uppercase tracking-wider">Customer Store Two Link {tinbrLinksEnabled ? '(Tinbr Active)' : '(Normal Active)'}</p>
@@ -980,7 +1010,10 @@ const VendorPage = () => {
                 <p><span className="font-black">Tinbr:</span> {tinbrStoreTwoLink || 'Not set'}</p>
               </div>
             )}
-            <button onClick={() => handleCopyLink(primaryStoreTwoLink)} className="bg-emerald-600 text-white px-4 py-2 rounded-[8px] text-sm font-bold hover:bg-emerald-700 transition-colors shadow-sm">Copy Store 2 Link</button>
+            <div className="flex gap-2 flex-wrap">
+              <button onClick={() => handleCopyLink(primaryStoreTwoLink)} className="bg-emerald-600 text-white px-4 py-2 rounded-[8px] text-sm font-bold hover:bg-emerald-700 transition-colors shadow-sm">Copy Store 2 Link</button>
+              <button onClick={() => handleTinyUrlCopy(primaryStoreTwoLink, 'store2')} disabled={shorteningLinkKey === 'store2'} className="bg-slate-700 text-white px-4 py-2 rounded-[8px] text-sm font-bold hover:bg-slate-800 transition-colors shadow-sm disabled:opacity-50">{shorteningLinkKey === 'store2' ? 'Shortening...' : 'Copy TinyURL'}</button>
+            </div>
           </div>
         </div>
       </div>
@@ -1066,7 +1099,7 @@ const VendorPage = () => {
             </div>
 
             <div className="md:col-span-2 rounded-2xl border border-indigo-100 bg-indigo-50/60 p-4">
-              <label className="block text-sm font-bold text-indigo-900 mb-3">Tinbr (URL Shortener) Link Controls</label>
+              <label className="block text-sm font-bold text-indigo-900 mb-3">Tinbr / TinyURL (URL Shortener) Link Controls</label>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                 <label className="flex items-center gap-3 text-sm font-semibold text-indigo-900">
                   <input type="checkbox" checked={tinbrLinksEnabled} onChange={(e) => setTinbrLinksEnabled(e.target.checked)} className="w-4 h-4" />
