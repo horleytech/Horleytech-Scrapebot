@@ -453,6 +453,32 @@ const VendorPage = () => {
         throw new Error('TinyURL generation failed.');
       }
 
+      if (isAdmin && (keyLabel === 'store1' || keyLabel === 'store2')) {
+        const isStoreOne = keyLabel === 'store1';
+        const fieldName = isStoreOne ? 'tinbrStoreOneLink' : 'tinbrStoreTwoLink';
+        const actionLabel = isStoreOne ? 'Updated Tinbr Store 1 Link' : 'Updated Tinbr Store 2 Link';
+        const nextLogs = appendRollingLog(vendorData?.logs, 'admin', {
+          action: actionLabel,
+          date: new Date().toISOString(),
+        });
+
+        await updateDoc(vendorRef, {
+          [fieldName]: shortUrl,
+          lastUpdated: new Date().toISOString(),
+          logs: nextLogs,
+        });
+
+        setVendorData((prev) => ({
+          ...prev,
+          [fieldName]: shortUrl,
+          lastUpdated: new Date().toISOString(),
+          logs: nextLogs,
+        }));
+
+        if (isStoreOne) setTinbrStoreOneLinkInput(shortUrl);
+        else setTinbrStoreTwoLinkInput(shortUrl);
+      }
+
       await navigator.clipboard.writeText(shortUrl);
       alert(`✅ Shortened link copied to clipboard!\n\n${shortUrl}`);
     } catch (error) {
@@ -768,10 +794,10 @@ const VendorPage = () => {
       businessType: businessTypeInput || 'Other',
       metaData: businessTypeInput || 'Other',
       storefrontDisplayLimit: Number(storefrontDisplayLimit) > 0 ? Number(storefrontDisplayLimit) : 20,
-      tinbrLinksEnabled: Boolean(tinbrLinksEnabled),
-      showBothTinbrAndNormalLinks: Boolean(showBothTinbrAndNormalLinks),
-      tinbrStoreOneLink: tinbrStoreOneLinkInput.trim(),
-      tinbrStoreTwoLink: tinbrStoreTwoLinkInput.trim(),
+      tinbrLinksEnabled: isAdmin ? Boolean(tinbrLinksEnabled) : Boolean(vendorData?.tinbrLinksEnabled),
+      showBothTinbrAndNormalLinks: isAdmin ? Boolean(showBothTinbrAndNormalLinks) : Boolean(vendorData?.showBothTinbrAndNormalLinks),
+      tinbrStoreOneLink: isAdmin ? tinbrStoreOneLinkInput.trim() : String(vendorData?.tinbrStoreOneLink || '').trim(),
+      tinbrStoreTwoLink: isAdmin ? tinbrStoreTwoLinkInput.trim() : String(vendorData?.tinbrStoreTwoLink || '').trim(),
     };
 
     const actions = buildDeepComparisonActions(vendorData || {}, nextState);
@@ -984,7 +1010,9 @@ const VendorPage = () => {
             <p className="text-sm break-all text-[#1A1C23] mb-3 font-mono bg-white p-2 rounded border">{vendorBackendLink}</p>
             <div className="flex gap-2 flex-wrap">
               <button onClick={() => handleCopyLink(vendorBackendLink)} className="bg-blue-600 text-white px-4 py-2 rounded-[8px] text-sm font-bold hover:bg-blue-700 transition-colors shadow-sm">Copy Backend Link</button>
-              <button onClick={() => handleTinyUrlCopy(vendorBackendLink, 'vendor')} disabled={shorteningLinkKey === 'vendor'} className="bg-slate-700 text-white px-4 py-2 rounded-[8px] text-sm font-bold hover:bg-slate-800 transition-colors shadow-sm disabled:opacity-50">{shorteningLinkKey === 'vendor' ? 'Shortening...' : 'Copy TinyURL'}</button>
+              {isAdmin && (
+                <button onClick={() => handleTinyUrlCopy(vendorBackendLink, 'vendor')} disabled={shorteningLinkKey === 'vendor'} className="bg-slate-700 text-white px-4 py-2 rounded-[8px] text-sm font-bold hover:bg-slate-800 transition-colors shadow-sm disabled:opacity-50">{shorteningLinkKey === 'vendor' ? 'Shortening...' : 'Copy TinyURL'}</button>
+              )}
             </div>
           </div>
           <div className="border rounded-[10px] p-4 bg-gray-50">
@@ -998,7 +1026,9 @@ const VendorPage = () => {
             )}
             <div className="flex gap-2 flex-wrap">
               <button onClick={() => handleCopyLink(primaryStoreOneLink)} className="bg-green-600 text-white px-4 py-2 rounded-[8px] text-sm font-bold hover:bg-green-700 transition-colors shadow-sm">Copy Store 1 Link</button>
-              <button onClick={() => handleTinyUrlCopy(primaryStoreOneLink, 'store1')} disabled={shorteningLinkKey === 'store1'} className="bg-slate-700 text-white px-4 py-2 rounded-[8px] text-sm font-bold hover:bg-slate-800 transition-colors shadow-sm disabled:opacity-50">{shorteningLinkKey === 'store1' ? 'Shortening...' : 'Copy TinyURL'}</button>
+              {isAdmin && (
+                <button onClick={() => handleTinyUrlCopy(customerStoreOneLink, 'store1')} disabled={shorteningLinkKey === 'store1'} className="bg-slate-700 text-white px-4 py-2 rounded-[8px] text-sm font-bold hover:bg-slate-800 transition-colors shadow-sm disabled:opacity-50">{shorteningLinkKey === 'store1' ? 'Shortening...' : 'Copy TinyURL'}</button>
+              )}
             </div>
           </div>
           <div className="border rounded-[10px] p-4 bg-gray-50">
@@ -1012,7 +1042,9 @@ const VendorPage = () => {
             )}
             <div className="flex gap-2 flex-wrap">
               <button onClick={() => handleCopyLink(primaryStoreTwoLink)} className="bg-emerald-600 text-white px-4 py-2 rounded-[8px] text-sm font-bold hover:bg-emerald-700 transition-colors shadow-sm">Copy Store 2 Link</button>
-              <button onClick={() => handleTinyUrlCopy(primaryStoreTwoLink, 'store2')} disabled={shorteningLinkKey === 'store2'} className="bg-slate-700 text-white px-4 py-2 rounded-[8px] text-sm font-bold hover:bg-slate-800 transition-colors shadow-sm disabled:opacity-50">{shorteningLinkKey === 'store2' ? 'Shortening...' : 'Copy TinyURL'}</button>
+              {isAdmin && (
+                <button onClick={() => handleTinyUrlCopy(customerStoreTwoLink, 'store2')} disabled={shorteningLinkKey === 'store2'} className="bg-slate-700 text-white px-4 py-2 rounded-[8px] text-sm font-bold hover:bg-slate-800 transition-colors shadow-sm disabled:opacity-50">{shorteningLinkKey === 'store2' ? 'Shortening...' : 'Copy TinyURL'}</button>
+              )}
             </div>
           </div>
         </div>
@@ -1099,7 +1131,8 @@ const VendorPage = () => {
               <p className="text-xs text-gray-500 mt-2">Store 2 uses Premium layout automatically (no separate premium selector needed).</p>
             </div>
 
-            <div className="md:col-span-2 rounded-2xl border border-indigo-100 bg-indigo-50/60 p-4">
+            {isAdmin && (
+              <div className="md:col-span-2 rounded-2xl border border-indigo-100 bg-indigo-50/60 p-4">
               <label className="block text-sm font-bold text-indigo-900 mb-3">Tinbr / TinyURL (URL Shortener) Link Controls</label>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                 <label className="flex items-center gap-3 text-sm font-semibold text-indigo-900">
@@ -1114,15 +1147,16 @@ const VendorPage = () => {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-black uppercase tracking-wider text-indigo-700 mb-1">Tinbr Store 1 URL</label>
-                  <input type="text" value={tinbrStoreOneLinkInput} onChange={(e) => setTinbrStoreOneLinkInput(e.target.value)} className="w-full p-3 border rounded-[8px] focus:ring-2 focus:ring-indigo-300 outline-none" placeholder="https://tinbr.../store-1" />
+                  <input type="text" value={tinbrStoreOneLinkInput} readOnly className="w-full p-3 border rounded-[8px] bg-gray-100 text-gray-600 cursor-not-allowed" placeholder="Auto-generated from Share Links" />
                 </div>
                 <div>
                   <label className="block text-xs font-black uppercase tracking-wider text-indigo-700 mb-1">Tinbr Store 2 URL</label>
-                  <input type="text" value={tinbrStoreTwoLinkInput} onChange={(e) => setTinbrStoreTwoLinkInput(e.target.value)} className="w-full p-3 border rounded-[8px] focus:ring-2 focus:ring-indigo-300 outline-none" placeholder="https://tinbr.../store-2" />
+                  <input type="text" value={tinbrStoreTwoLinkInput} readOnly className="w-full p-3 border rounded-[8px] bg-gray-100 text-gray-600 cursor-not-allowed" placeholder="Auto-generated from Share Links" />
                 </div>
               </div>
-              <p className="text-xs text-indigo-800 mt-3">When enabled, customer store links use Tinbr URLs. Admin always sees both normal + Tinbr links; vendors see both only if enabled above.</p>
-            </div>
+              <p className="text-xs text-indigo-800 mt-3">Use the Copy TinyURL buttons in Share Links to generate and save Tinbr links to Firebase. Vendors only see both normal + Tinbr links when enabled above.</p>
+              </div>
+            )}
 
             <div>
               <label className="block text-sm font-bold text-gray-700 mb-2">Store Logo (150x150)</label>
