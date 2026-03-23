@@ -342,10 +342,18 @@ const VendorPage = () => {
     return normalizePriceInput(product['Regular price'] || '0');
   };
 
-  const inventoryRows = useMemo(() => displayData.map((entry) => ({
-    ...entry,
-    displayPrice: getInventoryPriceByView(entry.product, inventoryView),
-  })), [displayData, inventoryView]);
+  const hasStoreSpecificPrice = (value) => String(value || '').trim().length > 0;
+
+  const inventoryRows = useMemo(() => displayData
+    .filter(({ product }) => {
+      if (inventoryView === 'store1') return hasStoreSpecificPrice(product['Store 1 price']) || hasStoreSpecificPrice(product.storeOnePrice);
+      if (inventoryView === 'store2') return hasStoreSpecificPrice(product['Store 2 price']) || hasStoreSpecificPrice(product.storeTwoPrice);
+      return true;
+    })
+    .map((entry) => ({
+      ...entry,
+      displayPrice: getInventoryPriceByView(entry.product, inventoryView),
+    })), [displayData, inventoryView]);
 
   const allVisibleRowsSelected = inventoryRows.length > 0 && inventoryRows.every(({ index }) => selectedProductIndexes.includes(index));
 
@@ -421,17 +429,19 @@ const VendorPage = () => {
   const tutorialVideoEmbedUrl = useMemo(() => toYoutubeEmbedUrl(tutorialVideoUrl), [tutorialVideoUrl]);
 
   const handleExport = () => {
-    const rows = displayData.map(({ product }) => ({
+    const priceHeader = inventoryView === 'store1' ? 'Store 1 Price' : inventoryView === 'store2' ? 'Store 2 Price' : 'Vendor Price';
+    const rows = inventoryRows.map(({ product, displayPrice }) => ({
       Group: product.groupName || 'Direct Message',
       Device: product['Device Type'] || '',
       Condition: product.Condition || '',
       Specification: product['SIM Type/Model/Processor'] || '',
       Storage: product['Storage Capacity/Configuration'] || '',
-      Price: product['Regular price'] || '',
+      [priceHeader]: displayPrice || '',
       Status: product.isVisible === false ? 'Hidden' : 'Visible',
       Extracted: product.DatePosted || '',
     }));
-    downloadCsv(`${vendorData?.vendorName || 'Vendor'}-inventory.csv`, rows);
+    const suffix = inventoryView === 'store1' ? 'store-1' : inventoryView === 'store2' ? 'store-2' : 'vendor';
+    downloadCsv(`${vendorData?.vendorName || 'Vendor'}-${suffix}-inventory.csv`, rows);
   };
 
   const handleCopyLink = async (link) => {
