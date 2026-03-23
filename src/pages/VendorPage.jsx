@@ -995,6 +995,7 @@ const VendorPage = () => {
                 <option value="minimal">minimal (Clean List)</option>
                 <option value="compact">compact (Dense List)</option>
                 <option value="dark">dark (Dark Mode)</option>
+                <option value="premium">premium (Luxury Cards)</option>
               </select>
             </div>
 

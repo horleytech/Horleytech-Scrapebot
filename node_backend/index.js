@@ -1361,27 +1361,29 @@ app.post('/api/admin/trigger-background-sync', async (_req, res) => {
 // --- UNIFIED DATABASE WIPE ENDPOINT (START AFRESH) ---
 app.delete('/api/admin/nuke-everything', async (_req, res) => {
   try {
-    // 1. Wipe Scrapebot Data
-    const deletedInventories = await deleteCollectionDocuments('horleyTech_OfflineInventories');
-    const deletedMessages = await deleteCollectionDocuments('horleyTech_PlatformMessages');
-    const deletedAudit = await deleteCollectionDocuments('horleyTech_AuditLogs');
+    const deletedStats = {
+      ar_analytics: await deleteCollectionDocuments('ar_analytics'),
+      ar_customers: await deleteCollectionDocuments('ar_customers'),
+      ar_raw_requests: await deleteCollectionDocuments('ar_raw_requests'),
+      ar_settings: await deleteCollectionDocuments('ar_settings'),
+      horleyTech_AuditLogs: await deleteCollectionDocuments('horleyTech_AuditLogs'),
+      horleyTech_Backups: await deleteCollectionDocuments('horleyTech_Backups'),
+      horleyTech_OfflineInventories: await deleteCollectionDocuments('horleyTech_OfflineInventories'),
+      horleyTech_PlatformMessages: await deleteCollectionDocuments('horleyTech_PlatformMessages'),
+      horleyTech_PricingSessions: await deleteCollectionDocuments('horleyTech_PricingSessions'),
+      horleyTech_ProductAliasIndex: await deleteCollectionDocuments('horleyTech_ProductAliasIndex'),
+      horleyTech_ProductContainers: await deleteCollectionDocuments('horleyTech_ProductContainers'),
+      horleyTech_Settings: await deleteCollectionDocuments('horleyTech_Settings'),
+    };
 
-    // 2. Wipe Auto Responder Data
-    const deletedArRaw = await deleteCollectionDocuments('ar_raw_requests');
-    const deletedArAnalytics = await deleteCollectionDocuments('ar_analytics');
-    const deletedArCustomers = await deleteCollectionDocuments('ar_customers');
-    const deletedArDict = await deleteCollectionDocuments('ar_dictionary');
-
-    // Reset Scrapebot memory cache
+    // Reset Scrapebot memory cache + webhook extraction cache
     resetGlobalMemoryCache();
+    processedMessageCache.clear();
 
     return res.status(200).json({
       success: true,
       message: 'All Scrapebot and Auto Responder data wiped. Fresh start ready.',
-      stats: {
-        scrapebot: { deletedInventories, deletedMessages, deletedAudit },
-        autoResponder: { deletedArRaw, deletedArAnalytics, deletedArCustomers, deletedArDict },
-      },
+      stats: deletedStats,
     });
   } catch (error) {
     console.error('❌ Total Nuke failed:', error);
