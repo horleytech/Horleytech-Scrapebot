@@ -204,20 +204,6 @@ const StoreFront = () => {
     return product['Regular price'] || product['Store 1 price'] || product['Store 2 price'] || 'N/A';
   };
 
-  const selectedStoreBranch = useMemo(() => {
-    const params = new URLSearchParams(location.search);
-    const raw = String(params.get('branch') || '').trim().toLowerCase();
-    if (raw === 'store1' || raw === 'store-1') return 'store1';
-    if (raw === 'store2' || raw === 'store-2') return 'store2';
-    return 'default';
-  }, [location.search]);
-
-  const getStorefrontPrice = (product) => {
-    if (selectedStoreBranch === 'store1') return product['Store 1 price'] || product.storeOnePrice || product['Regular price'] || 'N/A';
-    if (selectedStoreBranch === 'store2') return product['Store 2 price'] || product.storeTwoPrice || product['Regular price'] || 'N/A';
-    return product['Regular price'] || product['Store 1 price'] || product['Store 2 price'] || 'N/A';
-  };
-
   const pageClassName = isDarkLayout
     ? 'min-h-screen py-8 px-4 md:px-8 bg-[#121212] text-gray-100'
     : 'min-h-screen bg-gradient-to-b from-slate-100 via-white to-slate-100 py-8 px-4 md:px-8';
