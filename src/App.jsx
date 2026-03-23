@@ -31,8 +31,11 @@ function App() {
       {/* 🔴 PUBLIC ROUTE: Anyone with the admin/vendor inventory link can view full inventory */}
       <Route path="/vendor/:vendorId" element={<VendorPage />} />
 
-      {/* 🟢 PUBLIC STOREFRONT: Customer-facing page with visible products only */}
-      <Route path="/store/:vendorId" element={<StoreFront />} />
+      {/* 🟢 PUBLIC STOREFRONTS: Independent Store 1 (Classic) and Store 2 (Premium) */}
+      <Route path="/store/1/:vendorId" element={<StoreFront storeType="1" />} />
+      <Route path="/store/2/:vendorId" element={<StoreFront storeType="2" />} />
+      {/* Fallback route goes to Store 1 */}
+      <Route path="/store/:vendorId" element={<StoreFront storeType="1" />} />
 
       <Route
         path="/hub"

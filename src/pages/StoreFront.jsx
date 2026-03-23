@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useLocation, useParams } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
 import { doc, getDoc, updateDoc, increment } from 'firebase/firestore';
+import PropTypes from 'prop-types';
 import { db } from '../services/firebase/index.js';
 
 const MAX_LOG_ITEMS = 200;
@@ -48,9 +49,9 @@ const lightenHex = (hex, amount = 0.18) => {
   return `#${[nextR, nextG, nextB].map((v) => v.toString(16).padStart(2, '0')).join('')}`;
 };
 
-const StoreFront = () => {
+const StoreFront = ({ storeType = '1' }) => {
   const { vendorId } = useParams();
-  const location = useLocation();
+  const isStore2 = storeType === '2';
   const [vendorData, setVendorData] = useState(null);
   const [loading, setLoading] = useState(true);
 
@@ -91,8 +92,11 @@ const StoreFront = () => {
 
     return products
       .filter((product) => {
-        const isVisible = product?.isVisible !== false;
-        if (!isVisible) return false;
+        if (isStore2) {
+          if (product.visibleInStore2 !== true) return false;
+        } else if (product.visibleInStore1 === false || product.isVisible === false) {
+          return false;
+        }
 
         if (hasConfiguredAllowedGroups) {
           const productGroup = String(product?.groupName || 'Direct Message').trim().toLowerCase();
@@ -102,7 +106,7 @@ const StoreFront = () => {
         return true;
       })
       .slice(0, vendorData?.storefrontDisplayLimit || 20);
-  }, [vendorData]);
+  }, [vendorData, isStore2]);
 
   const pickStaffNumber = () => {
     const configuredStaffNumbers = (vendorData?.whatsappNumbers || [])
@@ -152,6 +156,11 @@ const StoreFront = () => {
     window.open(link, '_blank', 'noopener,noreferrer');
   };
 
+  const getDisplayPrice = (product) => {
+    if (isStore2) return product.priceStore2 || product['Store 2 price'] || product.storeTwoPrice || product['Regular price'] || 'N/A';
+    return product.priceStore1 || product['Store 1 price'] || product.storeOnePrice || product['Regular price'] || 'N/A';
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen grid place-items-center bg-gray-50">
@@ -185,23 +194,13 @@ const StoreFront = () => {
   const themeColor = vendorData.themeColor || '#16a34a';
   const lighterTheme = lightenHex(themeColor, 0.22);
 
-  const selectedStoreBranch = useMemo(() => {
-    const params = new URLSearchParams(location.search);
-    const raw = String(params.get('branch') || '').trim().toLowerCase();
-    if (raw === 'store1' || raw === 'store-1') return 'store1';
-    if (raw === 'store2' || raw === 'store-2') return 'store2';
-    return 'default';
-  }, [location.search]);
-
   const storeLayout = vendorData.storeLayout || 'classic';
   const normalizedBaseLayout = storeLayout === 'premium' ? 'classic' : storeLayout;
-  const activeStoreLayout = selectedStoreBranch === 'store2' ? 'premium' : normalizedBaseLayout;
+  const activeStoreLayout = isStore2 ? 'premium' : normalizedBaseLayout;
   const isDarkLayout = activeStoreLayout === 'dark';
 
   const getStorefrontPrice = (product) => {
-    if (selectedStoreBranch === 'store1') return product['Store 1 price'] || product.storeOnePrice || product['Regular price'] || 'N/A';
-    if (selectedStoreBranch === 'store2') return product['Store 2 price'] || product.storeTwoPrice || product['Regular price'] || 'N/A';
-    return product['Regular price'] || product['Store 1 price'] || product['Store 2 price'] || 'N/A';
+    return getDisplayPrice(product);
   };
 
   const pageClassName = isDarkLayout
@@ -406,11 +405,11 @@ const StoreFront = () => {
       );
     }
 
-    if (activeStoreLayout === 'premium') return renderPremiumLayout();
-    if (activeStoreLayout === 'grid') return renderGridLayout();
-    if (activeStoreLayout === 'minimal') return renderListLayout('minimal');
-    if (activeStoreLayout === 'compact') return renderListLayout('compact');
-    if (activeStoreLayout === 'dark') return renderClassicTable();
+    if (isStore2) return renderPremiumLayout();
+    if (storeLayout === 'grid') return renderGridLayout();
+    if (storeLayout === 'minimal') return renderListLayout('minimal');
+    if (storeLayout === 'compact') return renderListLayout('compact');
+    if (storeLayout === 'dark') return renderClassicTable();
     return renderClassicTable();
   };
 
@@ -449,9 +448,7 @@ const StoreFront = () => {
               <div className="flex flex-wrap justify-center md:justify-start gap-4 mt-4">
                 {vendorData.address && <span className="text-xs font-bold bg-black/20 px-3 py-1.5 rounded-full">📍 {vendorData.address}</span>}
                 <span className="text-xs font-bold bg-black/20 px-3 py-1.5 rounded-full">📦 {visibleProducts.length} items available</span>
-                {selectedStoreBranch !== 'default' && (
-                  <span className="text-xs font-bold bg-black/20 px-3 py-1.5 rounded-full">🏷️ Branch: {selectedStoreBranch === 'store1' ? 'Store 1 Pricing' : 'Store 2 Pricing'}</span>
-                )}
+                <span className="text-xs font-bold bg-black/20 px-3 py-1.5 rounded-full">🏷️ {isStore2 ? 'Store 2 Pricing' : 'Store 1 Pricing'}</span>
               </div>
             </div>
           </div>
@@ -461,6 +458,10 @@ const StoreFront = () => {
       </div>
     </div>
   );
+};
+
+StoreFront.propTypes = {
+  storeType: PropTypes.string,
 };
 
 export default StoreFront;
