@@ -40,6 +40,7 @@ let messagesCache = [];
 let messagesCacheUpdatedAt = 0;
 const MESSAGES_CACHE_TTL_MS = 15000;
 const MESSAGE_FETCH_TIMEOUT_MS = 8000;
+const processedMessageCache = new Map();
 
 const withTimeout = async (promiseFactory, timeoutMs, timeoutMessage) => Promise.race([
   promiseFactory(),
@@ -994,28 +995,50 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
     let retries = 3;
     let success = false;
 
-    while (retries > 0 && !success) {
-      try {
-        const webhookAI = await resolveTextAIConfig({ background: false });
-        const aiResponse = await webhookAI.client.chat.completions.create({
-          model: webhookAI.model,
-          messages: [
-            { role: 'system', content: stageOnePrompt },
-            { role: 'user', content: senderMessage }
-          ],
-          temperature: 0,
-        });
+    // --- CROSS-LEARNED TOKEN FIX 1: THE CACHE ---
+    // Hash the first 200 chars to identify repeat broadcasts quickly
+    const msgHash = String(senderMessage).trim().substring(0, 200);
 
-        const cleanJson = aiResponse.choices[0].message.content.replace(/```json/g, '').replace(/```/g, '').trim();
-        extractedProducts = JSON.parse(cleanJson);
-        success = true;
-      } catch (err) {
-        retries -= 1;
-        if (retries > 0) {
-          console.log(`⚠️ OpenAI Webhook Hiccup. Retrying... (${retries} left)`);
-          await new Promise((resolve) => setTimeout(resolve, 2000));
-        } else {
-          throw new Error(`OpenAI failed after 3 retries: ${err.message}`);
+    if (processedMessageCache.has(msgHash)) {
+      console.log('⚡ Using cached extraction for repeat broadcast. Saving tokens!');
+      extractedProducts = processedMessageCache.get(msgHash);
+      success = true;
+    } else {
+      // --- CROSS-LEARNED TOKEN FIX 2: TRUNCATION & LIMITS ---
+      // Cap massive broadcasts at 1200 characters before sending to AI
+      const MAX_INPUT_LENGTH = 1200;
+      const optimizedMessage = senderMessage.length > MAX_INPUT_LENGTH
+        ? `${senderMessage.substring(0, MAX_INPUT_LENGTH)}...`
+        : senderMessage;
+
+      while (retries > 0 && !success) {
+        try {
+          const webhookAI = await resolveTextAIConfig({ background: false });
+          const aiResponse = await webhookAI.client.chat.completions.create({
+            model: webhookAI.model,
+            messages: [
+              { role: 'system', content: stageOnePrompt },
+              { role: 'user', content: optimizedMessage }
+            ],
+            temperature: 0,
+            max_tokens: 300,
+          });
+
+          const cleanJson = aiResponse.choices[0].message.content.replace(/```json/g, '').replace(/```/g, '').trim();
+          extractedProducts = JSON.parse(cleanJson);
+          success = true;
+
+          // Save to cache (cap at 50 to prevent memory leaks)
+          if (processedMessageCache.size > 50) processedMessageCache.clear();
+          processedMessageCache.set(msgHash, extractedProducts);
+        } catch (err) {
+          retries -= 1;
+          if (retries > 0) {
+            console.log(`⚠️ OpenAI Webhook Hiccup. Retrying... (${retries} left)`);
+            await new Promise((resolve) => setTimeout(resolve, 2000));
+          } else {
+            throw new Error(`OpenAI failed after 3 retries: ${err.message}`);
+          }
         }
       }
     }
@@ -1331,6 +1354,40 @@ app.post('/api/admin/trigger-background-sync', async (_req, res) => {
   } catch (error) {
     console.error('❌ Fatal Background Sync Error:', error);
     await safeSetSyncStatus({ isSyncing: false, progress: 'Error during sync', justFinished: true });
+  }
+});
+
+
+// --- UNIFIED DATABASE WIPE ENDPOINT (START AFRESH) ---
+app.delete('/api/admin/nuke-everything', async (_req, res) => {
+  try {
+    const deletedStats = {
+      ar_analytics: await deleteCollectionDocuments('ar_analytics'),
+      ar_customers: await deleteCollectionDocuments('ar_customers'),
+      ar_raw_requests: await deleteCollectionDocuments('ar_raw_requests'),
+      ar_settings: await deleteCollectionDocuments('ar_settings'),
+      horleyTech_AuditLogs: await deleteCollectionDocuments('horleyTech_AuditLogs'),
+      horleyTech_Backups: await deleteCollectionDocuments('horleyTech_Backups'),
+      horleyTech_OfflineInventories: await deleteCollectionDocuments('horleyTech_OfflineInventories'),
+      horleyTech_PlatformMessages: await deleteCollectionDocuments('horleyTech_PlatformMessages'),
+      horleyTech_PricingSessions: await deleteCollectionDocuments('horleyTech_PricingSessions'),
+      horleyTech_ProductAliasIndex: await deleteCollectionDocuments('horleyTech_ProductAliasIndex'),
+      horleyTech_ProductContainers: await deleteCollectionDocuments('horleyTech_ProductContainers'),
+      horleyTech_Settings: await deleteCollectionDocuments('horleyTech_Settings'),
+    };
+
+    // Reset Scrapebot memory cache + webhook extraction cache
+    resetGlobalMemoryCache();
+    processedMessageCache.clear();
+
+    return res.status(200).json({
+      success: true,
+      message: 'All Scrapebot and Auto Responder data wiped. Fresh start ready.',
+      stats: deletedStats,
+    });
+  } catch (error) {
+    console.error('❌ Total Nuke failed:', error);
+    return res.status(500).json({ success: false, error: error.message });
   }
 });
 
