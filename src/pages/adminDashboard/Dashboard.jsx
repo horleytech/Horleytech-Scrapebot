@@ -575,6 +575,8 @@ const AdminDashboard = () => {
   const [loadingDriveBackups, setLoadingDriveBackups] = useState(false);
   const [restoringDriveId, setRestoringDriveId] = useState(null);
   const [uploadRestoreLoading, setUploadRestoreLoading] = useState(false);
+  const [nukeEverythingConfirmText, setNukeEverythingConfirmText] = useState('');
+  const [nukingEverything, setNukingEverything] = useState(false);
   const fetchInventory = async () => {
     setLoadingSearch(true);
     try {
@@ -1602,6 +1604,36 @@ const AdminDashboard = () => {
     }
 
     window.location.reload(true);
+  };
+
+  const handleNukeEverything = async () => {
+    if (nukeEverythingConfirmText.trim().toUpperCase() !== 'NUKE EVERYTHING') {
+      alert('Type "NUKE EVERYTHING" exactly to continue.');
+      return;
+    }
+
+    setNukingEverything(true);
+    try {
+      const response = await fetch(`${BASE_URL}/api/admin/nuke-everything`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.error || 'Failed to wipe all collections');
+
+      const deletedCount = Object.values(payload?.stats || {}).reduce((sum, count) => sum + (Number(count) || 0), 0);
+      setNukeEverythingConfirmText('');
+      alert(`✅ Total nuke complete. Deleted ${deletedCount} documents across all configured collections.`);
+      await fetchInventory();
+      await fetchBackups();
+      setAllMessages([]);
+      setAuditLogs([]);
+      setGlobalProductsCacheRows([]);
+    } catch (error) {
+      alert(`❌ ${error.message}`);
+    } finally {
+      setNukingEverything(false);
+    }
   };
 
   const handleNukeAndRebuild = async () => {
@@ -2763,6 +2795,28 @@ const AdminDashboard = () => {
                 <button onClick={runRetroactiveCleanup} className="bg-emerald-600 text-white px-4 py-2 rounded-lg font-bold text-sm hover:bg-emerald-700">🧹 Run Retroactive Cleanup</button>
                 <button onClick={forceBuildProductCache} className="bg-purple-600 text-white px-4 py-2 rounded-lg font-bold text-sm hover:bg-purple-700">🏗️ Force Build Product Cache</button>
               </div>
+              <div className="mb-5 border border-red-200 rounded-2xl p-4 bg-red-50">
+                <h3 className="text-sm font-black uppercase tracking-wider text-red-700 mb-2">Danger Zone: Nuke All Live Data</h3>
+                <p className="text-xs text-red-700 mb-3">
+                  This permanently clears both Scrapebot and Auto Responder collections from Firebase. Type <span className="font-black">NUKE EVERYTHING</span> to enable the button.
+                </p>
+                <div className="flex flex-col md:flex-row gap-3">
+                  <input
+                    value={nukeEverythingConfirmText}
+                    onChange={(e) => setNukeEverythingConfirmText(e.target.value)}
+                    placeholder="Type: NUKE EVERYTHING"
+                    className="flex-1 px-4 py-2.5 rounded-xl border border-red-300 bg-white text-sm font-semibold outline-none focus:ring-2 focus:ring-red-300"
+                  />
+                  <button
+                    onClick={handleNukeEverything}
+                    disabled={nukingEverything || nukeEverythingConfirmText.trim().toUpperCase() !== 'NUKE EVERYTHING'}
+                    className="px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider bg-red-600 text-white hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {nukingEverything ? 'Nuking Live Data...' : 'Nuke All Data Now'}
+                  </button>
+                </div>
+              </div>
+
               <div className="border-t pt-4">
                 <div className="flex items-center justify-between mb-3">
                   <h3 className="text-sm font-black uppercase tracking-wider text-gray-600">Cloud Backups (Drive)</h3>
