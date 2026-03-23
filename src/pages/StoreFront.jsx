@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { useLocation, useParams } from 'react-router-dom';
 import { doc, getDoc, updateDoc, increment } from 'firebase/firestore';
 import { db } from '../services/firebase/index.js';
 
@@ -50,6 +50,7 @@ const lightenHex = (hex, amount = 0.18) => {
 
 const StoreFront = () => {
   const { vendorId } = useParams();
+  const location = useLocation();
   const [vendorData, setVendorData] = useState(null);
   const [loading, setLoading] = useState(true);
 
@@ -146,7 +147,7 @@ const StoreFront = () => {
     }
 
     const number = pickStaffNumber();
-    const message = `Hi, I am interested in the ${product['Device Type'] || 'device'} (${product.Condition || 'N/A'}, ${product['Storage Capacity/Configuration'] || 'N/A'}) for ${product['Regular price'] || 'N/A'} listed on your store.`;
+    const message = `Hi, I am interested in the ${product['Device Type'] || 'device'} (${product.Condition || 'N/A'}, ${product['Storage Capacity/Configuration'] || 'N/A'}) for ${getStorefrontPrice(product)} listed on your store.`;
     const link = `https://wa.me/${number}?text=${encodeURIComponent(message)}`;
     window.open(link, '_blank', 'noopener,noreferrer');
   };
@@ -185,6 +186,20 @@ const StoreFront = () => {
   const lighterTheme = lightenHex(themeColor, 0.22);
   const storeLayout = vendorData.storeLayout || 'classic';
   const isDarkLayout = storeLayout === 'dark';
+
+  const selectedStoreBranch = useMemo(() => {
+    const params = new URLSearchParams(location.search);
+    const raw = String(params.get('branch') || '').trim().toLowerCase();
+    if (raw === 'store1' || raw === 'store-1') return 'store1';
+    if (raw === 'store2' || raw === 'store-2') return 'store2';
+    return 'default';
+  }, [location.search]);
+
+  const getStorefrontPrice = (product) => {
+    if (selectedStoreBranch === 'store1') return product['Store 1 price'] || product.storeOnePrice || product['Regular price'] || 'N/A';
+    if (selectedStoreBranch === 'store2') return product['Store 2 price'] || product.storeTwoPrice || product['Regular price'] || 'N/A';
+    return product['Regular price'] || product['Store 1 price'] || product['Store 2 price'] || 'N/A';
+  };
 
   const pageClassName = isDarkLayout
     ? 'min-h-screen py-8 px-4 md:px-8 bg-[#121212] text-gray-100'
@@ -245,7 +260,7 @@ const StoreFront = () => {
                   {product['Storage Capacity/Configuration'] || 'N/A'}
                 </td>
                 <td className="px-6 py-5 font-black text-lg" style={{ color: themeColor }}>
-                  {product['Regular price'] || 'N/A'}
+                  {getStorefrontPrice(product)}
                 </td>
                 <td className="px-6 py-5">
                   <button
@@ -279,7 +294,7 @@ const StoreFront = () => {
             <p className={`text-sm ${isDarkLayout ? 'text-gray-300' : 'text-gray-600'}`}>{product['SIM Type/Model/Processor'] || 'N/A'}</p>
             <p className={`text-sm font-semibold ${isDarkLayout ? 'text-gray-300' : 'text-gray-600'}`}>{product['Storage Capacity/Configuration'] || 'N/A'}</p>
             <div className="flex items-center justify-between pt-2">
-              <span className="font-black text-lg" style={{ color: themeColor }}>{product['Regular price'] || 'N/A'}</span>
+              <span className="font-black text-lg" style={{ color: themeColor }}>{getStorefrontPrice(product)}</span>
               <button
                 onClick={() => handleWhatsAppClick(product)}
                 style={{ backgroundColor: themeColor, boxShadow: isDarkLayout ? `0 0 10px ${themeColor}66` : 'none' }}
@@ -307,7 +322,7 @@ const StoreFront = () => {
           </div>
           <div className="flex w-full sm:w-auto items-center justify-between sm:justify-start gap-3 shrink-0">
             <span className={`font-black ${variant === 'compact' ? 'text-sm' : 'text-lg'}`} style={{ color: themeColor }}>
-              {product['Regular price'] || 'N/A'}
+              {getStorefrontPrice(product)}
             </span>
             <button
               onClick={() => handleWhatsAppClick(product)}
@@ -362,7 +377,7 @@ const StoreFront = () => {
 
             <div className="flex items-center justify-between pt-6 border-t border-gray-100/10">
               <span className="font-black text-4xl" style={{ color: themeColor }}>
-                {product['Regular price'] || 'N/A'}
+                {getStorefrontPrice(product)}
               </span>
               <button
                 onClick={() => handleWhatsAppClick(product)}
@@ -431,6 +446,9 @@ const StoreFront = () => {
               <div className="flex flex-wrap justify-center md:justify-start gap-4 mt-4">
                 {vendorData.address && <span className="text-xs font-bold bg-black/20 px-3 py-1.5 rounded-full">📍 {vendorData.address}</span>}
                 <span className="text-xs font-bold bg-black/20 px-3 py-1.5 rounded-full">📦 {visibleProducts.length} items available</span>
+                {selectedStoreBranch !== 'default' && (
+                  <span className="text-xs font-bold bg-black/20 px-3 py-1.5 rounded-full">🏷️ Branch: {selectedStoreBranch === 'store1' ? 'Store 1 Pricing' : 'Store 2 Pricing'}</span>
+                )}
               </div>
             </div>
           </div>

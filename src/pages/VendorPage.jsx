@@ -223,7 +223,10 @@ const VendorPage = () => {
   const [editStorage, setEditStorage] = useState('');
   const [editCondition, setEditCondition] = useState('');
   const [editPrice, setEditPrice] = useState('');
+  const [editStoreOnePrice, setEditStoreOnePrice] = useState('');
+  const [editStoreTwoPrice, setEditStoreTwoPrice] = useState('');
   const [savingEdit, setSavingEdit] = useState(false);
+  const [inventoryView, setInventoryView] = useState('all');
 
   const vendorRef = useMemo(() => doc(db, 'horleyTech_OfflineInventories', vendorId), [vendorId]);
 
@@ -324,7 +327,18 @@ const VendorPage = () => {
       });
   }, [products, dateFilter, categoryFilter, groupFilter, allowedGroups]);
 
-  const allVisibleRowsSelected = displayData.length > 0 && displayData.every(({ index }) => selectedProductIndexes.includes(index));
+  const getInventoryPriceByView = (product, view = 'all') => {
+    if (view === 'store1') return normalizePriceInput(product['Store 1 price'] || product.storeOnePrice || product['Regular price'] || '0');
+    if (view === 'store2') return normalizePriceInput(product['Store 2 price'] || product.storeTwoPrice || product['Regular price'] || '0');
+    return normalizePriceInput(product['Regular price'] || '0');
+  };
+
+  const inventoryRows = useMemo(() => displayData.map((entry) => ({
+    ...entry,
+    displayPrice: getInventoryPriceByView(entry.product, inventoryView),
+  })), [displayData, inventoryView]);
+
+  const allVisibleRowsSelected = inventoryRows.length > 0 && inventoryRows.every(({ index }) => selectedProductIndexes.includes(index));
 
   const marketTrend = useMemo(() => {
     const now = Date.now();
@@ -418,10 +432,10 @@ const VendorPage = () => {
 
   const toggleSelectAll = () => {
     if (allVisibleRowsSelected) {
-      const visibleSet = new Set(displayData.map(({ index }) => index));
+      const visibleSet = new Set(inventoryRows.map(({ index }) => index));
       setSelectedProductIndexes((prev) => prev.filter((idx) => !visibleSet.has(idx)));
     } else {
-      const merged = new Set([...selectedProductIndexes, ...displayData.map(({ index }) => index)]);
+      const merged = new Set([...selectedProductIndexes, ...inventoryRows.map(({ index }) => index)]);
       setSelectedProductIndexes(Array.from(merged));
     }
   };
@@ -757,6 +771,8 @@ const VendorPage = () => {
     setEditStorage(storage);
     setEditCondition(product.Condition || '');
     setEditPrice(normalizePriceInput(product['Regular price'] || '0'));
+    setEditStoreOnePrice(normalizePriceInput(product['Store 1 price'] || product.storeOnePrice || product['Regular price'] || '0'));
+    setEditStoreTwoPrice(normalizePriceInput(product['Store 2 price'] || product.storeTwoPrice || product['Regular price'] || '0'));
   };
 
   const closeEditModal = () => {
@@ -766,6 +782,8 @@ const VendorPage = () => {
     setEditStorage('');
     setEditCondition('');
     setEditPrice('');
+    setEditStoreOnePrice('');
+    setEditStoreTwoPrice('');
   };
 
   const saveInlineEdit = async () => {
@@ -781,6 +799,8 @@ const VendorPage = () => {
         'Device Type': editDeviceType.trim(),
         Condition: editCondition.trim(),
         'Regular price': normalizePriceInput(editPrice),
+        'Store 1 price': normalizePriceInput(editStoreOnePrice),
+        'Store 2 price': normalizePriceInput(editStoreTwoPrice),
         ...parsed,
       };
     });
@@ -886,7 +906,8 @@ const VendorPage = () => {
   }
 
   const vendorBackendLink = `${window.location.origin}/vendor/${vendorId}`;
-  const customerStoreLink = `${window.location.origin}/store/${vendorId}`;
+  const customerStoreOneLink = `${window.location.origin}/store/${vendorId}?branch=store1`;
+  const customerStoreTwoLink = `${window.location.origin}/store/${vendorId}?branch=store2`;
   const timelineLogs = normalizeLogs(vendorData.logs);
   const timelineEntries = {
     vendor: [...timelineLogs.vendor].sort((a, b) => new Date(b.date) - new Date(a.date)),
@@ -905,16 +926,21 @@ const VendorPage = () => {
       {/* Share Links Section */}
       <div className="bg-white/70 backdrop-blur-xl border border-white/20 rounded-3xl p-5 mb-6 shadow-[0_8px_30px_rgb(0,0,0,0.04)]">
         <h2 className="text-xl font-bold text-[#1A1C23] mb-4">Share Links</h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div className="border rounded-[10px] p-4 bg-gray-50">
             <p className="text-xs font-bold text-gray-500 mb-2 uppercase tracking-wider">Vendor Backend Link</p>
             <p className="text-sm break-all text-[#1A1C23] mb-3 font-mono bg-white p-2 rounded border">{vendorBackendLink}</p>
             <button onClick={() => handleCopyLink(vendorBackendLink)} className="bg-blue-600 text-white px-4 py-2 rounded-[8px] text-sm font-bold hover:bg-blue-700 transition-colors shadow-sm">Copy Backend Link</button>
           </div>
           <div className="border rounded-[10px] p-4 bg-gray-50">
-            <p className="text-xs font-bold text-gray-500 mb-2 uppercase tracking-wider">Customer Storefront Link</p>
-            <p className="text-sm break-all text-[#1A1C23] mb-3 font-mono bg-white p-2 rounded border">{customerStoreLink}</p>
-            <button onClick={() => handleCopyLink(customerStoreLink)} className="bg-green-600 text-white px-4 py-2 rounded-[8px] text-sm font-bold hover:bg-green-700 transition-colors shadow-sm">Copy Store Link</button>
+            <p className="text-xs font-bold text-gray-500 mb-2 uppercase tracking-wider">Customer Store One Link</p>
+            <p className="text-sm break-all text-[#1A1C23] mb-3 font-mono bg-white p-2 rounded border">{customerStoreOneLink}</p>
+            <button onClick={() => handleCopyLink(customerStoreOneLink)} className="bg-green-600 text-white px-4 py-2 rounded-[8px] text-sm font-bold hover:bg-green-700 transition-colors shadow-sm">Copy Store 1 Link</button>
+          </div>
+          <div className="border rounded-[10px] p-4 bg-gray-50">
+            <p className="text-xs font-bold text-gray-500 mb-2 uppercase tracking-wider">Customer Store Two Link</p>
+            <p className="text-sm break-all text-[#1A1C23] mb-3 font-mono bg-white p-2 rounded border">{customerStoreTwoLink}</p>
+            <button onClick={() => handleCopyLink(customerStoreTwoLink)} className="bg-emerald-600 text-white px-4 py-2 rounded-[8px] text-sm font-bold hover:bg-emerald-700 transition-colors shadow-sm">Copy Store 2 Link</button>
           </div>
         </div>
       </div>
@@ -1054,11 +1080,17 @@ const VendorPage = () => {
           <div className="flex flex-col md:flex-row justify-between items-start md:items-end mb-6 gap-4">
             <div>
               <h1 className="text-3xl font-bold text-[#1A1C23]">{vendorData.vendorName}&apos;s Inventory</h1>
-              <p className="text-gray-500 mt-1 font-medium">Viewing {displayData.length} of {products.length} Items</p>
+              <p className="text-gray-500 mt-1 font-medium">Viewing {inventoryRows.length} of {products.length} Items</p>
             </div>
             <button onClick={handleExport} className="bg-green-600 text-white px-6 py-3 rounded-[10px] shadow-md hover:bg-green-700 font-bold transition-all">Export CSV</button>
           </div>
 
+
+          <div className="mb-4 inline-flex bg-gray-100 p-1.5 rounded-xl gap-1">
+            <button onClick={() => setInventoryView('all')} className={`px-4 py-2 rounded-lg text-xs font-black uppercase tracking-wider ${inventoryView === 'all' ? 'bg-white text-[#1A1C23] shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Vendor Inventory</button>
+            <button onClick={() => setInventoryView('store1')} className={`px-4 py-2 rounded-lg text-xs font-black uppercase tracking-wider ${inventoryView === 'store1' ? 'bg-white text-[#1A1C23] shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Inventory for Store 1</button>
+            <button onClick={() => setInventoryView('store2')} className={`px-4 py-2 rounded-lg text-xs font-black uppercase tracking-wider ${inventoryView === 'store2' ? 'bg-white text-[#1A1C23] shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Inventory for Store 2</button>
+          </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
             <div className="bg-white/70 backdrop-blur-xl border border-gray-100 rounded-2xl p-4">
@@ -1120,7 +1152,7 @@ const VendorPage = () => {
                   <th className="hidden md:table-cell p-4 text-xs font-bold uppercase tracking-wider">Condition</th>
                   <th className="hidden md:table-cell p-4 text-xs font-bold uppercase tracking-wider">Specification</th>
                   <th className="hidden md:table-cell p-4 text-xs font-bold uppercase tracking-wider">Storage</th>
-                  <th className="p-4 text-xs font-bold uppercase tracking-wider">Price</th>
+                  <th className="p-4 text-xs font-bold uppercase tracking-wider">{inventoryView === 'store1' ? 'Store 1 Price' : inventoryView === 'store2' ? 'Store 2 Price' : 'Vendor Price'}</th>
                   <th className="p-4 text-xs font-bold uppercase tracking-wider">Status</th>
                   <th className="hidden md:table-cell p-4 text-xs font-bold uppercase tracking-wider">Extracted</th>
                   <th className="p-4 text-xs font-bold uppercase tracking-wider">Image</th>
@@ -1128,7 +1160,7 @@ const VendorPage = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {displayData.map(({ product, index }) => (
+                {inventoryRows.map(({ product, index, displayPrice }) => (
                   <tr key={`${product['Device Type']}-${index}`} className={`hover:bg-blue-50/30 transition-colors ${product.isVisible === false ? 'bg-gray-50 opacity-60 line-through text-gray-400' : ''}`}>
                     <td className="p-4"><input type="checkbox" checked={selectedProductIndexes.includes(index)} onChange={() => toggleProductSelection(index)} className="w-4 h-4" /></td>
                     <td className="hidden md:table-cell p-4"><span className="text-[10px] font-bold bg-white border px-2 py-1 rounded text-gray-500 whitespace-nowrap">{product.groupName || 'Direct Message'}</span></td>
@@ -1136,7 +1168,7 @@ const VendorPage = () => {
                     <td className="hidden md:table-cell p-4"><span className={`text-xs font-bold px-2 py-1 rounded ${product.Condition?.toLowerCase().includes('new') ? 'bg-blue-100 text-blue-700' : 'bg-orange-100 text-orange-700'}`}>{product.Condition || 'N/A'}</span></td>
                     <td className="hidden md:table-cell p-4 text-sm text-gray-600">{product['SIM Type/Model/Processor'] || 'N/A'}</td>
                     <td className="hidden md:table-cell p-4 text-sm font-semibold text-gray-700">{product['Storage Capacity/Configuration'] || 'N/A'}</td>
-                    <td className="p-4 font-black text-green-700 text-lg">{normalizePriceInput(product['Regular price'] || '0')}</td>
+                    <td className="p-4 font-black text-green-700 text-lg">{displayPrice}</td>
                     <td className="p-4"><span className={`px-2 py-1 rounded text-[10px] font-black uppercase ${product.isVisible === false ? 'bg-gray-200 text-gray-500' : 'bg-emerald-100 text-emerald-700'}`}>{product.isVisible === false ? 'Hidden' : 'Visible'}</span></td>
                     <td className="hidden md:table-cell p-4 text-[11px] text-gray-400 font-medium">{product.DatePosted || 'N/A'}</td>
                     <td className="p-4">
@@ -1151,7 +1183,7 @@ const VendorPage = () => {
                 ))}
               </tbody>
             </table>
-            {displayData.length === 0 && <div className="p-12 text-center text-gray-400 font-medium">No inventory matches your filters.</div>}
+            {inventoryRows.length === 0 && <div className="p-12 text-center text-gray-400 font-medium">No inventory matches your filters.</div>}
           </div>
         </>
       )}
@@ -1403,6 +1435,14 @@ const VendorPage = () => {
               <div>
                 <label className="block text-xs font-black text-gray-400 uppercase mb-1">Regular Price</label>
                 <input type="text" value={editPrice} onChange={(e) => setEditPrice(e.target.value)} className="w-full p-3 border rounded-xl focus:ring-2 focus:ring-blue-500 outline-none font-black text-green-600" />
+              </div>
+              <div>
+                <label className="block text-xs font-black text-gray-400 uppercase mb-1">Store 1 Price</label>
+                <input type="text" value={editStoreOnePrice} onChange={(e) => setEditStoreOnePrice(e.target.value)} className="w-full p-3 border rounded-xl focus:ring-2 focus:ring-blue-500 outline-none font-black text-indigo-600" />
+              </div>
+              <div>
+                <label className="block text-xs font-black text-gray-400 uppercase mb-1">Store 2 Price</label>
+                <input type="text" value={editStoreTwoPrice} onChange={(e) => setEditStoreTwoPrice(e.target.value)} className="w-full p-3 border rounded-xl focus:ring-2 focus:ring-blue-500 outline-none font-black text-emerald-600" />
               </div>
             </div>
             <div className="p-6 bg-gray-50 border-t flex justify-end gap-3">
