@@ -62,7 +62,7 @@ const AppHub = () => {
 
           <button
             type="button"
-            onClick={() => {}}
+            onClick={() => navigate('/dashboard')}
             className="group rounded-2xl border border-white/20 bg-white/10 backdrop-blur-lg p-8 text-left shadow-xl transition-all duration-300 hover:bg-white/20"
           >
             <div className="flex items-start justify-between">
@@ -73,9 +73,6 @@ const AppHub = () => {
               </div>
               <IoChatbubbleEllipses className="h-14 w-14 text-sky-300 group-hover:text-sky-200" />
             </div>
-            <span className="inline-flex mt-5 items-center rounded-full bg-amber-400/20 border border-amber-300/40 px-3 py-1 text-xs font-semibold text-amber-200">
-              Coming Soon
-            </span>
           </button>
         </div>
       </div>

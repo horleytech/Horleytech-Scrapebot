@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { useLocation, useParams } from 'react-router-dom';
 import { doc, getDoc, updateDoc, increment } from 'firebase/firestore';
 import { db } from '../services/firebase/index.js';
 
@@ -50,6 +50,7 @@ const lightenHex = (hex, amount = 0.18) => {
 
 const StoreFront = () => {
   const { vendorId } = useParams();
+  const location = useLocation();
   const [vendorData, setVendorData] = useState(null);
   const [loading, setLoading] = useState(true);
 
@@ -146,7 +147,7 @@ const StoreFront = () => {
     }
 
     const number = pickStaffNumber();
-    const message = `Hi, I am interested in the ${product['Device Type'] || 'device'} (${product.Condition || 'N/A'}, ${product['Storage Capacity/Configuration'] || 'N/A'}) for ${product['Regular price'] || 'N/A'} listed on your store.`;
+    const message = `Hi, I am interested in the ${product['Device Type'] || 'device'} (${product.Condition || 'N/A'}, ${product['Storage Capacity/Configuration'] || 'N/A'}) for ${getStorefrontPrice(product)} listed on your store.`;
     const link = `https://wa.me/${number}?text=${encodeURIComponent(message)}`;
     window.open(link, '_blank', 'noopener,noreferrer');
   };
@@ -185,6 +186,20 @@ const StoreFront = () => {
   const lighterTheme = lightenHex(themeColor, 0.22);
   const storeLayout = vendorData.storeLayout || 'classic';
   const isDarkLayout = storeLayout === 'dark';
+
+  const selectedStoreBranch = useMemo(() => {
+    const params = new URLSearchParams(location.search);
+    const raw = String(params.get('branch') || '').trim().toLowerCase();
+    if (raw === 'store1' || raw === 'store-1') return 'store1';
+    if (raw === 'store2' || raw === 'store-2') return 'store2';
+    return 'default';
+  }, [location.search]);
+
+  const getStorefrontPrice = (product) => {
+    if (selectedStoreBranch === 'store1') return product['Store 1 price'] || product.storeOnePrice || product['Regular price'] || 'N/A';
+    if (selectedStoreBranch === 'store2') return product['Store 2 price'] || product.storeTwoPrice || product['Regular price'] || 'N/A';
+    return product['Regular price'] || product['Store 1 price'] || product['Store 2 price'] || 'N/A';
+  };
 
   const pageClassName = isDarkLayout
     ? 'min-h-screen py-8 px-4 md:px-8 bg-[#121212] text-gray-100'
@@ -245,7 +260,7 @@ const StoreFront = () => {
                   {product['Storage Capacity/Configuration'] || 'N/A'}
                 </td>
                 <td className="px-6 py-5 font-black text-lg" style={{ color: themeColor }}>
-                  {product['Regular price'] || 'N/A'}
+                  {getStorefrontPrice(product)}
                 </td>
                 <td className="px-6 py-5">
                   <button
@@ -279,7 +294,7 @@ const StoreFront = () => {
             <p className={`text-sm ${isDarkLayout ? 'text-gray-300' : 'text-gray-600'}`}>{product['SIM Type/Model/Processor'] || 'N/A'}</p>
             <p className={`text-sm font-semibold ${isDarkLayout ? 'text-gray-300' : 'text-gray-600'}`}>{product['Storage Capacity/Configuration'] || 'N/A'}</p>
             <div className="flex items-center justify-between pt-2">
-              <span className="font-black text-lg" style={{ color: themeColor }}>{product['Regular price'] || 'N/A'}</span>
+              <span className="font-black text-lg" style={{ color: themeColor }}>{getStorefrontPrice(product)}</span>
               <button
                 onClick={() => handleWhatsAppClick(product)}
                 style={{ backgroundColor: themeColor, boxShadow: isDarkLayout ? `0 0 10px ${themeColor}66` : 'none' }}
@@ -307,7 +322,7 @@ const StoreFront = () => {
           </div>
           <div className="flex w-full sm:w-auto items-center justify-between sm:justify-start gap-3 shrink-0">
             <span className={`font-black ${variant === 'compact' ? 'text-sm' : 'text-lg'}`} style={{ color: themeColor }}>
-              {product['Regular price'] || 'N/A'}
+              {getStorefrontPrice(product)}
             </span>
             <button
               onClick={() => handleWhatsAppClick(product)}
@@ -316,6 +331,62 @@ const StoreFront = () => {
             >
               Order
             </button>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+
+
+  const renderPremiumLayout = () => (
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
+      {visibleProducts.map((product, index) => (
+        <div key={index} className={`group relative rounded-[2rem] overflow-hidden shadow-xl border transition-all duration-300 ${isDarkLayout ? 'bg-[#1a1a1a] border-[#2b2b2b] hover:shadow-[0_0_30px_rgba(255,255,255,0.05)]' : 'bg-white border-gray-100 hover:shadow-2xl'}`}>
+          <div className="relative h-96 overflow-hidden cursor-pointer bg-gray-50">
+            {product.productImageBase64 ? (
+              <img
+                src={product.productImageBase64}
+                alt={product['Device Type'] || 'Product'}
+                style={HD_IMAGE_STYLE}
+                className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700 ease-out"
+              />
+            ) : (
+              <div className={`w-full h-full flex items-center justify-center text-sm font-bold ${isDarkLayout ? 'bg-[#202020] text-gray-500' : 'bg-gray-100 text-gray-400'}`}>No Image Available</div>
+            )}
+
+            <div className="absolute inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+              <span className="text-white font-black text-lg tracking-widest px-6 py-3 border-2 border-white/50 rounded-xl">
+                CLICK TO SEE FULL DETAILS
+              </span>
+            </div>
+          </div>
+
+          <div className="p-8 space-y-4">
+            <div className="flex justify-between items-start gap-4">
+              <h3 className={`font-black text-3xl leading-tight ${isDarkLayout ? 'text-white' : 'text-[#1A1C23]'}`}>
+                {product['Device Type'] || 'N/A'}
+              </h3>
+              <span className={`px-4 py-1.5 rounded-full text-xs font-black uppercase shrink-0 ${product.Condition?.toLowerCase().includes('new') ? 'bg-green-50 text-green-600' : 'bg-orange-50 text-orange-600'}`}>
+                {product.Condition || 'N/A'}
+              </span>
+            </div>
+
+            <p className={`text-base leading-relaxed h-12 overflow-hidden ${isDarkLayout ? 'text-gray-400' : 'text-gray-600'}`}>
+              Features {product['Storage Capacity/Configuration']} configuration. {product['SIM Type/Model/Processor'] ? `Powered by ${product['SIM Type/Model/Processor']}.` : ''} Excellent device for daily use.
+            </p>
+
+            <div className="flex items-center justify-between pt-6 border-t border-gray-100/10">
+              <span className="font-black text-4xl" style={{ color: themeColor }}>
+                {getStorefrontPrice(product)}
+              </span>
+              <button
+                onClick={() => handleWhatsAppClick(product)}
+                style={{ backgroundColor: themeColor }}
+                className="flex items-center gap-2 text-white px-8 py-4 rounded-2xl font-black text-sm uppercase shadow-lg hover:brightness-110 hover:-translate-y-1 transition-all active:scale-95"
+              >
+                Order Now
+              </button>
+            </div>
           </div>
         </div>
       ))}
@@ -332,6 +403,7 @@ const StoreFront = () => {
       );
     }
 
+    if (storeLayout === 'premium') return renderPremiumLayout();
     if (storeLayout === 'grid') return renderGridLayout();
     if (storeLayout === 'minimal') return renderListLayout('minimal');
     if (storeLayout === 'compact') return renderListLayout('compact');
@@ -374,6 +446,9 @@ const StoreFront = () => {
               <div className="flex flex-wrap justify-center md:justify-start gap-4 mt-4">
                 {vendorData.address && <span className="text-xs font-bold bg-black/20 px-3 py-1.5 rounded-full">📍 {vendorData.address}</span>}
                 <span className="text-xs font-bold bg-black/20 px-3 py-1.5 rounded-full">📦 {visibleProducts.length} items available</span>
+                {selectedStoreBranch !== 'default' && (
+                  <span className="text-xs font-bold bg-black/20 px-3 py-1.5 rounded-full">🏷️ Branch: {selectedStoreBranch === 'store1' ? 'Store 1 Pricing' : 'Store 2 Pricing'}</span>
+                )}
               </div>
             </div>
           </div>
