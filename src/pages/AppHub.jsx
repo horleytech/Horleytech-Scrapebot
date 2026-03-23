@@ -47,7 +47,7 @@ const AppHub = () => {
         <div className="grid gap-6 md:grid-cols-2">
           <button
             type="button"
-            onClick={() => navigate('/dashboard')}
+            onClick={() => { window.location.href = 'https://autoresponder.horleytech.com/'; }}
             className="group rounded-2xl border border-white/20 bg-white/10 backdrop-blur-lg p-8 text-left shadow-xl transition-all duration-300 hover:-translate-y-1 hover:bg-white/20"
           >
             <div className="flex items-start justify-between">
@@ -62,7 +62,7 @@ const AppHub = () => {
 
           <button
             type="button"
-            onClick={() => navigate('/dashboard')}
+            onClick={() => { window.location.href = 'https://autoresponder.horleytech.com/'; }}
             className="group rounded-2xl border border-white/20 bg-white/10 backdrop-blur-lg p-8 text-left shadow-xl transition-all duration-300 hover:bg-white/20"
           >
             <div className="flex items-start justify-between">
