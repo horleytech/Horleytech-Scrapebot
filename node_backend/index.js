@@ -1361,11 +1361,12 @@ app.post('/api/admin/trigger-background-sync', async (_req, res) => {
 // --- UNIFIED DATABASE WIPE ENDPOINT (START AFRESH) ---
 app.delete('/api/admin/nuke-everything', async (_req, res) => {
   try {
+    const preservedSystemSettingDocIds = new Set(['adminPreferences', 'aiControl']);
     const deletedStats = {
       ar_analytics: await deleteCollectionDocuments('ar_analytics'),
       ar_customers: await deleteCollectionDocuments('ar_customers'),
       ar_raw_requests: await deleteCollectionDocuments('ar_raw_requests'),
-      ar_settings: await deleteCollectionDocuments('ar_settings'),
+      ar_settings: 0,
       horleyTech_AuditLogs: await deleteCollectionDocuments('horleyTech_AuditLogs'),
       horleyTech_Backups: await deleteCollectionDocuments('horleyTech_Backups'),
       horleyTech_OfflineInventories: await deleteCollectionDocuments('horleyTech_OfflineInventories'),
@@ -1373,7 +1374,10 @@ app.delete('/api/admin/nuke-everything', async (_req, res) => {
       horleyTech_PricingSessions: await deleteCollectionDocuments('horleyTech_PricingSessions'),
       horleyTech_ProductAliasIndex: await deleteCollectionDocuments('horleyTech_ProductAliasIndex'),
       horleyTech_ProductContainers: await deleteCollectionDocuments('horleyTech_ProductContainers'),
-      horleyTech_Settings: await deleteCollectionDocuments('horleyTech_Settings'),
+      horleyTech_Settings: await deleteCollectionDocuments(
+        'horleyTech_Settings',
+        (docSnap) => !preservedSystemSettingDocIds.has(docSnap.id),
+      ),
     };
 
     // Reset Scrapebot memory cache + webhook extraction cache
@@ -1382,8 +1386,12 @@ app.delete('/api/admin/nuke-everything', async (_req, res) => {
 
     return res.status(200).json({
       success: true,
-      message: 'All Scrapebot and Auto Responder data wiped. Fresh start ready.',
+      message: 'All Scrapebot and Auto Responder data wiped (system settings preserved). Fresh start ready.',
       stats: deletedStats,
+      preserved: {
+        ar_settings: 'collection preserved',
+        horleyTech_Settings: [...preservedSystemSettingDocIds],
+      },
     });
   } catch (error) {
     console.error('❌ Total Nuke failed:', error);
