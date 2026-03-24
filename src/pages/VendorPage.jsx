@@ -301,6 +301,44 @@ const VendorPage = () => {
     await Promise.all(normalizedActions.map((action) => saveAuditLog(action, channelOverride)));
   };
 
+  const syncVendorFromFirebase = async () => {
+    const freshSnap = await getDoc(vendorRef);
+    if (!freshSnap.exists()) return null;
+
+    const payload = freshSnap.data() || {};
+    const normalizedProducts = (Array.isArray(payload.products) ? payload.products : []).map((product) => normalizeDualStoreProduct(product));
+    const existingNumbers = Array.isArray(payload.whatsappNumbers) ? payload.whatsappNumbers : [];
+    const existingAllowedGroups = Array.isArray(payload.storefrontAllowedGroups) ? payload.storefrontAllowedGroups : [];
+
+    setVendorData({
+      ...payload,
+      products: normalizedProducts,
+      logs: normalizeLogs(payload.logs),
+    });
+    setVendorNameInput(payload.vendorName || '');
+    setAddressInput(payload.address || '');
+    setStoreDescriptionInput(payload.storeDescription || '');
+    setThemeColorInput(payload.themeColor || '#16a34a');
+    setStoreLayoutInput(payload.storeLayout || 'classic');
+    setLogoBase64(payload.logoBase64 || '');
+    setAllowedGroups(existingAllowedGroups);
+    setStoreWhatsappNumberInput(payload.storeWhatsappNumber || '');
+    setVendorPasswordInput(payload.vendorPassword || '');
+    setWhatsappNumbersInput([
+      existingNumbers[0] || '',
+      existingNumbers[1] || '',
+      existingNumbers[2] || '',
+    ]);
+    setBusinessTypeInput(payload.metaData || payload.businessType || 'Other');
+    setStorefrontDisplayLimit(Number(payload.storefrontDisplayLimit) > 0 ? Number(payload.storefrontDisplayLimit) : 20);
+    setTinbrLinksEnabled(payload.tinbrLinksEnabled !== false);
+    setShowBothTinbrAndNormalLinks(payload.showBothTinbrAndNormalLinks !== false);
+    setTinbrVendorLinkInput(String(payload.tinbrVendorLink || ''));
+    setTinbrStoreOneLinkInput(String(payload.tinbrStoreOneLink || ''));
+    setTinbrStoreTwoLinkInput(String(payload.tinbrStoreTwoLink || ''));
+    return payload;
+  };
+
   const loadActivityLogs = async () => {
     try {
       const logsRef = collection(db, 'horleyTech_OfflineInventories', vendorId, 'activityLogs');
@@ -326,42 +364,12 @@ const VendorPage = () => {
   useEffect(() => {
     const fetchVendorData = async () => {
       try {
-        const docSnap = await getDoc(vendorRef);
-        if (docSnap.exists()) {
-          const payload = docSnap.data();
+        const payload = await syncVendorFromFirebase();
+        if (payload) {
           const originalProducts = Array.isArray(payload.products) ? payload.products : [];
           const normalizedProducts = originalProducts.map((product) => normalizeDualStoreProduct(product));
           const productsChanged = JSON.stringify(originalProducts) !== JSON.stringify(normalizedProducts);
-          const existingNumbers = Array.isArray(payload.whatsappNumbers) ? payload.whatsappNumbers : [];
-          const existingAllowedGroups = Array.isArray(payload.storefrontAllowedGroups) ? payload.storefrontAllowedGroups : [];
-
-          setVendorData({
-            ...payload,
-            products: normalizedProducts,
-            logs: normalizeLogs(payload.logs),
-          });
           setActivityLogs(normalizeLogs(payload.logs));
-          setVendorNameInput(payload.vendorName || '');
-          setAddressInput(payload.address || '');
-          setStoreDescriptionInput(payload.storeDescription || '');
-          setThemeColorInput(payload.themeColor || '#16a34a');
-          setStoreLayoutInput(payload.storeLayout || 'classic');
-          setLogoBase64(payload.logoBase64 || '');
-          setAllowedGroups(existingAllowedGroups);
-          setStoreWhatsappNumberInput(payload.storeWhatsappNumber || '');
-          setVendorPasswordInput(payload.vendorPassword || '');
-          setWhatsappNumbersInput([
-            existingNumbers[0] || '',
-            existingNumbers[1] || '',
-            existingNumbers[2] || '',
-          ]);
-          setBusinessTypeInput(payload.metaData || payload.businessType || 'Other');
-          setStorefrontDisplayLimit(Number(payload.storefrontDisplayLimit) > 0 ? Number(payload.storefrontDisplayLimit) : 20);
-          setTinbrLinksEnabled(payload.tinbrLinksEnabled !== false);
-          setShowBothTinbrAndNormalLinks(payload.showBothTinbrAndNormalLinks !== false);
-          setTinbrVendorLinkInput(String(payload.tinbrVendorLink || ''));
-          setTinbrStoreOneLinkInput(String(payload.tinbrStoreOneLink || ''));
-          setTinbrStoreTwoLinkInput(String(payload.tinbrStoreTwoLink || ''));
 
           const shouldUseTinyByDefault = payload.tinbrLinksEnabled !== false;
           if (shouldUseTinyByDefault && (String(payload.tinbrVendorLink || '').trim() === '' || String(payload.tinbrStoreOneLink || '').trim() === '' || String(payload.tinbrStoreTwoLink || '').trim() === '')) {
@@ -611,23 +619,13 @@ const VendorPage = () => {
       if (isAdmin && (keyLabel === 'vendor' || keyLabel === 'store1' || keyLabel === 'store2')) {
         const fieldName = keyLabel === 'vendor' ? 'tinbrVendorLink' : keyLabel === 'store1' ? 'tinbrStoreOneLink' : 'tinbrStoreTwoLink';
         const actionLabel = keyLabel === 'vendor' ? 'Updated Tinbr Vendor Link' : keyLabel === 'store1' ? 'Updated Tinbr Store 1 Link' : 'Updated Tinbr Store 2 Link';
-        const nextLogs = appendRollingLog(vendorData?.logs, 'admin', {
-          action: actionLabel,
-          date: new Date().toISOString(),
-        });
 
         await updateDoc(vendorRef, {
           [fieldName]: shortUrl,
           lastUpdated: new Date().toISOString(),
         });
         await saveAuditLog(actionLabel, 'admin');
-
-        setVendorData((prev) => ({
-          ...prev,
-          [fieldName]: shortUrl,
-          lastUpdated: new Date().toISOString(),
-          logs: nextLogs,
-        }));
+        await syncVendorFromFirebase();
 
         if (keyLabel === 'vendor') setTinbrVendorLinkInput(shortUrl);
         else if (keyLabel === 'store1') setTinbrStoreOneLinkInput(shortUrl);
@@ -679,23 +677,13 @@ const VendorPage = () => {
       }
     }
 
-    const nextLogs = appendRollingLog(vendorData?.logs, 'admin', {
-      action: actionLabel,
-      date: new Date().toISOString(),
-    });
-
     try {
       await updateDoc(vendorRef, {
         ...nextPatch,
         lastUpdated: new Date().toISOString(),
       });
       await saveAuditLog(actionLabel, 'admin');
-      setVendorData((prev) => ({
-        ...prev,
-        ...nextPatch,
-        lastUpdated: new Date().toISOString(),
-        logs: nextLogs,
-      }));
+      await syncVendorFromFirebase();
     } catch (error) {
       console.error('Failed to save link preference:', error);
       alert('❌ Could not save link preference.');
@@ -846,31 +834,19 @@ const VendorPage = () => {
       });
 
       const targetLabel = target === 'both' ? 'Store 1 + Store 2' : target === 'store1' ? 'Store 1' : 'Store 2';
-      const nextLogs = pushLogToCurrentVendorData(vendorData, `Updated Product Image (${targetLabel})`);
 
       await updateDoc(vendorRef, {
         products: nextProducts,
         lastUpdated: new Date().toISOString(),
       });
       await saveAuditLog(`Updated Product Image (${targetLabel})`, logChannel);
-
-      setVendorData((prev) => ({
-        ...prev,
-        products: nextProducts,
-        lastUpdated: new Date().toISOString(),
-        logs: nextLogs,
-      }));
+      await syncVendorFromFirebase();
 
       alert('✅ Product image updated.');
     } catch (error) {
       console.error('Product image update failed:', error);
       alert('❌ Could not update product image.');
     }
-  };
-
-  const pushLogToCurrentVendorData = (previousVendorData, action) => {
-    const entry = { action, date: new Date().toISOString() };
-    return appendRollingLog(previousVendorData?.logs, logChannel, entry);
   };
 
   const updateSelectedVisibility = async (storeKey, isVisible) => {
@@ -886,8 +862,6 @@ const VendorPage = () => {
       return product;
     });
 
-    const nextLogs = pushLogToCurrentVendorData(vendorData, `Updated visibility in ${storeKey} for ${selectedProductIndexes.length} items`);
-
     setBulkUpdating(true);
     try {
       await updateDoc(vendorRef, {
@@ -895,13 +869,7 @@ const VendorPage = () => {
         lastUpdated: new Date().toISOString(),
       });
       await saveAuditLog(`Updated visibility in ${storeKey} for ${selectedProductIndexes.length} items`, logChannel);
-
-      setVendorData((prev) => ({
-        ...prev,
-        products: nextProducts,
-        lastUpdated: new Date().toISOString(),
-        logs: nextLogs,
-      }));
+      await syncVendorFromFirebase();
       setSelectedProductIndexes([]);
       alert('✅ Selected products updated.');
     } catch (error) {
@@ -960,20 +928,13 @@ const VendorPage = () => {
 
       const actionLabel = aiAction === 'images' ? 'Used AI Image Generation' : 'Used AI Auto-Fix';
       const scopeLabel = aiTarget === 'selected' ? `${targetProducts.length} selected products` : 'all products';
-      const nextLogs = pushLogToCurrentVendorData(vendorData, `${actionLabel} (${scopeLabel})`);
 
       await updateDoc(vendorRef, {
         products: mergedProducts,
         lastUpdated: new Date().toISOString(),
       });
       await saveAuditLog(`${actionLabel} (${scopeLabel})`, logChannel);
-
-      setVendorData((prev) => ({
-        ...prev,
-        products: mergedProducts,
-        lastUpdated: new Date().toISOString(),
-        logs: nextLogs,
-      }));
+      await syncVendorFromFirebase();
 
       alert(`✅ ${aiAction === 'images' ? 'AI Image Generation' : 'AI Data Correction'} completed successfully.`);
     } catch (error) {
@@ -988,10 +949,6 @@ const VendorPage = () => {
 
     const nextAdvancedEnabled = !vendorData?.advancedEnabled;
     const action = nextAdvancedEnabled ? 'Enabled AI Tools for Vendor' : 'Revoked AI Tools for Vendor';
-    const nextLogs = appendRollingLog(vendorData?.logs, 'admin', {
-      action,
-      date: new Date().toISOString(),
-    });
 
     try {
       setTogglingAdvanced(true);
@@ -1000,13 +957,7 @@ const VendorPage = () => {
         lastUpdated: new Date().toISOString(),
       });
       await saveAuditLog(action, 'admin');
-
-      setVendorData((prev) => ({
-        ...prev,
-        advancedEnabled: nextAdvancedEnabled,
-        lastUpdated: new Date().toISOString(),
-        logs: nextLogs,
-      }));
+      await syncVendorFromFirebase();
 
       alert(`✅ ${action}.`);
     } catch (error) {
@@ -1088,10 +1039,6 @@ const VendorPage = () => {
     };
 
     const actions = buildDeepComparisonActions(vendorData || {}, nextState);
-    let nextLogs = normalizeLogs(vendorData?.logs);
-    actions.forEach((action) => {
-      nextLogs = appendRollingLog(nextLogs, logChannel, { action, date: new Date().toISOString() });
-    });
 
     setSavingSettings(true);
     try {
@@ -1100,13 +1047,7 @@ const VendorPage = () => {
         lastUpdated: new Date().toISOString(),
       });
       await saveAuditLogs(actions, logChannel);
-
-      setVendorData((prev) => ({
-        ...prev,
-        ...nextState,
-        lastUpdated: new Date().toISOString(),
-        logs: nextLogs,
-      }));
+      await syncVendorFromFirebase();
 
       setWhatsappNumbersInput([
         cleanedNumbers[0] || '',
@@ -1187,16 +1128,7 @@ const VendorPage = () => {
         lastUpdated: new Date().toISOString(),
       });
       await saveAuditLog(`Edited product details for ${oldProduct['Device Type'] || 'Unknown Device'}`, logChannel);
-
-      setVendorData((prev) => ({
-        ...prev,
-        products: nextProducts,
-        lastUpdated: new Date().toISOString(),
-        logs: appendRollingLog(prev?.logs, logChannel, {
-          action: `Edited product details for ${oldProduct['Device Type'] || 'Unknown Device'}`,
-          date: new Date().toISOString(),
-        }),
-      }));
+      await syncVendorFromFirebase();
 
       closeEditModal();
       alert('✅ Product updated successfully.');
