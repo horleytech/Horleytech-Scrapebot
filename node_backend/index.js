@@ -1057,6 +1057,72 @@ app.post('/api/ai/fix-inventory', async (req, res) => {
   }
 });
 
+const normalizePriceToken = (token = '') => {
+  const raw = String(token || '').toLowerCase().replace(/[^0-9mk.,]/g, '').trim();
+  if (!raw) return 0;
+
+  const hasMillionSuffix = raw.endsWith('m');
+  const hasThousandSuffix = raw.endsWith('k');
+  const numericText = raw.replace(/[mk]/g, '').replace(/,/g, '');
+  const numeric = Number(numericText);
+  if (!Number.isFinite(numeric) || numeric <= 0) return 0;
+
+  if (hasMillionSuffix) return Math.round(numeric * 1000);
+  if (hasThousandSuffix) return Math.round(numeric * 1000);
+  return Math.round(numeric);
+};
+
+const normalizeVendorProductsWithShadow = async (vendorsData = []) => {
+  const normalizedVendors = [];
+
+  for (const vendor of vendorsData) {
+    const currentProducts = Array.isArray(vendor?.products) ? vendor.products : [];
+    const nextProducts = [];
+
+    for (const product of currentProducts) {
+      const rawProductString = String(
+        product?.rawProductString
+        || product?.raw
+        || product?.rawString
+        || product?.['Device Type']
+        || ''
+      ).trim();
+
+      if (!rawProductString) continue;
+      const parsedPrice = normalizePriceToken(product?.['Regular price'] || product?.price || '');
+
+      try {
+        const shadow = await processWithShadowTesting({ rawProductString, price: parsedPrice });
+        nextProducts.push({
+          ...product,
+          Category: shadow.taxonomy?.Category || product?.Category || 'Others',
+          Brand: shadow.taxonomy?.Brand || product?.Brand || 'Others',
+          Series: shadow.taxonomy?.Series || product?.Series || 'Others',
+          'Device Type': shadow.deviceType || product?.['Device Type'] || shadow.taxonomy?.Series || rawProductString,
+          Condition: shadow.condition || product?.Condition || 'Unknown',
+          'SIM Type/Model/Processor': shadow.sim || product?.['SIM Type/Model/Processor'] || 'Unknown',
+          'Storage Capacity/Configuration': shadow.storage || product?.['Storage Capacity/Configuration'] || 'UNKNOWN',
+          'Regular price': shadow.price || product?.['Regular price'] || 'Available',
+          variationId: shadow.variationId || product?.variationId || null,
+          ignored: Boolean(shadow.ignored),
+          ignoreReason: shadow.ignoreReason || '',
+          trustedFastLane: Boolean(shadow.trustedFastLane),
+          rawProductString,
+        });
+      } catch (error) {
+        nextProducts.push(product);
+      }
+    }
+
+    normalizedVendors.push({
+      ...vendor,
+      products: nextProducts,
+    });
+  }
+
+  return normalizedVendors;
+};
+
 app.post('/process', upload.single('file'), async (req, res) => {
   if (!req.file) {
     return res.status(400).json({ message: 'No file uploaded.', status: false });
@@ -1079,7 +1145,8 @@ app.post('/process', upload.single('file'), async (req, res) => {
     });
 
     if (vendorsData?.length) {
-      await saveVendorsToFirebase(vendorsData);
+      const normalizedVendors = await normalizeVendorProductsWithShadow(vendorsData);
+      await saveVendorsToFirebase(normalizedVendors);
     }
   } catch (err) {
     console.error('❌ Error processing manual upload:', err);
@@ -1144,6 +1211,52 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
       });
 
       return merged;
+    };
+
+    const normalizeLinesForDeterministicParse = (message = '') => {
+      const rows = String(message || '')
+        .split('\n')
+        .map((line) => line.trim())
+        .filter(Boolean);
+
+      const merged = [];
+      for (const line of rows) {
+        const priceOnly = /^(₦?\s*)?\d[\d,.\s]*(m|k)?$/i.test(line);
+        if (priceOnly && merged.length > 0) {
+          merged[merged.length - 1] = `${merged[merged.length - 1]} ${line}`;
+        } else {
+          merged.push(line);
+        }
+      }
+      return merged;
+    };
+
+    const deterministicLineExtract = (line = '') => {
+      const cleaned = String(line || '')
+        .replace(/^[\-*•]+\s*/, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+      if (!cleaned) return null;
+      if (isLikelyFragment(cleaned)) return null;
+
+      const hasProductSignal = /(iphone|ipad|macbook|airpod|watch|pixel|samsung|fold|flip|ultra|pro|max|gb|tb|wifi|cell|sim)/i.test(cleaned);
+      if (!hasProductSignal) return null;
+
+      const availableMatch = cleaned.match(/^(.*?)(?:-|:)?\s*(available|act|active)\s*$/i);
+      if (availableMatch?.[1]) {
+        return { rawProductString: availableMatch[1].trim(), price: 'Available' };
+      }
+
+      const pricedMatch = cleaned.match(/^(.*?)(?:-|:)?\s*(₦?\s*[\d,]+(?:\.\d+)?\s*[mk]?)\s*$/i);
+      if (pricedMatch?.[1] && pricedMatch?.[2]) {
+        const normalizedPrice = normalizePriceToken(pricedMatch[2]);
+        return {
+          rawProductString: pricedMatch[1].trim(),
+          price: normalizedPrice || 'Available',
+        };
+      }
+
+      return null;
     };
 
     const parsePriceFromRaw = (raw = '') => {
@@ -1212,10 +1325,9 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
       console.log('⚡ Using cached extraction for repeat broadcast. Saving tokens!');
       extractedProducts = processedMessageCache.get(msgHash);
     } else {
-      const rawLines = String(senderMessage)
-        .split('\n')
+      const rawLines = normalizeLinesForDeterministicParse(senderMessage)
         .map((line) => line.trim())
-        .filter((line) => line.length > 10);
+        .filter((line) => line.length > 3);
 
       let knownProducts = [];
       let unknownLines = [];
@@ -1273,7 +1385,8 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
           for (const unknownLine of unknownLines) {
             const lineText = unknownLine.substring(0, 320);
             const lineHash = lineText.substring(0, 150);
-            const lineProducts = await extractFromText(lineText, 160);
+            const deterministicProduct = deterministicLineExtract(lineText);
+            const lineProducts = deterministicProduct ? [deterministicProduct] : await extractFromText(lineText, 160);
             extractedProducts = extractedProducts.concat(lineProducts);
             if (lineLevelExtractionCache.size > 500) lineLevelExtractionCache.clear();
             lineLevelExtractionCache.set(lineHash, lineProducts);
