@@ -76,12 +76,16 @@ const normalizeSim = (value = '') => {
   const text = String(value || '').toLowerCase();
   const hasEsim = /esim|e-sim/.test(text);
   const hasPhysical = /physical|single/.test(text);
+  const hasIdm = /\bidm\b/.test(text);
 
+  if (hasIdm && hasPhysical) return 'Physical SIM';
+  if (hasIdm && hasEsim) return 'eSIM';
+  if (hasIdm) return 'Physical SIM';
   if ((hasEsim && hasPhysical) || /physical\s*\+\s*esim/.test(text)) return 'Physical SIM + ESIM';
   if (/dual/.test(text)) return 'Dual SIM';
   if (hasEsim) return 'eSIM';
   if (hasPhysical) return 'Physical SIM';
-  if (/\blocked\b|\bidm\b/.test(text)) return 'Locked';
+  if (/\blocked\b/.test(text)) return 'Locked';
   if (/\bfu\b|factory\s*unlocked|unlocked/.test(text)) return 'Physical SIM';
   return 'Unknown';
 };
@@ -163,7 +167,7 @@ const PRODUCT_CATALOG_CACHE_TTL_MS = 60000;
 const normalizeSimLabel = (value = '') => {
   const text = String(value || '').toLowerCase().trim();
   if (!text) return null;
-  if (text.includes('locked') || text == 'idm') return 'Locked';
+  if (text.includes('locked')) return 'Locked';
   if (text.includes('physical') && text.includes('esim')) return 'Physical SIM + ESIM';
   if (text.includes('dual')) return 'Dual SIM';
   if (text.includes('esim')) return 'eSIM';
