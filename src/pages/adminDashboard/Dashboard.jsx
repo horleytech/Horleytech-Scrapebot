@@ -811,6 +811,7 @@ const AdminDashboard = () => {
         selectedProvider: safeProvider,
         updatedAt: new Date().toISOString(),
       }, { merge: true });
+      await fetchAIProviderSetting();
       alert(`✅ AI provider set to ${safeProvider.toUpperCase()}.`);
     } catch (error) {
       alert(`❌ Failed to save AI provider: ${error.message}`);
@@ -825,6 +826,7 @@ const AdminDashboard = () => {
         imageProvider: safeProvider,
         updatedAt: new Date().toISOString(),
       }, { merge: true });
+      await fetchAIProviderSetting();
       alert(`✅ Image AI provider set to ${safeProvider.toUpperCase()}.`);
     } catch (error) {
       alert(`❌ Failed to save Image AI provider: ${error.message}`);
@@ -877,21 +879,19 @@ const AdminDashboard = () => {
     return () => unsubscribe();
   }, []);
   useEffect(() => {
-    const loadAdminPreferences = async () => {
-      try {
-        const preferencesRef = doc(db, 'horleyTech_Settings', 'adminPreferences');
-        const preferencesSnap = await getDoc(preferencesRef);
-        if (!preferencesSnap.exists()) {
-          setExcludedPhrases('');
-          return;
-        }
-        const preferencesData = preferencesSnap.data() || {};
-        setExcludedPhrases(String(preferencesData.excludedPhrases || ''));
-      } catch (error) {
-        console.error('Failed to load admin preferences:', error);
+    const preferencesRef = doc(db, 'horleyTech_Settings', 'adminPreferences');
+    const unsubscribe = onSnapshot(preferencesRef, (preferencesSnap) => {
+      if (!preferencesSnap.exists()) {
+        setExcludedPhrases('');
+        return;
       }
-    };
-    loadAdminPreferences();
+      const preferencesData = preferencesSnap.data() || {};
+      setExcludedPhrases(String(preferencesData.excludedPhrases || ''));
+    }, (error) => {
+      console.error('Failed to load admin preferences:', error);
+    });
+
+    return () => unsubscribe();
   }, []);
   useEffect(() => {
     const fetchPricingSessions = async () => {
@@ -982,6 +982,9 @@ const AdminDashboard = () => {
         excludedPhrases: String(excludedPhrases || ''),
         updatedAt: new Date().toISOString(),
       }, { merge: true });
+      const preferencesSnap = await getDoc(doc(db, 'horleyTech_Settings', 'adminPreferences'));
+      const freshExcluded = String(preferencesSnap.data()?.excludedPhrases || '');
+      setExcludedPhrases(freshExcluded);
       alert('✅ Excluded phrases filter saved.');
     } catch (error) {
       alert(`❌ Failed to save filter: ${error.message}`);
