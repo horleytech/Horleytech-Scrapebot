@@ -13,7 +13,7 @@ const COLLECTIONS = {
   backups: 'horleyTech_Backups',
 };
 const CHART_COLORS = ['#16a34a', '#2563eb', '#f59e0b', '#7c3aed', '#ef4444', '#14b8a6', '#f97316'];
-const FALLBACK_MASTER_DICTIONARY_CSV = 'https://example.com/master-dictionary.csv';
+const _FALLBACK_MASTER_DICTIONARY_CSV = 'https://example.com/master-dictionary.csv';
 const FALLBACK_COMPANY_PRICING_CSV = 'https://example.com/company-pricing.csv';
 const toCsv = (rows) => {
   if (!rows.length) return '';
@@ -239,7 +239,7 @@ const extractGoogleSheetId = (url) => {
   return match?.[1] || '';
 };
 const normalizeCsvText = (rawText = '') => String(rawText || '').replace(/^\uFEFF/, '').replace(/\r/g, '');
-const parseApiJsonSafe = async (response) => {
+const _parseApiJsonSafe = async (response) => {
   const bodyText = await response.text();
   const trimmed = bodyText.trim();
   if (!trimmed) return null;
@@ -290,7 +290,7 @@ const parseCsvLine = (line = '') => {
   parsed.push(current.trim());
   return parsed;
 };
-const parseMasterDictionaryCsv = (csvText = '') => {
+const _parseMasterDictionaryCsv = (csvText = '') => {
   const lines = csvText.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
   if (!lines.length) return { dictionary: {}, officialTargets: [] };
   const headers = parseCsvLine(lines[0]).map((header) => header.toLowerCase());
@@ -346,7 +346,7 @@ const extractLaptopSpecs = (raw) => {
   };
 };
 
-const smartMapDevice = (rawString, officialTargets = [], customMappings = {}) => {
+const smartMapDevice = (rawString, _officialTargets = [], customMappings = {}) => {
   const original = String(rawString || '').trim();
   if (!original) {
     return {
@@ -391,25 +391,25 @@ const smartMapDevice = (rawString, officialTargets = [], customMappings = {}) =>
     laptopSpecs: extractLaptopSpecs(original),
   };
 };
-const getConditionRank = (condition) => {
+const _getConditionRank = (condition) => {
   const normalized = String(condition || '').trim();
   if (normalized === 'Brand New') return 0;
   if (normalized === 'Grade A UK Used') return 1;
   return 2;
 };
-const extractDeviceVersion = (deviceType) => {
+const _extractDeviceVersion = (deviceType) => {
   const matches = String(deviceType || '').match(/\d+(?:\.\d+)?/g);
   if (!matches?.length) return -1;
   return Math.max(...matches.map((entry) => Number(entry) || 0));
 };
-const getDeviceTierWeight = (deviceType) => {
+const _getDeviceTierWeight = (deviceType) => {
   const normalized = String(deviceType || '').toLowerCase();
   if (normalized.includes('pro max')) return 3;
   if (normalized.includes('pro')) return 2;
   if (normalized.includes('plus')) return 1;
   return 0;
 };
-const getSimRank = (specification) => {
+const _getSimRank = (specification) => {
   const normalized = String(specification || '').toLowerCase();
   if (normalized.includes('dual sim') || normalized.includes('physical sim+esim') || (normalized.includes('physical sim') && normalized.includes('esim'))) return 0;
   if (normalized.includes('physical sim')) return 1;
@@ -417,7 +417,7 @@ const getSimRank = (specification) => {
   if (normalized.includes('locked') || normalized.includes('wi-fi only') || normalized.includes('wifi only')) return 3;
   return 4;
 };
-const getStorageRank = (storage) => {
+const _getStorageRank = (storage) => {
   const normalized = String(storage || '').toLowerCase();
   const match = normalized.match(/(\d+(?:\.\d+)?)\s*(tb|gb)/);
   if (!match) return -1;
@@ -425,7 +425,7 @@ const getStorageRank = (storage) => {
   const unit = match[2];
   return unit === 'tb' ? value * 1024 : value;
 };
-const inferBrandSubCategory = (deviceType) => {
+const _inferBrandSubCategory = (deviceType) => {
   const normalized = String(deviceType || '').toLowerCase();
   if (normalized.includes('iphone')) return '#iphones';
   if (normalized.includes('samsung') || normalized.match(/^s\d{1,2}/)) return '#samsungphones';
@@ -509,7 +509,7 @@ const AdminDashboard = () => {
   const [excludedPhrases, setExcludedPhrases] = useState('');
   const [masterDictionary, setMasterDictionary] = useState({});
   const [officialTargets, setOfficialTargets] = useState([]);
-  const queueRef = useRef([]);
+  const _queueRef = useRef([]);
   const [bulkMetaDataValue, setBulkMetaDataValue] = useState('Electronics');
   const [globalProductsCacheRows, setGlobalProductsCacheRows] = useState([]);
   const [, setAllProductRows] = useState([]);

@@ -1,4 +1,5 @@
-import React, { useMemo } from 'react';
+import { useMemo } from 'react';
+import PropTypes from 'prop-types';
 import {
   PieChart,
   Pie,
@@ -153,6 +154,19 @@ const AnalyticsPage = ({ vendors = [] }) => {
       </div>
     </div>
   );
+};
+
+AnalyticsPage.propTypes = {
+  vendors: PropTypes.arrayOf(PropTypes.shape({
+    vendorName: PropTypes.string,
+    vendorId: PropTypes.string,
+    whatsappClicks: PropTypes.number,
+    viewCount: PropTypes.number,
+    products: PropTypes.arrayOf(PropTypes.shape({
+      Category: PropTypes.string,
+      'Regular price': PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
+    })),
+  })),
 };
 
 export default AnalyticsPage;

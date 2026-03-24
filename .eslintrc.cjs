@@ -22,8 +22,6 @@ module.exports = {
       'warn',
       { allowConstantExport: true },
     ],
-    'no-unused-vars': 'off',
-    'react/prop-types': 'off',
-    'react-hooks/exhaustive-deps': 'off',
+    'no-unused-vars': ['error', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
   },
 }

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { collection, onSnapshot, query, orderBy } from 'firebase/firestore';
 import { BASE_URL } from '../../services/constants/apiConstants.js';
 import { db } from '../../services/firebase/index.js';

@@ -1,4 +1,5 @@
 import { Fragment, useMemo, useState } from 'react';
+import PropTypes from 'prop-types';
 import { Dialog, Menu, Transition } from '@headlessui/react';
 import UserProfile from '../../assets/user.svg';
 import Logo from '../../assets/logo.png';
@@ -269,3 +270,9 @@ export default function MenteeDashboardLayout({ children, notificationCount = 0,
     </>
   );
 }
+
+MenteeDashboardLayout.propTypes = {
+  children: PropTypes.node.isRequired,
+  notificationCount: PropTypes.number,
+  onNotificationClick: PropTypes.func,
+};

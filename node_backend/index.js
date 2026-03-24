@@ -31,7 +31,7 @@ const require = createRequire(import.meta.url);
 
 const PM2_LOG_PATH = '/root/.pm2/logs/scrapebot-backend-out.log';
 const OFFLINE_COLLECTION = 'horleyTech_OfflineInventories';
-const BACKUP_COLLECTION = 'horleyTech_Backups';
+const _BACKUP_COLLECTION = 'horleyTech_Backups';
 const MESSAGE_COLLECTION = 'horleyTech_PlatformMessages';
 const AUDIT_COLLECTION = 'horleyTech_AuditLogs';
 const SETTINGS_COLLECTION = 'horleyTech_Settings';
@@ -135,7 +135,7 @@ app.use(express.urlencoded({ extended: true }));
 app.use(morgan('dev'));
 
 const PORT = process.env.PORT || 8000;
-const CATS = "'Smartphones', 'Smartwatches', 'Laptops', 'Sounds', 'Accessories', 'Tablets', 'Gaming', 'Others'";
+const _CATS = "'Smartphones', 'Smartwatches', 'Laptops', 'Sounds', 'Accessories', 'Tablets', 'Gaming', 'Others'";
 
 // Initialize infrastructure
 initializeSystemCollections();
@@ -1269,11 +1269,11 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
 });
 
 
-const normalizeMappingKey = (value) => String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+const _normalizeMappingKey = (value) => String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
 
 const { getFirestore } = require('firebase-admin/firestore');
 
-const fetchUnknownVendorsList = async () => {
+const _fetchUnknownVendorsList = async () => {
   const firestore = getAdminFirestore();
   const snapshot = await firestore.collection(OFFLINE_COLLECTION).get();
   const unknownCandidates = new Set();
@@ -1306,7 +1306,7 @@ const fetchUnknownVendorsList = async () => {
   return Array.from(unknownCandidates).map((raw) => ({ raw }));
 };
 
-const runOpenAIExtraction = async (rows = [], signal) => {
+const _runOpenAIExtraction = async (rows = [], signal) => {
   const systemPrompt = `You are a strict Two-Layer AI Judge. Given an array of objects with a "raw" string, extract details. You MUST return a JSON object with a single root key called "data" containing an array of objects. Each object must strictly have: - "raw": The exact original string - "category", "brand", "series": Standard classifications - "deviceType": The standard clean device name - "condition": STRICTLY evaluate to "Brand New", "Grade A UK Used", or "Unknown" - "sim": STRICTLY evaluate to "Physical SIM", "ESIM", "Physical SIM + ESIM", or "Unknown" - "isOthers": true if unknown/obscure, else false;`;
 
   const backgroundAI = await resolveTextAIConfig({ background: true });

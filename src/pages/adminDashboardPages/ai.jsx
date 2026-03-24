@@ -5,8 +5,7 @@ import { MutatingDots } from 'react-loader-spinner';
 //import { collection, addDoc, writeBatch, doc } from 'firebase/firestore';
 import { toast } from 'react-toastify';
 //import { db } from '../../services/firebase';
-import { generateRandomString } from '../../services/utils/generateString';
-const localBE = 'http://localhost:8000/process';
+const _localBE = 'http://localhost:8000/process';
 const cloudBE = 'https://backend.horleytech.com/process';
 
 const Ai = () => {
@@ -21,7 +20,7 @@ const Ai = () => {
   const [savingGlobalSettings, setSavingGlobalSettings] = useState(false);
   const [loadingGlobalSettings, setLoadingGlobalSettings] = useState(false);
 
-  const dummyData = [
+  const _dummyData = [
     {
       model: 'Iphone X',
       storage: '64gb',
@@ -48,7 +47,7 @@ const Ai = () => {
       }, 2000); // Change message every 2 seconds
     }
     return () => clearInterval(interval);
-  }, [loading]);
+  }, [loading, messages.length]);
 
   useEffect(() => {
     console.log({ file });
