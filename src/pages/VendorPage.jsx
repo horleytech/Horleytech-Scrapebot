@@ -41,6 +41,46 @@ const normalizePriceInput = (value) => {
   return raw;
 };
 
+const toBoolean = (value, fallback = false) => {
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    if (normalized === 'true' || normalized === '1' || normalized === 'yes') return true;
+    if (normalized === 'false' || normalized === '0' || normalized === 'no') return false;
+  }
+  if (typeof value === 'number') return value === 1;
+  return fallback;
+};
+
+const resolveStore1Visibility = (product) => {
+  if (product?.visibleInStore1 !== undefined) return toBoolean(product.visibleInStore1, true);
+  return toBoolean(product?.isVisible, true);
+};
+
+const resolveStore2Visibility = (product) => {
+  if (product?.visibleInStore2 !== undefined) return toBoolean(product.visibleInStore2, false);
+  return false;
+};
+
+const normalizeDualStoreProduct = (product) => {
+  const priceStore1 = normalizePriceInput(product.priceStore1 || product['Store 1 price'] || product.storeOnePrice || product['Regular price'] || '0');
+  const priceStore2 = normalizePriceInput(product.priceStore2 || product['Store 2 price'] || product.storeTwoPrice || product['Regular price'] || '0');
+  const visibleInStore1 = resolveStore1Visibility(product);
+  const visibleInStore2 = resolveStore2Visibility(product);
+
+  return {
+    ...product,
+    'Regular price': priceStore1,
+    priceStore1,
+    priceStore2,
+    'Store 1 price': priceStore1,
+    'Store 2 price': priceStore2,
+    visibleInStore1,
+    visibleInStore2,
+    isVisible: visibleInStore1,
+  };
+};
+
 const parsePriceValue = (value) => {
   const normalized = normalizePriceInput(value);
   const digits = normalized.replace(/[^0-9.]/g, '');
@@ -208,8 +248,8 @@ const VendorPage = () => {
   const [tutorialVideoUrl, setTutorialVideoUrl] = useState('');
   const [businessTypeInput, setBusinessTypeInput] = useState('Other');
   const [storefrontDisplayLimit, setStorefrontDisplayLimit] = useState(20);
-  const [tinbrLinksEnabled, setTinbrLinksEnabled] = useState(false);
-  const [showBothTinbrAndNormalLinks, setShowBothTinbrAndNormalLinks] = useState(false);
+  const [tinbrLinksEnabled, setTinbrLinksEnabled] = useState(true);
+  const [showBothTinbrAndNormalLinks, setShowBothTinbrAndNormalLinks] = useState(true);
   const [tinbrStoreOneLinkInput, setTinbrStoreOneLinkInput] = useState('');
   const [tinbrStoreTwoLinkInput, setTinbrStoreTwoLinkInput] = useState('');
 
@@ -227,9 +267,10 @@ const VendorPage = () => {
   const [editSpecification, setEditSpecification] = useState('');
   const [editStorage, setEditStorage] = useState('');
   const [editCondition, setEditCondition] = useState('');
-  const [editPrice, setEditPrice] = useState('');
-  const [editStoreOnePrice, setEditStoreOnePrice] = useState('');
-  const [editStoreTwoPrice, setEditStoreTwoPrice] = useState('');
+  const [editPriceStore1, setEditPriceStore1] = useState('');
+  const [editPriceStore2, setEditPriceStore2] = useState('');
+  const [editVisStore1, setEditVisStore1] = useState(true);
+  const [editVisStore2, setEditVisStore2] = useState(false);
   const [savingEdit, setSavingEdit] = useState(false);
   const [inventoryView, setInventoryView] = useState('all');
 
@@ -241,11 +282,15 @@ const VendorPage = () => {
         const docSnap = await getDoc(vendorRef);
         if (docSnap.exists()) {
           const payload = docSnap.data();
+          const originalProducts = Array.isArray(payload.products) ? payload.products : [];
+          const normalizedProducts = originalProducts.map((product) => normalizeDualStoreProduct(product));
+          const productsChanged = JSON.stringify(originalProducts) !== JSON.stringify(normalizedProducts);
           const existingNumbers = Array.isArray(payload.whatsappNumbers) ? payload.whatsappNumbers : [];
           const existingAllowedGroups = Array.isArray(payload.storefrontAllowedGroups) ? payload.storefrontAllowedGroups : [];
 
           setVendorData({
             ...payload,
+            products: normalizedProducts,
             logs: normalizeLogs(payload.logs),
           });
           setVendorNameInput(payload.vendorName || '');
@@ -264,10 +309,50 @@ const VendorPage = () => {
           ]);
           setBusinessTypeInput(payload.metaData || payload.businessType || 'Other');
           setStorefrontDisplayLimit(Number(payload.storefrontDisplayLimit) > 0 ? Number(payload.storefrontDisplayLimit) : 20);
-          setTinbrLinksEnabled(Boolean(payload.tinbrLinksEnabled));
-          setShowBothTinbrAndNormalLinks(Boolean(payload.showBothTinbrAndNormalLinks));
+          setTinbrLinksEnabled(payload.tinbrLinksEnabled !== false);
+          setShowBothTinbrAndNormalLinks(payload.showBothTinbrAndNormalLinks !== false);
           setTinbrStoreOneLinkInput(String(payload.tinbrStoreOneLink || ''));
           setTinbrStoreTwoLinkInput(String(payload.tinbrStoreTwoLink || ''));
+
+          const shouldUseTinyByDefault = payload.tinbrLinksEnabled !== false;
+          if (shouldUseTinyByDefault && (String(payload.tinbrStoreOneLink || '').trim() === '' || String(payload.tinbrStoreTwoLink || '').trim() === '')) {
+            const autoPatch = {};
+            const storeOneNormal = `${window.location.origin}/store/1/${vendorId}`;
+            const storeTwoNormal = `${window.location.origin}/store/2/${vendorId}`;
+            try {
+              if (String(payload.tinbrStoreOneLink || '').trim() === '') {
+                autoPatch.tinbrStoreOneLink = await createTinyUrl(storeOneNormal);
+                setTinbrStoreOneLinkInput(autoPatch.tinbrStoreOneLink);
+              }
+              if (String(payload.tinbrStoreTwoLink || '').trim() === '') {
+                autoPatch.tinbrStoreTwoLink = await createTinyUrl(storeTwoNormal);
+                setTinbrStoreTwoLinkInput(autoPatch.tinbrStoreTwoLink);
+              }
+              if (Object.keys(autoPatch).length) {
+                await updateDoc(vendorRef, {
+                  ...autoPatch,
+                  tinbrLinksEnabled: true,
+                  showBothTinbrAndNormalLinks: payload.showBothTinbrAndNormalLinks !== false,
+                  lastUpdated: new Date().toISOString(),
+                });
+                setVendorData((prev) => ({
+                  ...prev,
+                  ...autoPatch,
+                  tinbrLinksEnabled: true,
+                  showBothTinbrAndNormalLinks: payload.showBothTinbrAndNormalLinks !== false,
+                }));
+              }
+            } catch (tinyError) {
+              console.error('Auto TinyURL generation failed:', tinyError);
+            }
+          }
+
+          if (productsChanged) {
+            await updateDoc(vendorRef, {
+              products: normalizedProducts,
+              lastUpdated: new Date().toISOString(),
+            });
+          }
 
           const storedSessionTime = localStorage.getItem(`vendor_session_${vendorId}`);
           if (storedSessionTime) {
@@ -337,17 +422,21 @@ const VendorPage = () => {
   }, [products, dateFilter, categoryFilter, groupFilter, allowedGroups]);
 
   const getInventoryPriceByView = (product, view = 'all') => {
-    if (view === 'store1') return normalizePriceInput(product['Store 1 price'] || product.storeOnePrice || product['Regular price'] || '0');
-    if (view === 'store2') return normalizePriceInput(product['Store 2 price'] || product.storeTwoPrice || product['Regular price'] || '0');
+    if (view === 'store1') return normalizePriceInput(product.priceStore1 || product['Store 1 price'] || product.storeOnePrice || product['Regular price'] || '0');
+    if (view === 'store2') return normalizePriceInput(product.priceStore2 || product['Store 2 price'] || product.storeTwoPrice || product['Regular price'] || '0');
     return normalizePriceInput(product['Regular price'] || '0');
   };
 
-  const hasStoreSpecificPrice = (value) => String(value || '').trim().length > 0;
+  const getInventoryPreviewImage = (product) => {
+    if (inventoryView === 'store1') return product.productImageStore1Base64 || product.productImageBase64 || product.productImageStore2Base64 || '';
+    if (inventoryView === 'store2') return product.productImageStore2Base64 || product.productImageBase64 || product.productImageStore1Base64 || '';
+    return product.productImageBase64 || product.productImageStore1Base64 || product.productImageStore2Base64 || '';
+  };
 
   const inventoryRows = useMemo(() => displayData
     .filter(({ product }) => {
-      if (inventoryView === 'store1') return hasStoreSpecificPrice(product['Store 1 price']) || hasStoreSpecificPrice(product.storeOnePrice);
-      if (inventoryView === 'store2') return hasStoreSpecificPrice(product['Store 2 price']) || hasStoreSpecificPrice(product.storeTwoPrice);
+      if (inventoryView === 'store1') return resolveStore1Visibility(product);
+      if (inventoryView === 'store2') return resolveStore2Visibility(product);
       return true;
     })
     .map((entry) => ({
@@ -381,7 +470,7 @@ const VendorPage = () => {
   }, [products]);
 
   const storefrontProducts = useMemo(
-    () => displayData.map(({ product }) => product).filter((product) => product.isVisible !== false),
+    () => displayData.map(({ product }) => product).filter((product) => resolveStore1Visibility(product) || resolveStore2Visibility(product)),
     [displayData]
   );
 
@@ -390,8 +479,9 @@ const VendorPage = () => {
       const category = product.Category || 'Others';
       const brand = product.Brand || 'Others';
       const device = product['Device Type'] || 'Unknown Device';
-      const price = normalizePriceInput(product['Regular price']);
-      return `${category} -> ${brand} -> ${device} -> ${price}`;
+      const p1 = normalizePriceInput(product.priceStore1 || product['Regular price']);
+      const p2 = normalizePriceInput(product.priceStore2 || product['Regular price']);
+      return `${category} -> ${brand} -> ${device} -> Store 1: ${p1} | Store 2: ${p2}`;
     })
   ), [storefrontProducts]);
 
@@ -429,19 +519,18 @@ const VendorPage = () => {
   const tutorialVideoEmbedUrl = useMemo(() => toYoutubeEmbedUrl(tutorialVideoUrl), [tutorialVideoUrl]);
 
   const handleExport = () => {
-    const priceHeader = inventoryView === 'store1' ? 'Store 1 Price' : inventoryView === 'store2' ? 'Store 2 Price' : 'Vendor Price';
-    const rows = inventoryRows.map(({ product, displayPrice }) => ({
+    const rows = displayData.map(({ product }) => ({
       Group: product.groupName || 'Direct Message',
       Device: product['Device Type'] || '',
       Condition: product.Condition || '',
       Specification: product['SIM Type/Model/Processor'] || '',
       Storage: product['Storage Capacity/Configuration'] || '',
-      [priceHeader]: displayPrice || '',
-      Status: product.isVisible === false ? 'Hidden' : 'Visible',
-      Extracted: product.DatePosted || '',
+      'Price Store 1': product.priceStore1 || product['Regular price'] || '',
+      'Price Store 2': product.priceStore2 || product['Regular price'] || '',
+      'Store 1 Status': resolveStore1Visibility(product) ? 'Visible' : 'Hidden',
+      'Store 2 Status': resolveStore2Visibility(product) ? 'Visible' : 'Hidden',
     }));
-    const suffix = inventoryView === 'store1' ? 'store-1' : inventoryView === 'store2' ? 'store-2' : 'vendor';
-    downloadCsv(`${vendorData?.vendorName || 'Vendor'}-${suffix}-inventory.csv`, rows);
+    downloadCsv(`${vendorData?.vendorName || 'Vendor'}-inventory.csv`, rows);
   };
 
   const handleCopyLink = async (link) => {
@@ -498,6 +587,60 @@ const VendorPage = () => {
     }
   };
 
+  const createTinyUrl = async (link) => {
+    if (!link || !/^https?:\/\//i.test(link)) return '';
+    const tinyUrlRes = await fetch(`https://tinyurl.com/api-create.php?url=${encodeURIComponent(link)}`);
+    const shortUrl = await tinyUrlRes.text();
+    if (!tinyUrlRes.ok || !/^https?:\/\//i.test(shortUrl)) {
+      throw new Error('TinyURL generation failed.');
+    }
+    return shortUrl;
+  };
+
+  const saveLinkPreference = async (patch, actionLabel) => {
+    if (!isAdmin) return;
+    const nextPatch = { ...patch };
+
+    if (patch.tinbrLinksEnabled === true) {
+      const storeOneNormal = `${window.location.origin}/store/1/${vendorId}`;
+      const storeTwoNormal = `${window.location.origin}/store/2/${vendorId}`;
+      try {
+        if (!String(vendorData?.tinbrStoreOneLink || '').trim()) {
+          nextPatch.tinbrStoreOneLink = await createTinyUrl(storeOneNormal);
+          setTinbrStoreOneLinkInput(nextPatch.tinbrStoreOneLink);
+        }
+        if (!String(vendorData?.tinbrStoreTwoLink || '').trim()) {
+          nextPatch.tinbrStoreTwoLink = await createTinyUrl(storeTwoNormal);
+          setTinbrStoreTwoLinkInput(nextPatch.tinbrStoreTwoLink);
+        }
+      } catch (error) {
+        console.error('Failed to auto-generate TinyURL links:', error);
+      }
+    }
+
+    const nextLogs = appendRollingLog(vendorData?.logs, 'admin', {
+      action: actionLabel,
+      date: new Date().toISOString(),
+    });
+
+    try {
+      await updateDoc(vendorRef, {
+        ...nextPatch,
+        lastUpdated: new Date().toISOString(),
+        logs: nextLogs,
+      });
+      setVendorData((prev) => ({
+        ...prev,
+        ...nextPatch,
+        lastUpdated: new Date().toISOString(),
+        logs: nextLogs,
+      }));
+    } catch (error) {
+      console.error('Failed to save link preference:', error);
+      alert('❌ Could not save link preference.');
+    }
+  };
+
   const toggleSelectAll = () => {
     if (allVisibleRowsSelected) {
       const visibleSet = new Set(inventoryRows.map(({ index }) => index));
@@ -520,27 +663,64 @@ const VendorPage = () => {
     );
   };
 
-  const compressImageToBase64 = (file, size = 150) =>
+  const compressImageToBase64 = (file, options = {}) =>
     new Promise((resolve, reject) => {
+      const {
+        square = false,
+        canvasSize = 150,
+        maxWidth = 1280,
+        maxHeight = 1280,
+        qualityStart = 0.84,
+        minQuality = 0.5,
+        targetKB = 140,
+        format = 'image/webp',
+      } = options;
+
       const reader = new FileReader();
       reader.onload = (event) => {
         const img = new Image();
         img.onload = () => {
           const canvas = document.createElement('canvas');
-          canvas.width = size;
-          canvas.height = size;
           const ctx = canvas.getContext('2d');
-          ctx.fillStyle = '#ffffff';
-          ctx.fillRect(0, 0, size, size);
+          if (!ctx) {
+            reject(new Error('Canvas rendering context unavailable'));
+            return;
+          }
 
-          const scale = Math.min(size / img.width, size / img.height);
-          const drawWidth = img.width * scale;
-          const drawHeight = img.height * scale;
-          const x = (size - drawWidth) / 2;
-          const y = (size - drawHeight) / 2;
-          ctx.drawImage(img, x, y, drawWidth, drawHeight);
+          let drawWidth;
+          let drawHeight;
+          if (square) {
+            canvas.width = canvasSize;
+            canvas.height = canvasSize;
+            drawWidth = canvasSize;
+            drawHeight = canvasSize;
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(0, 0, canvasSize, canvasSize);
+            const scale = Math.min(canvasSize / img.width, canvasSize / img.height);
+            const scaledWidth = img.width * scale;
+            const scaledHeight = img.height * scale;
+            const x = (canvasSize - scaledWidth) / 2;
+            const y = (canvasSize - scaledHeight) / 2;
+            ctx.drawImage(img, x, y, scaledWidth, scaledHeight);
+          } else {
+            const scale = Math.min(maxWidth / img.width, maxHeight / img.height, 1);
+            drawWidth = Math.max(1, Math.round(img.width * scale));
+            drawHeight = Math.max(1, Math.round(img.height * scale));
+            canvas.width = drawWidth;
+            canvas.height = drawHeight;
+            ctx.drawImage(img, 0, 0, drawWidth, drawHeight);
+          }
 
-          resolve(canvas.toDataURL('image/jpeg', 0.8));
+          let quality = qualityStart;
+          let result = canvas.toDataURL(format, quality);
+          const targetChars = targetKB * 1024 * 1.37; // base64 overhead approximation
+
+          while (result.length > targetChars && quality > minQuality) {
+            quality = Math.max(minQuality, quality - 0.06);
+            result = canvas.toDataURL(format, quality);
+          }
+
+          resolve(result);
         };
         img.onerror = reject;
         img.src = event.target.result;
@@ -554,7 +734,13 @@ const VendorPage = () => {
     if (!file) return;
 
     try {
-      const base64 = await compressImageToBase64(file, 150);
+      const base64 = await compressImageToBase64(file, {
+        square: true,
+        canvasSize: 150,
+        targetKB: 35,
+        format: 'image/webp',
+        qualityStart: 0.82,
+      });
       setLogoBase64(base64);
     } catch (error) {
       console.error('Logo compression failed:', error);
@@ -562,16 +748,44 @@ const VendorPage = () => {
     }
   };
 
-  const handleProductImageUpload = async (index, file) => {
+  const handleProductImageUpload = async (index, file, target = 'both') => {
     if (!file) return;
 
     try {
-      const thumbBase64 = await compressImageToBase64(file, 180);
-      const nextProducts = products.map((product, pIndex) =>
-        pIndex === index ? { ...product, productImageBase64: thumbBase64 } : product
-      );
+      const thumbBase64 = await compressImageToBase64(file, {
+        maxWidth: 1280,
+        maxHeight: 1280,
+        targetKB: 140,
+        format: 'image/webp',
+        qualityStart: 0.86,
+      });
+      const nextProducts = products.map((product, pIndex) => {
+        if (pIndex !== index) return product;
 
-      const nextLogs = pushLogToCurrentVendorData(vendorData, 'Updated Product Image');
+        if (target === 'store1') {
+          return {
+            ...product,
+            productImageStore1Base64: thumbBase64,
+          };
+        }
+
+        if (target === 'store2') {
+          return {
+            ...product,
+            productImageStore2Base64: thumbBase64,
+          };
+        }
+
+        return {
+          ...product,
+          productImageBase64: thumbBase64,
+          productImageStore1Base64: thumbBase64,
+          productImageStore2Base64: thumbBase64,
+        };
+      });
+
+      const targetLabel = target === 'both' ? 'Store 1 + Store 2' : target === 'store1' ? 'Store 1' : 'Store 2';
+      const nextLogs = pushLogToCurrentVendorData(vendorData, `Updated Product Image (${targetLabel})`);
 
       await updateDoc(vendorRef, {
         products: nextProducts,
@@ -598,20 +812,20 @@ const VendorPage = () => {
     return appendRollingLog(previousVendorData?.logs, logChannel, entry);
   };
 
-  const updateSelectedVisibility = async (isVisible) => {
+  const updateSelectedVisibility = async (storeKey, isVisible) => {
     if (!selectedProductIndexes.length) {
       alert('Please select one or more products first.');
       return;
     }
 
-    const nextProducts = products.map((product, index) =>
-      selectedProductIndexes.includes(index) ? { ...product, isVisible } : product
-    );
+    const nextProducts = products.map((product, index) => {
+      if (!selectedProductIndexes.includes(index)) return product;
+      if (storeKey === 'store1') return { ...product, visibleInStore1: isVisible, isVisible };
+      if (storeKey === 'store2') return { ...product, visibleInStore2: isVisible };
+      return product;
+    });
 
-    const nextLogs = pushLogToCurrentVendorData(
-      vendorData,
-      `${isVisible ? 'Show Selected' : 'Hide Selected'} (${selectedProductIndexes.length} products)`
-    );
+    const nextLogs = pushLogToCurrentVendorData(vendorData, `Updated visibility in ${storeKey} for ${selectedProductIndexes.length} items`);
 
     setBulkUpdating(true);
     try {
@@ -628,7 +842,7 @@ const VendorPage = () => {
         logs: nextLogs,
       }));
       setSelectedProductIndexes([]);
-      alert(`✅ Selected products are now ${isVisible ? 'visible' : 'hidden'}.`);
+      alert('✅ Selected products updated.');
     } catch (error) {
       console.error('Error updating product visibility:', error);
       alert('❌ Could not update product visibility.');
@@ -804,8 +1018,8 @@ const VendorPage = () => {
       businessType: businessTypeInput || 'Other',
       metaData: businessTypeInput || 'Other',
       storefrontDisplayLimit: Number(storefrontDisplayLimit) > 0 ? Number(storefrontDisplayLimit) : 20,
-      tinbrLinksEnabled: isAdmin ? Boolean(tinbrLinksEnabled) : Boolean(vendorData?.tinbrLinksEnabled),
-      showBothTinbrAndNormalLinks: isAdmin ? Boolean(showBothTinbrAndNormalLinks) : Boolean(vendorData?.showBothTinbrAndNormalLinks),
+      tinbrLinksEnabled: isAdmin ? Boolean(tinbrLinksEnabled) : vendorData?.tinbrLinksEnabled !== false,
+      showBothTinbrAndNormalLinks: isAdmin ? Boolean(showBothTinbrAndNormalLinks) : vendorData?.showBothTinbrAndNormalLinks !== false,
       tinbrStoreOneLink: isAdmin ? tinbrStoreOneLinkInput.trim() : String(vendorData?.tinbrStoreOneLink || '').trim(),
       tinbrStoreTwoLink: isAdmin ? tinbrStoreTwoLinkInput.trim() : String(vendorData?.tinbrStoreTwoLink || '').trim(),
     };
@@ -853,9 +1067,10 @@ const VendorPage = () => {
     setEditSpecification(specification);
     setEditStorage(storage);
     setEditCondition(product.Condition || '');
-    setEditPrice(normalizePriceInput(product['Regular price'] || '0'));
-    setEditStoreOnePrice(normalizePriceInput(product['Store 1 price'] || product.storeOnePrice || product['Regular price'] || '0'));
-    setEditStoreTwoPrice(normalizePriceInput(product['Store 2 price'] || product.storeTwoPrice || product['Regular price'] || '0'));
+    setEditPriceStore1(normalizePriceInput(product.priceStore1 || product['Store 1 price'] || product.storeOnePrice || product['Regular price'] || '0'));
+    setEditPriceStore2(normalizePriceInput(product.priceStore2 || product['Store 2 price'] || product.storeTwoPrice || product['Regular price'] || '0'));
+    setEditVisStore1(resolveStore1Visibility(product));
+    setEditVisStore2(resolveStore2Visibility(product));
   };
 
   const closeEditModal = () => {
@@ -864,9 +1079,10 @@ const VendorPage = () => {
     setEditSpecification('');
     setEditStorage('');
     setEditCondition('');
-    setEditPrice('');
-    setEditStoreOnePrice('');
-    setEditStoreTwoPrice('');
+    setEditPriceStore1('');
+    setEditPriceStore2('');
+    setEditVisStore1(true);
+    setEditVisStore2(false);
   };
 
   const saveInlineEdit = async () => {
@@ -881,9 +1097,14 @@ const VendorPage = () => {
         ...product,
         'Device Type': editDeviceType.trim(),
         Condition: editCondition.trim(),
-        'Regular price': normalizePriceInput(editPrice),
-        'Store 1 price': normalizePriceInput(editStoreOnePrice),
-        'Store 2 price': normalizePriceInput(editStoreTwoPrice),
+        'Regular price': normalizePriceInput(editPriceStore1),
+        priceStore1: normalizePriceInput(editPriceStore1),
+        priceStore2: normalizePriceInput(editPriceStore2),
+        'Store 1 price': normalizePriceInput(editPriceStore1),
+        'Store 2 price': normalizePriceInput(editPriceStore2),
+        visibleInStore1: editVisStore1,
+        isVisible: editVisStore1,
+        visibleInStore2: editVisStore2,
         ...parsed,
       };
     });
@@ -989,13 +1210,15 @@ const VendorPage = () => {
   }
 
   const vendorBackendLink = `${window.location.origin}/vendor/${vendorId}`;
-  const customerStoreOneLink = `${window.location.origin}/store/${vendorId}?branch=store1`;
-  const customerStoreTwoLink = `${window.location.origin}/store/${vendorId}?branch=store2`;
+  const customerStoreOneLink = `${window.location.origin}/store/1/${vendorId}`;
+  const customerStoreTwoLink = `${window.location.origin}/store/2/${vendorId}`;
   const tinbrStoreOneLink = tinbrStoreOneLinkInput.trim();
   const tinbrStoreTwoLink = tinbrStoreTwoLinkInput.trim();
   const canVendorSeeBothLinkSets = isAdmin || showBothTinbrAndNormalLinks;
-  const primaryStoreOneLink = (tinbrLinksEnabled && tinbrStoreOneLink) ? tinbrStoreOneLink : customerStoreOneLink;
-  const primaryStoreTwoLink = (tinbrLinksEnabled && tinbrStoreTwoLink) ? tinbrStoreTwoLink : customerStoreTwoLink;
+  const storeOneTinyActive = tinbrLinksEnabled && Boolean(tinbrStoreOneLink);
+  const storeTwoTinyActive = tinbrLinksEnabled && Boolean(tinbrStoreTwoLink);
+  const primaryStoreOneLink = storeOneTinyActive ? tinbrStoreOneLink : customerStoreOneLink;
+  const primaryStoreTwoLink = storeTwoTinyActive ? tinbrStoreTwoLink : customerStoreTwoLink;
   const timelineLogs = normalizeLogs(vendorData.logs);
   const timelineEntries = {
     vendor: [...timelineLogs.vendor].sort((a, b) => new Date(b.date) - new Date(a.date)),
@@ -1026,12 +1249,12 @@ const VendorPage = () => {
             </div>
           </div>
           <div className="border rounded-[10px] p-4 bg-gray-50">
-            <p className="text-xs font-bold text-gray-500 mb-2 uppercase tracking-wider">Customer Store One Link {tinbrLinksEnabled ? '(Tinbr Active)' : '(Normal Active)'}</p>
+            <p className="text-xs font-bold text-gray-500 mb-2 uppercase tracking-wider">Customer Store One Link {storeOneTinyActive ? '(Tiny Active)' : '(Normal Active)'}</p>
             <p className="text-sm break-all text-[#1A1C23] mb-2 font-mono bg-white p-2 rounded border">{primaryStoreOneLink}</p>
             {canVendorSeeBothLinkSets && (
               <div className="mb-3 text-[11px] space-y-1 text-gray-600">
                 <p><span className="font-black">Normal:</span> {customerStoreOneLink}</p>
-                <p><span className="font-black">Tinbr:</span> {tinbrStoreOneLink || 'Not set'}</p>
+                <p><span className="font-black">Tiny:</span> {tinbrStoreOneLink || 'Not set'}</p>
               </div>
             )}
             <div className="flex gap-2 flex-wrap">
@@ -1042,12 +1265,12 @@ const VendorPage = () => {
             </div>
           </div>
           <div className="border rounded-[10px] p-4 bg-gray-50">
-            <p className="text-xs font-bold text-gray-500 mb-2 uppercase tracking-wider">Customer Store Two Link {tinbrLinksEnabled ? '(Tinbr Active)' : '(Normal Active)'}</p>
+            <p className="text-xs font-bold text-gray-500 mb-2 uppercase tracking-wider">Customer Store Two Link {storeTwoTinyActive ? '(Tiny Active)' : '(Normal Active)'}</p>
             <p className="text-sm break-all text-[#1A1C23] mb-2 font-mono bg-white p-2 rounded border">{primaryStoreTwoLink}</p>
             {canVendorSeeBothLinkSets && (
               <div className="mb-3 text-[11px] space-y-1 text-gray-600">
                 <p><span className="font-black">Normal:</span> {customerStoreTwoLink}</p>
-                <p><span className="font-black">Tinbr:</span> {tinbrStoreTwoLink || 'Not set'}</p>
+                <p><span className="font-black">Tiny:</span> {tinbrStoreTwoLink || 'Not set'}</p>
               </div>
             )}
             <div className="flex gap-2 flex-wrap">
@@ -1146,11 +1369,32 @@ const VendorPage = () => {
               <label className="block text-sm font-bold text-indigo-900 mb-3">Tinbr / TinyURL (URL Shortener) Link Controls</label>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                 <label className="flex items-center gap-3 text-sm font-semibold text-indigo-900">
-                  <input type="checkbox" checked={tinbrLinksEnabled} onChange={(e) => setTinbrLinksEnabled(e.target.checked)} className="w-4 h-4" />
-                  Use Tinbr short links as primary store links
+                  <input
+                    type="checkbox"
+                    checked={tinbrLinksEnabled}
+                    onChange={(e) => {
+                      const checked = e.target.checked;
+                      setTinbrLinksEnabled(checked);
+                      saveLinkPreference({ tinbrLinksEnabled: checked }, checked ? 'Enabled Tinbr Links' : 'Disabled Tinbr Links');
+                    }}
+                    className="w-4 h-4"
+                  />
+                  Use Tinbr Tiny links as primary store links
                 </label>
                 <label className="flex items-center gap-3 text-sm font-semibold text-indigo-900">
-                  <input type="checkbox" checked={showBothTinbrAndNormalLinks} onChange={(e) => setShowBothTinbrAndNormalLinks(e.target.checked)} className="w-4 h-4" />
+                  <input
+                    type="checkbox"
+                    checked={showBothTinbrAndNormalLinks}
+                    onChange={(e) => {
+                      const checked = e.target.checked;
+                      setShowBothTinbrAndNormalLinks(checked);
+                      saveLinkPreference(
+                        { showBothTinbrAndNormalLinks: checked },
+                        checked ? 'Enabled Both Tinbr + Normal Links View' : 'Disabled Both Tinbr + Normal Links View'
+                      );
+                    }}
+                    className="w-4 h-4"
+                  />
                   Let vendor see both Tinbr and normal links
                 </label>
               </div>
@@ -1248,7 +1492,7 @@ const VendorPage = () => {
               <div className="flex gap-2 flex-wrap">
                 <button onClick={async () => { await navigator.clipboard.writeText(exportLines.join('\n')); alert('✅ Pricelist copied for WhatsApp.'); }} className="bg-[#1A1C23] text-white px-3 py-2 rounded-lg text-xs font-black uppercase">Copy for WhatsApp</button>
                 <button onClick={() => { const blob = new Blob([exportLines.join('\n')], { type: 'text/plain' }); const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `${vendorData.vendorName || 'vendor'}-pricelist.txt`; a.click(); }} className="bg-blue-600 text-white px-3 py-2 rounded-lg text-xs font-black uppercase">Download TXT</button>
-                <button onClick={() => downloadCsv(`${vendorData.vendorName || 'vendor'}-pricelist.csv`, storefrontProducts.map((product) => ({ Export: `${product.Category || 'Others'} -> ${product.Brand || 'Others'} -> ${product['Device Type'] || ''} -> ${normalizePriceInput(product['Regular price'])}` })))} className="bg-emerald-600 text-white px-3 py-2 rounded-lg text-xs font-black uppercase">Download CSV</button>
+                <button onClick={() => downloadCsv(`${vendorData.vendorName || 'vendor'}-pricelist.csv`, storefrontProducts.map((product) => ({ Export: `${product.Category || 'Others'} -> ${product.Brand || 'Others'} -> ${product['Device Type'] || ''} -> Store 1: ${normalizePriceInput(product.priceStore1 || product['Regular price'])} | Store 2: ${normalizePriceInput(product.priceStore2 || product['Regular price'])}` })))} className="bg-emerald-600 text-white px-3 py-2 rounded-lg text-xs font-black uppercase">Download CSV</button>
               </div>
             </div>
           </div>
@@ -1278,9 +1522,11 @@ const VendorPage = () => {
           </div>
 
           {/* Bulk Actions */}
-          <div className="mb-4 flex flex-wrap gap-3 items-center bg-blue-50 p-4 rounded-xl border border-blue-100">
-            <button onClick={() => updateSelectedVisibility(false)} disabled={!selectedProductIndexes.length || bulkUpdating} className="bg-red-600 text-white px-5 py-2 rounded-lg font-bold hover:bg-red-700 disabled:opacity-50 shadow-sm">Hide Selected</button>
-            <button onClick={() => updateSelectedVisibility(true)} disabled={!selectedProductIndexes.length || bulkUpdating} className="bg-emerald-600 text-white px-5 py-2 rounded-lg font-bold hover:bg-emerald-700 disabled:opacity-50 shadow-sm">Show Selected</button>
+          <div className="mb-4 flex flex-wrap gap-2 items-center bg-blue-50 p-4 rounded-xl border border-blue-100">
+            <button onClick={() => updateSelectedVisibility('store1', true)} disabled={!selectedProductIndexes.length || bulkUpdating} className="bg-blue-600 text-white px-3 py-2 text-xs rounded-lg font-bold disabled:opacity-50">Show in Store 1</button>
+            <button onClick={() => updateSelectedVisibility('store1', false)} disabled={!selectedProductIndexes.length || bulkUpdating} className="bg-gray-400 text-white px-3 py-2 text-xs rounded-lg font-bold disabled:opacity-50">Hide in Store 1</button>
+            <button onClick={() => updateSelectedVisibility('store2', true)} disabled={!selectedProductIndexes.length || bulkUpdating} className="bg-purple-600 text-white px-3 py-2 text-xs rounded-lg font-bold disabled:opacity-50">Show in Store 2</button>
+            <button onClick={() => updateSelectedVisibility('store2', false)} disabled={!selectedProductIndexes.length || bulkUpdating} className="bg-gray-400 text-white px-3 py-2 text-xs rounded-lg font-bold disabled:opacity-50">Hide in Store 2</button>
             <span className="text-sm font-bold text-blue-700">{selectedProductIndexes.length} products selected</span>
           </div>
 
@@ -1295,30 +1541,46 @@ const VendorPage = () => {
                   <th className="hidden md:table-cell p-4 text-xs font-bold uppercase tracking-wider">Condition</th>
                   <th className="hidden md:table-cell p-4 text-xs font-bold uppercase tracking-wider">Specification</th>
                   <th className="hidden md:table-cell p-4 text-xs font-bold uppercase tracking-wider">Storage</th>
-                  <th className="p-4 text-xs font-bold uppercase tracking-wider">{inventoryView === 'store1' ? 'Store 1 Price' : inventoryView === 'store2' ? 'Store 2 Price' : 'Vendor Price'}</th>
-                  <th className="p-4 text-xs font-bold uppercase tracking-wider">Status</th>
+                  <th className="p-4 text-xs font-bold uppercase">Store 1 (Classic)</th>
+                  <th className="p-4 text-xs font-bold uppercase">Store 2 (Premium)</th>
                   <th className="hidden md:table-cell p-4 text-xs font-bold uppercase tracking-wider">Extracted</th>
                   <th className="p-4 text-xs font-bold uppercase tracking-wider">Image</th>
                   <th className="p-4 text-xs font-bold uppercase tracking-wider">Edit</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {inventoryRows.map(({ product, index, displayPrice }) => (
-                  <tr key={`${product['Device Type']}-${index}`} className={`hover:bg-blue-50/30 transition-colors ${product.isVisible === false ? 'bg-gray-50 opacity-60 line-through text-gray-400' : ''}`}>
+                {inventoryRows.map(({ product, index }) => (
+                  <tr key={`${product['Device Type']}-${index}`} className={`hover:bg-blue-50/30 transition-colors ${(!resolveStore1Visibility(product) && !resolveStore2Visibility(product)) ? 'bg-gray-50 opacity-60 line-through text-gray-400' : ''}`}>
                     <td className="p-4"><input type="checkbox" checked={selectedProductIndexes.includes(index)} onChange={() => toggleProductSelection(index)} className="w-4 h-4" /></td>
                     <td className="hidden md:table-cell p-4"><span className="text-[10px] font-bold bg-white border px-2 py-1 rounded text-gray-500 whitespace-nowrap">{product.groupName || 'Direct Message'}</span></td>
                     <td className="p-4 font-bold text-[#1A1C23]">{product['Device Type'] || 'N/A'}</td>
                     <td className="hidden md:table-cell p-4"><span className={`text-xs font-bold px-2 py-1 rounded ${product.Condition?.toLowerCase().includes('new') ? 'bg-blue-100 text-blue-700' : 'bg-orange-100 text-orange-700'}`}>{product.Condition || 'N/A'}</span></td>
                     <td className="hidden md:table-cell p-4 text-sm text-gray-600">{product['SIM Type/Model/Processor'] || 'N/A'}</td>
                     <td className="hidden md:table-cell p-4 text-sm font-semibold text-gray-700">{product['Storage Capacity/Configuration'] || 'N/A'}</td>
-                    <td className="p-4 font-black text-green-700 text-lg">{displayPrice}</td>
-                    <td className="p-4"><span className={`px-2 py-1 rounded text-[10px] font-black uppercase ${product.isVisible === false ? 'bg-gray-200 text-gray-500' : 'bg-emerald-100 text-emerald-700'}`}>{product.isVisible === false ? 'Hidden' : 'Visible'}</span></td>
+                    <td className="p-4">
+                      <div className="font-black text-blue-700">{normalizePriceInput(product.priceStore1 || product['Regular price'] || '0')}</div>
+                      <span className={`px-2 py-0.5 rounded text-[9px] font-black uppercase ${resolveStore1Visibility(product) ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-200 text-gray-500'}`}>
+                        {resolveStore1Visibility(product) ? 'Visible' : 'Hidden'}
+                      </span>
+                    </td>
+                    <td className="p-4">
+                      <div className="font-black text-purple-700">{normalizePriceInput(product.priceStore2 || product['Regular price'] || '0')}</div>
+                      <span className={`px-2 py-0.5 rounded text-[9px] font-black uppercase ${resolveStore2Visibility(product) ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-200 text-gray-500'}`}>
+                        {resolveStore2Visibility(product) ? 'Visible' : 'Hidden'}
+                      </span>
+                    </td>
                     <td className="hidden md:table-cell p-4 text-[11px] text-gray-400 font-medium">{product.DatePosted || 'N/A'}</td>
                     <td className="p-4">
                       <div className="flex flex-col gap-2">
-                        {product.productImageBase64 && <img src={product.productImageBase64} alt="Product" style={HD_IMAGE_STYLE} className="w-10 h-10 object-cover rounded border shadow-sm" />}
-                        <input id={`product-image-${index}`} type="file" accept="image/*" className="hidden" onChange={(e) => handleProductImageUpload(index, e.target.files?.[0])} />
-                        <label htmlFor={`product-image-${index}`} className="cursor-pointer bg-purple-100 text-purple-700 px-3 py-1.5 rounded-md text-[10px] font-black uppercase text-center hover:bg-purple-200">🖼️ Upload</label>
+                        {getInventoryPreviewImage(product) && <img src={getInventoryPreviewImage(product)} alt="Product" style={HD_IMAGE_STYLE} className="w-10 h-10 object-cover rounded border shadow-sm" />}
+                        <input id={`product-image-store1-${index}`} type="file" accept="image/*" className="hidden" onChange={(e) => handleProductImageUpload(index, e.target.files?.[0], 'store1')} />
+                        <input id={`product-image-store2-${index}`} type="file" accept="image/*" className="hidden" onChange={(e) => handleProductImageUpload(index, e.target.files?.[0], 'store2')} />
+                        <input id={`product-image-both-${index}`} type="file" accept="image/*" className="hidden" onChange={(e) => handleProductImageUpload(index, e.target.files?.[0], 'both')} />
+                        <div className="flex flex-wrap gap-1">
+                          <label htmlFor={`product-image-store1-${index}`} className="cursor-pointer bg-blue-100 text-blue-700 px-2 py-1 rounded-md text-[9px] font-black uppercase text-center hover:bg-blue-200">S1</label>
+                          <label htmlFor={`product-image-store2-${index}`} className="cursor-pointer bg-purple-100 text-purple-700 px-2 py-1 rounded-md text-[9px] font-black uppercase text-center hover:bg-purple-200">S2</label>
+                          <label htmlFor={`product-image-both-${index}`} className="cursor-pointer bg-emerald-100 text-emerald-700 px-2 py-1 rounded-md text-[9px] font-black uppercase text-center hover:bg-emerald-200">Both</label>
+                        </div>
                       </div>
                     </td>
                     <td className="p-4"><button onClick={() => openEditModal(index, product)} className="bg-blue-600 text-white px-3 py-1.5 rounded-md text-xs font-bold hover:bg-blue-700">✏️ Edit</button></td>
@@ -1576,16 +1838,21 @@ const VendorPage = () => {
                 <input type="text" value={editCondition} onChange={(e) => setEditCondition(e.target.value)} className="w-full p-3 border rounded-xl focus:ring-2 focus:ring-blue-500 outline-none font-medium text-gray-700" />
               </div>
               <div>
-                <label className="block text-xs font-black text-gray-400 uppercase mb-1">Regular Price</label>
-                <input type="text" value={editPrice} onChange={(e) => setEditPrice(e.target.value)} className="w-full p-3 border rounded-xl focus:ring-2 focus:ring-blue-500 outline-none font-black text-green-600" />
-              </div>
-              <div>
                 <label className="block text-xs font-black text-gray-400 uppercase mb-1">Store 1 Price</label>
-                <input type="text" value={editStoreOnePrice} onChange={(e) => setEditStoreOnePrice(e.target.value)} className="w-full p-3 border rounded-xl focus:ring-2 focus:ring-blue-500 outline-none font-black text-indigo-600" />
+                <input type="text" value={editPriceStore1} onChange={(e) => setEditPriceStore1(e.target.value)} className="w-full p-3 border rounded-xl font-black text-blue-600" />
               </div>
+              <div className="flex items-center mt-6">
+                <input type="checkbox" checked={editVisStore1} onChange={(e) => setEditVisStore1(e.target.checked)} className="w-5 h-5 mr-2" />
+                <label className="text-sm font-bold">Show in Store 1</label>
+              </div>
+
               <div>
                 <label className="block text-xs font-black text-gray-400 uppercase mb-1">Store 2 Price</label>
-                <input type="text" value={editStoreTwoPrice} onChange={(e) => setEditStoreTwoPrice(e.target.value)} className="w-full p-3 border rounded-xl focus:ring-2 focus:ring-blue-500 outline-none font-black text-emerald-600" />
+                <input type="text" value={editPriceStore2} onChange={(e) => setEditPriceStore2(e.target.value)} className="w-full p-3 border rounded-xl font-black text-purple-600" />
+              </div>
+              <div className="flex items-center mt-6">
+                <input type="checkbox" checked={editVisStore2} onChange={(e) => setEditVisStore2(e.target.checked)} className="w-5 h-5 mr-2" />
+                <label className="text-sm font-bold">Show in Store 2</label>
               </div>
             </div>
             <div className="p-6 bg-gray-50 border-t flex justify-end gap-3">

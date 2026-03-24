@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useLocation, useParams } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
 import { doc, getDoc, updateDoc, increment } from 'firebase/firestore';
+import PropTypes from 'prop-types';
 import { db } from '../services/firebase/index.js';
 
 const MAX_LOG_ITEMS = 200;
@@ -26,6 +27,27 @@ const appendRollingLog = (logs, channel, entry) => {
   };
 };
 
+const toBoolean = (value, fallback = false) => {
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    if (normalized === 'true' || normalized === '1' || normalized === 'yes') return true;
+    if (normalized === 'false' || normalized === '0' || normalized === 'no') return false;
+  }
+  if (typeof value === 'number') return value === 1;
+  return fallback;
+};
+
+const resolveStore1Visibility = (product) => {
+  if (product?.visibleInStore1 !== undefined) return toBoolean(product.visibleInStore1, true);
+  return toBoolean(product?.isVisible, true);
+};
+
+const resolveStore2Visibility = (product) => {
+  if (product?.visibleInStore2 !== undefined) return toBoolean(product.visibleInStore2, false);
+  return false;
+};
+
 // Utility to generate theme shades dynamically
 const lightenHex = (hex, amount = 0.18) => {
   if (!hex || typeof hex !== 'string') return '#22c55e';
@@ -48,9 +70,9 @@ const lightenHex = (hex, amount = 0.18) => {
   return `#${[nextR, nextG, nextB].map((v) => v.toString(16).padStart(2, '0')).join('')}`;
 };
 
-const StoreFront = () => {
+const StoreFront = ({ storeType = '1' }) => {
   const { vendorId } = useParams();
-  const location = useLocation();
+  const isStore2 = storeType === '2';
   const [vendorData, setVendorData] = useState(null);
   const [loading, setLoading] = useState(true);
 
@@ -91,8 +113,11 @@ const StoreFront = () => {
 
     return products
       .filter((product) => {
-        const isVisible = product?.isVisible !== false;
-        if (!isVisible) return false;
+        if (isStore2) {
+          if (!resolveStore2Visibility(product)) return false;
+        } else if (!resolveStore1Visibility(product)) {
+          return false;
+        }
 
         if (hasConfiguredAllowedGroups) {
           const productGroup = String(product?.groupName || 'Direct Message').trim().toLowerCase();
@@ -102,7 +127,7 @@ const StoreFront = () => {
         return true;
       })
       .slice(0, vendorData?.storefrontDisplayLimit || 20);
-  }, [vendorData]);
+  }, [vendorData, isStore2]);
 
   const pickStaffNumber = () => {
     const configuredStaffNumbers = (vendorData?.whatsappNumbers || [])
@@ -152,6 +177,16 @@ const StoreFront = () => {
     window.open(link, '_blank', 'noopener,noreferrer');
   };
 
+  const getDisplayPrice = (product) => {
+    if (isStore2) return product.priceStore2 || product['Store 2 price'] || product.storeTwoPrice || product['Regular price'] || 'N/A';
+    return product.priceStore1 || product['Store 1 price'] || product.storeOnePrice || product['Regular price'] || 'N/A';
+  };
+
+  const getProductImage = (product) => {
+    if (isStore2) return product.productImageStore2Base64 || product.productImageBase64 || product.productImageStore1Base64 || '';
+    return product.productImageStore1Base64 || product.productImageBase64 || product.productImageStore2Base64 || '';
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen grid place-items-center bg-gray-50">
@@ -185,23 +220,13 @@ const StoreFront = () => {
   const themeColor = vendorData.themeColor || '#16a34a';
   const lighterTheme = lightenHex(themeColor, 0.22);
 
-  const selectedStoreBranch = useMemo(() => {
-    const params = new URLSearchParams(location.search);
-    const raw = String(params.get('branch') || '').trim().toLowerCase();
-    if (raw === 'store1' || raw === 'store-1') return 'store1';
-    if (raw === 'store2' || raw === 'store-2') return 'store2';
-    return 'default';
-  }, [location.search]);
-
   const storeLayout = vendorData.storeLayout || 'classic';
   const normalizedBaseLayout = storeLayout === 'premium' ? 'classic' : storeLayout;
-  const activeStoreLayout = selectedStoreBranch === 'store2' ? 'premium' : normalizedBaseLayout;
+  const activeStoreLayout = isStore2 ? 'premium' : normalizedBaseLayout;
   const isDarkLayout = activeStoreLayout === 'dark';
 
   const getStorefrontPrice = (product) => {
-    if (selectedStoreBranch === 'store1') return product['Store 1 price'] || product.storeOnePrice || product['Regular price'] || 'N/A';
-    if (selectedStoreBranch === 'store2') return product['Store 2 price'] || product.storeTwoPrice || product['Regular price'] || 'N/A';
-    return product['Regular price'] || product['Store 1 price'] || product['Store 2 price'] || 'N/A';
+    return getDisplayPrice(product);
   };
 
   const pageClassName = isDarkLayout
@@ -236,9 +261,9 @@ const StoreFront = () => {
               >
                 <td className="px-6 py-5">
                   <div className="flex items-center gap-3">
-                    {product.productImageBase64 && (
+                    {getProductImage(product) && (
                       <img
-                        src={product.productImageBase64}
+                        src={getProductImage(product)}
                         alt=""
                         style={HD_IMAGE_STYLE}
                         className={`w-12 h-12 rounded-lg object-cover shadow-sm border ${isDarkLayout ? 'bg-[#202020] border-[#333]' : 'bg-gray-100 border-gray-200'}`}
@@ -286,8 +311,8 @@ const StoreFront = () => {
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
       {visibleProducts.map((product, index) => (
         <div key={index} className={`rounded-3xl overflow-hidden border shadow-[0_8px_30px_rgb(0,0,0,0.04)] ${isDarkLayout ? 'bg-[#1a1a1a] border-[#2b2b2b]' : 'bg-white/70 backdrop-blur-xl border-white/20'}`}>
-          {product.productImageBase64 ? (
-            <img src={product.productImageBase64} alt={product['Device Type'] || 'Product'} style={HD_IMAGE_STYLE} className="w-full h-48 object-cover" />
+          {getProductImage(product) ? (
+            <img src={getProductImage(product)} alt={product['Device Type'] || 'Product'} style={HD_IMAGE_STYLE} className="w-full h-48 object-cover" />
           ) : (
             <div className={`w-full h-48 flex items-center justify-center text-sm font-bold ${isDarkLayout ? 'bg-[#202020] text-gray-500' : 'bg-gray-100 text-gray-400'}`}>No Image</div>
           )}
@@ -346,9 +371,9 @@ const StoreFront = () => {
       {visibleProducts.map((product, index) => (
         <div key={index} className={`group relative rounded-[2rem] overflow-hidden shadow-xl border transition-all duration-300 ${isDarkLayout ? 'bg-[#1a1a1a] border-[#2b2b2b] hover:shadow-[0_0_30px_rgba(255,255,255,0.05)]' : 'bg-white border-gray-100 hover:shadow-2xl'}`}>
           <div className="relative h-96 overflow-hidden cursor-pointer bg-gray-50">
-            {product.productImageBase64 ? (
+            {getProductImage(product) ? (
               <img
-                src={product.productImageBase64}
+                src={getProductImage(product)}
                 alt={product['Device Type'] || 'Product'}
                 style={HD_IMAGE_STYLE}
                 className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700 ease-out"
@@ -406,11 +431,11 @@ const StoreFront = () => {
       );
     }
 
-    if (activeStoreLayout === 'premium') return renderPremiumLayout();
-    if (activeStoreLayout === 'grid') return renderGridLayout();
-    if (activeStoreLayout === 'minimal') return renderListLayout('minimal');
-    if (activeStoreLayout === 'compact') return renderListLayout('compact');
-    if (activeStoreLayout === 'dark') return renderClassicTable();
+    if (isStore2) return renderPremiumLayout();
+    if (storeLayout === 'grid') return renderGridLayout();
+    if (storeLayout === 'minimal') return renderListLayout('minimal');
+    if (storeLayout === 'compact') return renderListLayout('compact');
+    if (storeLayout === 'dark') return renderClassicTable();
     return renderClassicTable();
   };
 
@@ -448,10 +473,6 @@ const StoreFront = () => {
               )}
               <div className="flex flex-wrap justify-center md:justify-start gap-4 mt-4">
                 {vendorData.address && <span className="text-xs font-bold bg-black/20 px-3 py-1.5 rounded-full">📍 {vendorData.address}</span>}
-                <span className="text-xs font-bold bg-black/20 px-3 py-1.5 rounded-full">📦 {visibleProducts.length} items available</span>
-                {selectedStoreBranch !== 'default' && (
-                  <span className="text-xs font-bold bg-black/20 px-3 py-1.5 rounded-full">🏷️ Branch: {selectedStoreBranch === 'store1' ? 'Store 1 Pricing' : 'Store 2 Pricing'}</span>
-                )}
               </div>
             </div>
           </div>
@@ -461,6 +482,10 @@ const StoreFront = () => {
       </div>
     </div>
   );
+};
+
+StoreFront.propTypes = {
+  storeType: PropTypes.string,
 };
 
 export default StoreFront;
