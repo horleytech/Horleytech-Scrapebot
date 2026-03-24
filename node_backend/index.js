@@ -1271,8 +1271,6 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
 
 const _normalizeMappingKey = (value) => String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
 
-const { getFirestore } = require('firebase-admin/firestore');
-
 const _fetchUnknownVendorsList = async () => {
   const firestore = getAdminFirestore();
   const snapshot = await firestore.collection(OFFLINE_COLLECTION).get();
@@ -1327,10 +1325,10 @@ const _runOpenAIExtraction = async (rows = [], signal) => {
 app.post('/api/admin/trigger-background-sync', async (_req, res) => {
   res.status(200).json({ message: 'Background sync started' });
 
-  const db = getFirestore();
   const CAT_LIST = ['Smartphones', 'Smartwatches', 'Laptops', 'Sounds', 'Accessories', 'Tablets', 'Gaming', 'Others'];
   const CHUNK_SIZE = 20;
   const CHUNK_TIMEOUT_MS = 45000;
+  let db;
 
   const withTimeout = async (promiseFactory, timeoutMs, timeoutMessage) => Promise.race([
     promiseFactory(),
@@ -1338,6 +1336,7 @@ app.post('/api/admin/trigger-background-sync', async (_req, res) => {
   ]);
 
   const safeSetSyncStatus = async (payload) => {
+    if (!db) return;
     try {
       await db.collection('horleyTech_Settings').doc('syncStatus').set(payload, { merge: true });
     } catch (error) {
@@ -1346,6 +1345,7 @@ app.post('/api/admin/trigger-background-sync', async (_req, res) => {
   };
 
   try {
+    db = getAdminFirestore();
     console.log('🔄 Background Sync: Initializing...');
 
     const accumulatedMappings = {};
