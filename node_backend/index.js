@@ -1400,6 +1400,11 @@ app.post('/api/admin/trigger-background-sync', async (_req, res) => {
 app.delete('/api/admin/nuke-everything', async (_req, res) => {
   try {
     const preservedSystemSettingDocIds = new Set(['adminPreferences', 'aiControl']);
+    const preservedCollections = {
+      ar_settings: 'collection preserved',
+      horleyTech_PricingSessions: 'collection preserved',
+      horleyTech_Settings: [...preservedSystemSettingDocIds],
+    };
     const deletedStats = {
       ar_analytics: await deleteCollectionDocuments('ar_analytics'),
       ar_customers: await deleteCollectionDocuments('ar_customers'),
@@ -1409,7 +1414,7 @@ app.delete('/api/admin/nuke-everything', async (_req, res) => {
       horleyTech_Backups: await deleteCollectionDocuments('horleyTech_Backups'),
       horleyTech_OfflineInventories: await deleteCollectionDocuments('horleyTech_OfflineInventories'),
       horleyTech_PlatformMessages: await deleteCollectionDocuments('horleyTech_PlatformMessages'),
-      horleyTech_PricingSessions: await deleteCollectionDocuments('horleyTech_PricingSessions'),
+      horleyTech_PricingSessions: 0,
       horleyTech_ProductAliasIndex: await deleteCollectionDocuments('horleyTech_ProductAliasIndex'),
       horleyTech_ProductContainers: await deleteCollectionDocuments('horleyTech_ProductContainers'),
       horleyTech_Settings: await deleteCollectionDocuments(
@@ -1425,12 +1430,9 @@ app.delete('/api/admin/nuke-everything', async (_req, res) => {
 
     return res.status(200).json({
       success: true,
-      message: 'All Scrapebot and Auto Responder data wiped (system settings preserved). Fresh start ready.',
+      message: 'All Scrapebot and Auto Responder data wiped (pricing sessions + system settings preserved). Fresh start ready.',
       stats: deletedStats,
-      preserved: {
-        ar_settings: 'collection preserved',
-        horleyTech_Settings: [...preservedSystemSettingDocIds],
-      },
+      preserved: preservedCollections,
     });
   } catch (error) {
     console.error('❌ Total Nuke failed:', error);

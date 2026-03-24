@@ -1627,8 +1627,16 @@ const AdminDashboard = () => {
       if (!response.ok) throw new Error(payload.error || 'Failed to wipe all collections');
 
       const deletedCount = Object.values(payload?.stats || {}).reduce((sum, count) => sum + (Number(count) || 0), 0);
+      const deletedBreakdown = Object.entries(payload?.stats || {})
+        .map(([collectionName, count]) => `• ${collectionName}: ${Number(count) || 0}`)
+        .join('\n');
+      const preservedBreakdown = Object.entries(payload?.preserved || {})
+        .map(([collectionName, info]) => `• ${collectionName}: ${Array.isArray(info) ? info.join(', ') : info}`)
+        .join('\n');
       setNukeEverythingConfirmText('');
-      alert(`✅ Total nuke complete. Deleted ${deletedCount} documents across all configured collections.`);
+      alert(
+        `✅ Total nuke complete. Deleted ${deletedCount} documents.\n\nDeleted collections:\n${deletedBreakdown || '• None'}\n\nPreserved:\n${preservedBreakdown || '• None'}`
+      );
       await fetchInventory();
       await fetchBackups();
       setAllMessages([]);
@@ -2918,8 +2926,14 @@ const AdminDashboard = () => {
               <div className="mb-5 border border-red-200 rounded-2xl p-4 bg-red-50">
                 <h3 className="text-sm font-black uppercase tracking-wider text-red-700 mb-2">Danger Zone: Nuke All Live Data</h3>
                 <p className="text-xs text-red-700 mb-3">
-                  This permanently clears both Scrapebot and Auto Responder collections from Firebase. Type <span className="font-black">NUKE EVERYTHING</span> to enable the button.
+                  This permanently clears Scrapebot + Auto Responder operational collections from Firebase containers. Type <span className="font-black">NUKE EVERYTHING</span> to enable the button.
                 </p>
+                <div className="text-[11px] text-red-800 bg-white border border-red-200 rounded-lg p-3 mb-3 space-y-1">
+                  <p className="font-black uppercase tracking-wider">Collections deleted:</p>
+                  <p>ar_analytics, ar_customers, ar_raw_requests, horleyTech_AuditLogs, horleyTech_Backups, horleyTech_OfflineInventories, horleyTech_PlatformMessages, horleyTech_ProductAliasIndex, horleyTech_ProductContainers, and most horleyTech_Settings docs.</p>
+                  <p className="font-black uppercase tracking-wider pt-1">Collections preserved:</p>
+                  <p>ar_settings, horleyTech_PricingSessions, and horleyTech_Settings docs: adminPreferences + aiControl.</p>
+                </div>
                 <div className="flex flex-col md:flex-row gap-3">
                   <input
                     value={nukeEverythingConfirmText}
