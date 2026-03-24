@@ -36,17 +36,25 @@ const USED_QUALIFIERS = /(uk used|pre-?owned|fair|open box|used|mint|pristine|al
 const NEW_QUALIFIERS = /(brand new|new sealed|sealed|^new$)/i;
 
 const normalizeStorage = (value = '') => {
-  const raw = String(value || '').toUpperCase().replace(/\s+/g, '');
-  const storageMatch = raw.match(/(\d+)(GB|TB)/i);
-  if (!storageMatch) return 'UNKNOWN';
+  const raw = String(value || '').toUpperCase();
+  const matches = [...raw.matchAll(/\b(\d{1,4})\s*(GB|TB)\b/g)];
+  if (!matches.length) return 'UNKNOWN';
 
-  const amount = Number(storageMatch[1]);
-  const unit = storageMatch[2].toUpperCase();
+  const normalized = matches
+    .map((match) => ({ amount: Number(match[1]), unit: String(match[2] || '').toUpperCase() }))
+    .filter(({ amount, unit }) => Number.isFinite(amount)
+      && !((unit === 'GB' && amount > 2048) || (unit === 'TB' && amount > 8)));
 
-  // Guard against malformed joins like 13128GB which create noisy container IDs.
-  if ((unit === 'GB' && amount > 2048) || (unit === 'TB' && amount > 8)) return 'UNKNOWN';
+  if (!normalized.length) return 'UNKNOWN';
 
-  return `${amount}${unit}`;
+  // Prefer the largest capacity token to avoid RAM being chosen over storage (e.g. 8GB RAM + 512GB SSD).
+  const best = normalized.reduce((current, next) => {
+    const currentGb = current.unit === 'TB' ? current.amount * 1024 : current.amount;
+    const nextGb = next.unit === 'TB' ? next.amount * 1024 : next.amount;
+    return nextGb > currentGb ? next : current;
+  });
+
+  return `${best.amount}${best.unit}`;
 };
 
 const normalizeCondition = (value = '') => {
@@ -66,14 +74,94 @@ const normalizeCondition = (value = '') => {
 
 const normalizeSim = (value = '') => {
   const text = String(value || '').toLowerCase();
-  if (/dual/.test(text)) return 'Dual SIM';
-  if (/esim|e-sim/.test(text)) return 'eSIM';
-  if (/physical|single/.test(text)) return 'Physical SIM';
-  if (/unlocked/.test(text)) return 'eSIM';
+  const hasEsim = /esim|e-sim/.test(text);
+  const hasPhysical = /physical|single/.test(text);
+  const hasIdm = /\bidm\b/.test(text);
+
+  if (hasIdm && hasPhysical && hasEsim) return 'Physical SIM + ESIM';
+  if (hasIdm && hasPhysical) return 'Physical SIM';
+  if (hasIdm && hasEsim) return 'eSIM';
+  if (hasIdm) return 'Physical SIM';
+  if ((hasEsim && hasPhysical) || /physical\s*\+\s*esim/.test(text)) return 'Physical SIM + ESIM';
+  if (/dual/.test(text)) return 'Physical SIM';
+  if (hasEsim) return 'eSIM';
+  if (hasPhysical) return 'Physical SIM';
+  if (/\blocked\b/.test(text)) return 'Physical SIM';
+  if (/\bfu\b|factory\s*unlocked|unlocked/.test(text)) return 'Physical SIM';
   return 'Unknown';
 };
 
-const buildVariationId = ({ series, storage, condition, sim }) => `${series}_${storage}_${condition}_${sim}`
+const normalizeProcessorSpec = (value = '') => {
+  const text = String(value || '');
+  const patterns = [
+    /core\s*i[3579](?:\s*[- ]?\d{3,5}[a-z]{0,2})?(?:\s*\d{1,2}(?:st|nd|rd|th)?\s*gen)?/i,
+    /ryzen\s*[3579](?:\s*\d{3,5}[a-z]{0,2})?/i,
+    /apple\s*m[1-4](?:\s*(?:pro|max|ultra))?/i,
+    /\bm[1-4](?:\s*(?:pro|max|ultra))?\b/i,
+    /intel\s*(?:uhd|iris)\s*\d*/i,
+    /snapdragon\s*[a-z0-9+]+/i,
+  ];
+
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (match?.[0]) return match[0].replace(/\s+/g, ' ').trim();
+  }
+
+  return 'Unknown';
+};
+
+const inferConditionFromRaw = (raw = '', current = 'Unknown') => {
+  if (current !== 'Unknown') return current;
+  const text = String(raw || '').toLowerCase();
+  if (/\bbh\s*\d{2,3}\b|\b\d{2,3}\s*bh\b|battery\s*health/.test(text)) return 'Grade A UK Used';
+  if (/face\s*id\s*(issue|fault|not)|swap|crack|line\s*on\s*screen|dot\s*on\s*screen|ghost\s*touch/.test(text)) return 'Grade A UK Used';
+  if (/\buk\s*used\b|used|pre-?owned|tt\b/.test(text)) return 'Grade A UK Used';
+  if (/brand\s*new|sealed|new\s*sealed/.test(text)) return 'Brand New';
+  return current;
+};
+
+const resolveSimWithLowCostAI = async (rawProductString = '') => {
+  const raw = String(rawProductString || '').trim();
+  if (!raw) return 'Unknown';
+
+  try {
+    const textAI = await resolveTextAIConfig({ background: false });
+    const response = await textAI.client.chat.completions.create({
+      model: textAI.model,
+      messages: [
+        { role: 'system', content: 'Classify SIM as exactly one label: Physical SIM, eSIM, Physical SIM + ESIM, Unknown. Return one label only.' },
+        { role: 'user', content: raw.slice(0, 220) },
+      ],
+      temperature: 0,
+      max_tokens: 10,
+    });
+
+    const label = String(response?.choices?.[0]?.message?.content || '').trim();
+    return normalizeSimLabel(label) || 'Unknown';
+  } catch (error) {
+    console.warn('⚠️ Low-cost SIM AI classification skipped:', error.message);
+    return 'Unknown';
+  }
+};
+
+const resolveSpecification = ({ rawProductString, category, parsedSim }) => {
+  const normalizedCategory = String(category || '').toLowerCase();
+
+  if (['laptops', 'gaming'].includes(normalizedCategory)) {
+    const processor = normalizeProcessorSpec(rawProductString);
+    if (processor !== 'Unknown') return processor;
+  }
+
+  return parsedSim;
+};
+
+const normalizeVariationSpecLabel = (value = '') => {
+  const normalized = normalizeSimLabel(value);
+  if (normalized) return normalized;
+  return String(value || 'Unknown').trim() || 'Unknown';
+};
+
+const buildVariationId = ({ series, storage, condition, sim }) => `${series}_${storage}_${condition}_${normalizeVariationSpecLabel(sim)}`
   .toLowerCase()
   .replace(/\s+/g, '-');
 
@@ -101,6 +189,215 @@ let excludedPhraseCache = [];
 let excludedPhraseCacheAt = 0;
 const EXCLUDED_PHRASE_CACHE_TTL_MS = 60000;
 
+let simDictionaryCache = [];
+let simDictionaryCacheAt = 0;
+const SIM_DICTIONARY_CACHE_TTL_MS = 60000;
+let productCatalogCache = [];
+let productCatalogCacheAt = 0;
+const PRODUCT_CATALOG_CACHE_TTL_MS = 60000;
+
+const normalizeSimLabel = (value = '') => {
+  const text = String(value || '').toLowerCase().trim();
+  if (!text) return null;
+  if (text.includes('locked')) return 'Physical SIM';
+  if (text.includes('physical') && text.includes('esim')) return 'Physical SIM + ESIM';
+  if (text.includes('dual')) return 'Physical SIM';
+  if (text.includes('esim')) return 'eSIM';
+  if (text.includes('physical')) return 'Physical SIM';
+  return null;
+};
+
+const toFetchableDictionaryUrl = (rawUrl = '') => {
+  const url = String(rawUrl || '').trim();
+  if (!url) return '';
+
+  const match = url.match(/docs\.google\.com\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/i);
+  if (!match?.[1]) return url;
+
+  const gidMatch = url.match(/[?&]gid=(\d+)/i);
+  const gid = gidMatch?.[1] || '0';
+  return `https://docs.google.com/spreadsheets/d/${match[1]}/export?format=csv&gid=${gid}`;
+};
+
+const parseCsvRows = (rawText = '') => {
+  const rows = [];
+  let row = [];
+  let field = '';
+  let inQuotes = false;
+
+  for (let i = 0; i < rawText.length; i += 1) {
+    const char = rawText[i];
+    const next = rawText[i + 1];
+
+    if (char === '"') {
+      if (inQuotes && next === '"') {
+        field += '"';
+        i += 1;
+      } else {
+        inQuotes = !inQuotes;
+      }
+      continue;
+    }
+
+    if (char === ',' && !inQuotes) {
+      row.push(field.trim());
+      field = '';
+      continue;
+    }
+
+    if ((char === '\n' || char === '\r') && !inQuotes) {
+      if (char === '\r' && next === '\n') i += 1;
+      row.push(field.trim());
+      if (row.some((cell) => cell.length > 0)) rows.push(row);
+      row = [];
+      field = '';
+      continue;
+    }
+
+    field += char;
+  }
+
+  if (field.length > 0 || row.length > 0) {
+    row.push(field.trim());
+    if (row.some((cell) => cell.length > 0)) rows.push(row);
+  }
+
+  return rows;
+};
+
+const toComparableToken = (value = '') => String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+
+const parseDictionaryText = (rawText = '') => parseCsvRows(rawText)
+  .map((parts) => {
+    if (parts.length < 2) return null;
+    const key = String(parts[0] || '').toLowerCase();
+    const value = normalizeSimLabel(parts[1]);
+    if (!key || !value || key === 'key') return null;
+    return { key, value };
+  })
+  .filter(Boolean);
+
+const loadSimDictionary = async () => {
+  const now = Date.now();
+  if ((now - simDictionaryCacheAt) < SIM_DICTIONARY_CACHE_TTL_MS) return simDictionaryCache;
+
+  const entries = [];
+
+  const jsonBlob = process.env.SIM_DICTIONARY_JSON || process.env.ESIM_DICTIONARY_JSON || '';
+  if (jsonBlob) {
+    try {
+      const parsed = JSON.parse(jsonBlob);
+      Object.entries(parsed || {}).forEach(([key, value]) => {
+        const normalized = normalizeSimLabel(value);
+        if (normalized && String(key || '').trim()) {
+          entries.push({ key: String(key).toLowerCase().trim(), value: normalized });
+        }
+      });
+    } catch (error) {
+      console.warn('⚠️ SIM dictionary JSON parse skipped:', error.message);
+    }
+  }
+
+  const sourceUrlRaw = process.env.SIM_DICTIONARY_URL || process.env.ESIM_DICTIONARY_URL || process.env.SIM_KEY_VALUE_URL || '';
+  const sourceUrl = toFetchableDictionaryUrl(sourceUrlRaw);
+  if (sourceUrl) {
+    try {
+      const response = await fetch(sourceUrl, { signal: AbortSignal.timeout(5000) });
+      if (response.ok) {
+        const text = await response.text();
+        entries.push(...parseDictionaryText(text));
+      }
+    } catch (error) {
+      console.warn('⚠️ SIM dictionary URL fetch skipped:', error.message);
+    }
+  }
+
+  simDictionaryCache = entries.sort((a, b) => b.key.length - a.key.length);
+  simDictionaryCacheAt = now;
+  return simDictionaryCache;
+};
+
+const loadProductCatalogDictionary = async () => {
+  const now = Date.now();
+  if ((now - productCatalogCacheAt) < PRODUCT_CATALOG_CACHE_TTL_MS) return productCatalogCache;
+
+  const sourceUrlRaw = process.env.PRODUCT_DICTIONARY_URL || process.env.SIM_DICTIONARY_URL || process.env.ESIM_DICTIONARY_URL || '';
+  const sourceUrl = toFetchableDictionaryUrl(sourceUrlRaw);
+  if (!sourceUrl) return productCatalogCache;
+
+  try {
+    const response = await fetch(sourceUrl, { signal: AbortSignal.timeout(5000) });
+    if (!response.ok) return productCatalogCache;
+
+    const csvText = await response.text();
+    const rows = parseCsvRows(csvText);
+    if (rows.length < 2) return productCatalogCache;
+
+    const headers = rows[0].map((header) => String(header || '').toLowerCase());
+    const idx = {
+      category: headers.findIndex((h) => h.includes('category')),
+      brand: headers.findIndex((h) => h.includes('brand')),
+      series: headers.findIndex((h) => h.includes('series')),
+      deviceType: headers.findIndex((h) => h.includes('device type')),
+      storage: headers.findIndex((h) => h.includes('storage')),
+      spec: headers.findIndex((h) => h.includes('sim type') || h.includes('processor')),
+      condition: headers.findIndex((h) => h.includes('condition')),
+    };
+
+    if (idx.category < 0 || idx.brand < 0 || idx.series < 0 || idx.deviceType < 0) {
+      return productCatalogCache;
+    }
+
+    productCatalogCache = rows.slice(1).map((cells) => ({
+      category: String(cells[idx.category] || '').trim(),
+      brand: String(cells[idx.brand] || '').trim(),
+      series: String(cells[idx.series] || '').trim(),
+      deviceType: String(cells[idx.deviceType] || '').trim(),
+      storage: idx.storage >= 0 ? normalizeStorage(cells[idx.storage] || '') : 'UNKNOWN',
+      spec: idx.spec >= 0 ? normalizeSimLabel(cells[idx.spec] || '') : null,
+      condition: idx.condition >= 0 ? normalizeCondition(cells[idx.condition] || '') : 'Unknown',
+    })).filter((entry) => entry.category && entry.brand && entry.series && entry.deviceType);
+
+    productCatalogCacheAt = now;
+  } catch (error) {
+    console.warn('⚠️ Product catalog dictionary fetch skipped:', error.message);
+  }
+
+  return productCatalogCache;
+};
+
+const resolveCatalogEntry = async (rawText = '', parsedStorage = 'UNKNOWN') => {
+  const catalog = await loadProductCatalogDictionary();
+  if (!catalog.length) return null;
+
+  const haystack = toComparableToken(rawText);
+  const normalizedStorage = normalizeStorage(parsedStorage);
+
+  const candidates = catalog
+    .map((entry) => {
+      const deviceToken = toComparableToken(entry.deviceType);
+      const seriesToken = toComparableToken(entry.series);
+      const deviceHit = deviceToken && haystack.includes(deviceToken);
+      const seriesHit = seriesToken && haystack.includes(seriesToken);
+      const storageHit = normalizedStorage === 'UNKNOWN' || entry.storage === 'UNKNOWN' || entry.storage === normalizedStorage;
+      const score = (deviceHit ? 3 : 0) + (seriesHit ? 2 : 0) + (storageHit ? 1 : 0);
+      return { entry, score, tokenSize: Math.max(deviceToken.length, seriesToken.length) };
+    })
+    .filter((candidate) => candidate.score >= 3)
+    .sort((a, b) => (b.score - a.score) || (b.tokenSize - a.tokenSize));
+
+  return candidates[0]?.entry || null;
+};
+
+const resolveSimWithDictionary = async (rawText = '') => {
+  const entries = await loadSimDictionary();
+  if (!entries.length) return null;
+
+  const haystack = String(rawText || '').toLowerCase();
+  const match = entries.find((entry) => haystack.includes(entry.key));
+  return match?.value || null;
+};
+
 const getExcludedPhrases = async () => {
   const now = Date.now();
   if ((now - excludedPhraseCacheAt) < EXCLUDED_PHRASE_CACHE_TTL_MS) return excludedPhraseCache;
@@ -123,6 +420,85 @@ const shouldIgnoreRawString = async (rawText = '') => {
   if (!text) return true;
   const phrases = await getExcludedPhrases();
   return phrases.some((phrase) => text.includes(phrase));
+};
+
+const inferTaxonomyFromRaw = (rawText = '') => {
+  const text = String(rawText || '').toLowerCase();
+
+  const iphoneMatch = text.match(/iphone\s*(\d{1,2})/i);
+  if (iphoneMatch?.[1]) {
+    const model = iphoneMatch[1];
+    return { Category: 'Smartphones', Brand: 'Apple', Series: `iPhone ${model} Series` };
+  }
+
+  const iphoneCompactMatch = text.match(/\b(\d{2})\s*pro\b|\b(\d{2})pro\b|\b(\d{2})\s*pm\b/i);
+  if (iphoneCompactMatch) {
+    const model = iphoneCompactMatch[1] || iphoneCompactMatch[2] || iphoneCompactMatch[3];
+    if (Number(model) >= 11 && Number(model) <= 17) {
+      return { Category: 'Smartphones', Brand: 'Apple', Series: `iPhone ${model} Series` };
+    }
+  }
+
+  if (/xs\s*max|xsm\b|xsmax/.test(text)) {
+    return { Category: 'Smartphones', Brand: 'Apple', Series: 'iPhone X Series' };
+  }
+
+  if (/macbook/.test(text)) {
+    return { Category: 'Laptops', Brand: 'Apple', Series: 'MacBook Series' };
+  }
+
+  if (/thinkpad/.test(text)) {
+    return { Category: 'Laptops', Brand: 'Lenovo', Series: 'ThinkPad Series' };
+  }
+
+  if (/probook/.test(text)) {
+    return { Category: 'Laptops', Brand: 'HP', Series: 'ProBook Series' };
+  }
+
+  if (/tecno\s*spark/.test(text)) {
+    return { Category: 'Smartphones', Brand: 'Tecno', Series: 'Spark Series' };
+  }
+
+  const samsungGalaxy = text.match(/(galaxy\s*[a-z0-9+]+)/i);
+  if (samsungGalaxy?.[1]) {
+    return { Category: 'Smartphones', Brand: 'Samsung', Series: samsungGalaxy[1].replace(/\s+/g, ' ').trim() };
+  }
+
+  return canonicalFallbackTaxonomy();
+};
+
+const inferDeviceTypeFromRaw = (rawText = '', fallbackSeries = 'Unknown Device') => {
+  const text = String(rawText || '').toLowerCase();
+  const iphone = text.match(/iphone\s*(\d{1,2})(?:\s*(pro\s*max|pro|max|plus))?/i);
+  if (iphone?.[1]) {
+    const suffix = iphone?.[2] ? ` ${iphone[2].replace(/\s+/g, ' ').trim()}` : '';
+    return `iPhone ${iphone[1]}${suffix}`.trim();
+  }
+
+  const compactIphone = text.match(/\b(1[1-7])\s*(pro\s*max|pro|max|plus)\b/i);
+  if (compactIphone?.[1]) {
+    return `iPhone ${compactIphone[1]} ${compactIphone[2].replace(/\s+/g, ' ').trim()}`.trim();
+  }
+
+  if (/macbook\s*pro/i.test(text)) return 'MacBook Pro';
+  if (/macbook\s*air/i.test(text)) return 'MacBook Air';
+  if (/macbook/i.test(text)) return 'MacBook';
+  if (/thinkpad/i.test(text)) return 'Lenovo ThinkPad';
+  if (/probook/i.test(text)) return 'HP ProBook';
+
+  return fallbackSeries || 'Unknown Device';
+};
+
+const sanitizeTaxonomyCandidate = (entry = canonicalFallbackTaxonomy()) => {
+  const invalidSeriesPattern = /(grade\s*a|brand\s*new|uk\s*used|unknown|physical\s*sim|esim|locked)/i;
+  const safeSeries = invalidSeriesPattern.test(String(entry.Series || '')) ? 'Others' : String(entry.Series || 'Others');
+  const safeBrand = invalidSeriesPattern.test(String(entry.Brand || '')) ? 'Others' : String(entry.Brand || 'Others');
+  const safeCategory = String(entry.Category || 'Others').trim() || 'Others';
+  return {
+    Category: safeCategory,
+    Brand: safeBrand,
+    Series: safeSeries,
+  };
 };
 
 const isTaxonomyEntryValid = (entry = {}) => {
@@ -326,16 +702,20 @@ export const processWithShadowTesting = async ({ rawProductString, price }) => {
   const alias = normalizeAlias(rawProductString);
   const parsedStorage = normalizeStorage(rawProductString);
   const parsedCondition = normalizeCondition(rawProductString);
-  const parsedSim = normalizeSim(rawProductString);
+  const inferredConditionBase = inferConditionFromRaw(rawProductString, parsedCondition);
+  const catalogEntry = await resolveCatalogEntry(rawProductString, parsedStorage);
+  const parsedSim = catalogEntry?.spec || (await resolveSimWithDictionary(rawProductString)) || normalizeSim(rawProductString);
 
   const ignoredByPhrase = await shouldIgnoreRawString(rawProductString);
   if (ignoredByPhrase) {
+    const fallbackDeviceType = inferDeviceTypeFromRaw(rawProductString, 'Unknown Device');
     return {
       rawProductString,
       price,
       taxonomy: canonicalFallbackTaxonomy(),
+      deviceType: fallbackDeviceType,
       storage: parsedStorage,
-      condition: parsedCondition,
+      condition: inferredConditionBase,
       sim: parsedSim,
       variationId: null,
       trustedFastLane: false,
@@ -349,12 +729,14 @@ export const processWithShadowTesting = async ({ rawProductString, price }) => {
   const fastLane = await tryTrustedFastLane(alias);
   if (fastLane) {
     await incrementMetrics({ fastLaneHits: 1 });
+    const fastLaneDeviceType = inferDeviceTypeFromRaw(rawProductString, fastLane.taxonomy?.Series || 'Unknown Device');
     return {
       rawProductString,
       price,
       taxonomy: fastLane.taxonomy,
+      deviceType: fastLaneDeviceType,
       storage: parsedStorage,
-      condition: parsedCondition,
+      condition: inferredConditionBase,
       sim: parsedSim,
       variationId: fastLane.variationId,
       trustedFastLane: true,
@@ -374,20 +756,54 @@ export const processWithShadowTesting = async ({ rawProductString, price }) => {
 
   const regexPrediction = regexPredictTaxonomy(alias, rows);
   const aiTruth = await runTwoLayerJudge(alias, canonicalTaxonomy);
+  const fallbackTaxonomy = inferTaxonomyFromRaw(rawProductString);
+  const catalogTaxonomy = catalogEntry
+    ? {
+      Category: catalogEntry.category,
+      Brand: catalogEntry.brand,
+      Series: catalogEntry.series,
+    }
+    : null;
+
+  const selectedTaxonomy = catalogTaxonomy
+    || ((aiTruth.Category === 'Others' && aiTruth.Brand === 'Others' && aiTruth.Series === 'Others')
+      ? fallbackTaxonomy
+      : aiTruth);
+  const finalTaxonomy = sanitizeTaxonomyCandidate(selectedTaxonomy);
 
   if (aiTruth.Category === 'Others' && aiTruth.Brand === 'Others' && aiTruth.Series === 'Others') {
     await incrementMetrics({ stage2OthersFallbacks: 1 });
   }
 
-  const hasUnknownVariantAttr = parsedStorage === 'UNKNOWN' || parsedCondition === 'Unknown' || parsedSim === 'Unknown';
-  if (hasUnknownVariantAttr || (aiTruth.Category === 'Others' && aiTruth.Brand === 'Others' && aiTruth.Series === 'Others')) {
+  const resolvedCondition = parsedCondition === 'Unknown' && catalogEntry?.condition && catalogEntry.condition !== 'Unknown'
+    ? catalogEntry.condition
+    : inferredConditionBase;
+  const resolvedDeviceType = catalogEntry?.deviceType
+    || inferDeviceTypeFromRaw(rawProductString, finalTaxonomy.Series || 'Unknown Device');
+  let resolvedSpecification = resolveSpecification({
+    rawProductString,
+    category: finalTaxonomy.Category,
+    parsedSim,
+  });
+
+  const normalizedCategory = String(finalTaxonomy.Category || '').toLowerCase();
+  const shouldUseAiForSim = ['smartphones', 'smartwatches'].includes(normalizedCategory) && resolvedSpecification === 'Unknown';
+  if (shouldUseAiForSim) {
+    resolvedSpecification = await resolveSimWithLowCostAI(rawProductString);
+  }
+
+  const requiresStorage = ['smartphones', 'laptops', 'tablets', 'gaming'].includes(normalizedCategory);
+  const hasUnknownVariantAttr = (requiresStorage && parsedStorage === 'UNKNOWN');
+
+  if (hasUnknownVariantAttr || (finalTaxonomy.Category === 'Others' && finalTaxonomy.Brand === 'Others' && finalTaxonomy.Series === 'Others')) {
     return {
       rawProductString,
       price,
-      taxonomy: aiTruth,
+      taxonomy: finalTaxonomy,
+      deviceType: resolvedDeviceType,
       storage: parsedStorage,
-      condition: parsedCondition,
-      sim: parsedSim,
+      condition: resolvedCondition,
+      sim: resolvedSpecification,
       variationId: null,
       trustedFastLane: false,
       ignored: true,
@@ -396,10 +812,10 @@ export const processWithShadowTesting = async ({ rawProductString, price }) => {
   }
 
   const aiVariationId = buildVariationId({
-    series: aiTruth.Series,
+    series: finalTaxonomy.Series,
     storage: parsedStorage,
-    condition: parsedCondition,
-    sim: parsedSim,
+    condition: resolvedCondition,
+    sim: resolvedSpecification,
   });
 
   let shadowResult = { didMatch: false, promotedToTrusted: false };
@@ -408,7 +824,7 @@ export const processWithShadowTesting = async ({ rawProductString, price }) => {
       variationId: aiVariationId,
       alias,
       regexPrediction,
-      aiTruth,
+      aiTruth: finalTaxonomy,
     });
   } catch (error) {
     console.warn('⚠️ Alias tracker update skipped:', error.message);
@@ -423,10 +839,11 @@ export const processWithShadowTesting = async ({ rawProductString, price }) => {
   return {
     rawProductString,
     price,
-    taxonomy: aiTruth,
+    taxonomy: finalTaxonomy,
+    deviceType: resolvedDeviceType,
     storage: parsedStorage,
-    condition: parsedCondition,
-    sim: parsedSim,
+    condition: resolvedCondition,
+    sim: resolvedSpecification,
     variationId: aiVariationId,
     trustedFastLane: false,
     ignored: false,
@@ -437,6 +854,8 @@ export const __testables = {
   normalizeStorage,
   normalizeCondition,
   normalizeSim,
+  inferConditionFromRaw,
+  inferDeviceTypeFromRaw,
   buildVariationId,
   canonicalFallbackTaxonomy,
   regexPredictTaxonomy,
