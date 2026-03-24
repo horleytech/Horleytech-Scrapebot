@@ -1172,6 +1172,11 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
   res.status(200).json({ data: [{ message: '' }] });
 
   try {
+    const pipelineMetrics = {
+      fragmentsMerged: 0,
+      fragmentsSkippedWithoutBase: 0,
+    };
+
     const isLikelyFragment = (raw = '') => {
       const text = String(raw || '').trim();
       if (!text) return true;
@@ -1486,10 +1491,11 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
       const lowConfidence = shadowProcessed.filter((item) => String(item?.confidenceLevel || '') === 'low').length;
       try {
         const firestore = getAdminFirestore();
+        const metrics = pipelineMetrics || { fragmentsMerged: 0, fragmentsSkippedWithoutBase: 0 };
         await firestore.collection(SETTINGS_COLLECTION).doc('pipelineMetrics').set({
           lastUpdated: new Date().toISOString(),
-          fragmentsMerged: admin.firestore.FieldValue.increment(pipelineMetrics.fragmentsMerged),
-          fragmentsSkippedWithoutBase: admin.firestore.FieldValue.increment(pipelineMetrics.fragmentsSkippedWithoutBase),
+          fragmentsMerged: admin.firestore.FieldValue.increment(Number(metrics.fragmentsMerged || 0)),
+          fragmentsSkippedWithoutBase: admin.firestore.FieldValue.increment(Number(metrics.fragmentsSkippedWithoutBase || 0)),
           excludedPhraseDrops: admin.firestore.FieldValue.increment(excludedDrops),
           taxonomyFallbackDrops: admin.firestore.FieldValue.increment(taxonomyFallbacks),
           lowConfidenceRows: admin.firestore.FieldValue.increment(lowConfidence),
