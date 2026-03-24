@@ -603,8 +603,8 @@ const AdminDashboard = () => {
           vendorPassword: data.vendorPassword || '',
           storeWhatsappNumber: data.storeWhatsappNumber || '',
           advancedEnabled: Boolean(data.advancedEnabled),
-          tinbrLinksEnabled: data.tinbrLinksEnabled !== false,
-          showBothTinbrAndNormalLinks: data.showBothTinbrAndNormalLinks !== false,
+          tinbrLinksEnabled: (data.tinyLinksEnabled ?? data.tinbrLinksEnabled) !== false,
+          showBothTinbrAndNormalLinks: (data.showBothTinyAndNormalLinks ?? data.showBothTinbrAndNormalLinks) !== false,
           products: data.products || [],
           logs: normalizeLogs(data.logs),
           metaData: data.metaData || 'Electronics',
@@ -883,10 +883,20 @@ const AdminDashboard = () => {
     const unsubscribe = onSnapshot(preferencesRef, (preferencesSnap) => {
       if (!preferencesSnap.exists()) {
         setExcludedPhrases('');
+        setBulkTinbrUseTinyChecked(true);
+        setBulkTinbrShowBothChecked(true);
         return;
       }
       const preferencesData = preferencesSnap.data() || {};
       setExcludedPhrases(String(preferencesData.excludedPhrases || ''));
+      const globalTinyEnabled = preferencesData.globalTinyLinksEnabled ?? preferencesData.globalTinbrLinksEnabled;
+      if (typeof globalTinyEnabled === 'boolean') {
+        setBulkTinbrUseTinyChecked(globalTinyEnabled);
+      }
+      const globalShowBothTiny = preferencesData.globalShowBothTinyAndNormalLinks ?? preferencesData.globalShowBothTinbrAndNormalLinks;
+      if (typeof globalShowBothTiny === 'boolean') {
+        setBulkTinbrShowBothChecked(globalShowBothTiny);
+      }
     }, (error) => {
       console.error('Failed to load admin preferences:', error);
     });
@@ -1672,11 +1682,11 @@ const AdminDashboard = () => {
 
   const applyTinbrControlsToAllVendors = async (nextTinbrLinksEnabled, nextShowBothTinbrAndNormalLinks) => {
     const summaryText = [
-      `Use Tinbr Tiny links as primary: ${nextTinbrLinksEnabled ? 'ON' : 'OFF'}`,
-      `Let vendor see both Tinbr + normal links: ${nextShowBothTinbrAndNormalLinks ? 'ON' : 'OFF'}`,
+      `Use Tiny links as primary: ${nextTinbrLinksEnabled ? 'ON' : 'OFF'}`,
+      `Let vendor see both Tiny + normal links: ${nextShowBothTinbrAndNormalLinks ? 'ON' : 'OFF'}`,
     ].join('\n');
 
-    if (!window.confirm(`Apply these Tinbr settings for ALL vendors?\n\n${summaryText}`)) return;
+    if (!window.confirm(`Apply these Tiny settings for ALL vendors?\n\n${summaryText}`)) return;
 
     setBulkTinbrSaving(true);
     try {
@@ -1689,7 +1699,7 @@ const AdminDashboard = () => {
 
       const CHUNK_SIZE = 400;
       const now = new Date().toISOString();
-      const actionLabel = `${nextTinbrLinksEnabled ? 'Enabled' : 'Disabled'} Tinbr Links + ${nextShowBothTinbrAndNormalLinks ? 'Enabled' : 'Disabled'} Both Tinbr + Normal Links View (Bulk)`;
+      const actionLabel = `${nextTinbrLinksEnabled ? 'Enabled' : 'Disabled'} Tiny Links + ${nextShowBothTinbrAndNormalLinks ? 'Enabled' : 'Disabled'} Both Tiny + Normal Links View (Bulk)`;
 
       for (let index = 0; index < docs.length; index += CHUNK_SIZE) {
         const chunk = docs.slice(index, index + CHUNK_SIZE);
@@ -1701,7 +1711,9 @@ const AdminDashboard = () => {
 
           batch.update(vendorDoc.ref, {
             tinbrLinksEnabled: nextTinbrLinksEnabled,
+            tinyLinksEnabled: nextTinbrLinksEnabled,
             showBothTinbrAndNormalLinks: nextShowBothTinbrAndNormalLinks,
+            showBothTinyAndNormalLinks: nextShowBothTinbrAndNormalLinks,
             logs: {
               ...logs,
               admin: nextAdminLogs,
@@ -1711,6 +1723,14 @@ const AdminDashboard = () => {
         });
         await batch.commit();
       }
+
+      await setDoc(doc(db, 'horleyTech_Settings', 'adminPreferences'), {
+        globalTinyLinksEnabled: nextTinbrLinksEnabled,
+        globalTinbrLinksEnabled: nextTinbrLinksEnabled,
+        globalShowBothTinyAndNormalLinks: nextShowBothTinbrAndNormalLinks,
+        globalShowBothTinbrAndNormalLinks: nextShowBothTinbrAndNormalLinks,
+        tinyLinkControlsUpdatedAt: now,
+      }, { merge: true });
 
       setOfflineVendors((prev) =>
         prev.map((vendor) => {
@@ -1729,9 +1749,9 @@ const AdminDashboard = () => {
         })
       );
 
-      alert(`✅ Tinbr controls updated for ${docs.length} vendors.`);
+      alert(`✅ Tiny link controls updated for ${docs.length} vendors.`);
     } catch (error) {
-      console.error('Failed to bulk update Tinbr controls:', error);
+      console.error('Failed to bulk update Tiny controls:', error);
       alert(`❌ ${error.message}`);
     } finally {
       setBulkTinbrSaving(false);
@@ -2880,9 +2900,9 @@ const AdminDashboard = () => {
                 <button onClick={forceBuildProductCache} className="bg-purple-600 text-white px-4 py-2 rounded-lg font-bold text-sm hover:bg-purple-700">🏗️ Force Build Product Cache</button>
               </div>
               <div className="mb-5 border border-indigo-200 rounded-2xl p-4 bg-indigo-50">
-                <h3 className="text-sm font-black uppercase tracking-wider text-indigo-700 mb-2">Tinbr Link Controls (All Vendors)</h3>
+                <h3 className="text-sm font-black uppercase tracking-wider text-indigo-700 mb-2">Tiny Link Controls (All Vendors)</h3>
                 <p className="text-xs text-indigo-700 mb-3">
-                  Apply both controls globally: <span className="font-black">Use Tinbr Tiny links as primary</span> and <span className="font-black">Let vendor see both Tinbr + normal links</span>.
+                  Apply both controls globally: <span className="font-black">Use Tiny links as primary</span> and <span className="font-black">Let vendor see both Tiny + normal links</span>.
                 </p>
                 <div className="space-y-3">
                   <label className="flex items-center gap-2 text-xs font-semibold text-indigo-900">
@@ -2893,7 +2913,7 @@ const AdminDashboard = () => {
                       disabled={bulkTinbrSaving}
                       className="h-4 w-4 rounded border-indigo-300 text-indigo-600 focus:ring-indigo-500"
                     />
-                    Use Tinbr Tiny links as primary
+                    Use Tiny links as primary
                   </label>
                   <label className="flex items-center gap-2 text-xs font-semibold text-indigo-900">
                     <input
@@ -2903,12 +2923,12 @@ const AdminDashboard = () => {
                       disabled={bulkTinbrSaving}
                       className="h-4 w-4 rounded border-indigo-300 text-indigo-600 focus:ring-indigo-500"
                     />
-                    Let vendor see both Tinbr + normal links
+                    Let vendor see both Tiny + normal links
                   </label>
                 </div>
                 <p className="text-[11px] text-indigo-800 mt-3">
                   These settings are saved directly in Firebase for each vendor and both storefronts read them live.<br />
-                  Fields updated per vendor: <span className="font-black">tinbrLinksEnabled</span> and <span className="font-black">showBothTinbrAndNormalLinks</span>.
+                  Fields updated per vendor: <span className="font-black">tinyLinksEnabled</span> + <span className="font-black">showBothTinyAndNormalLinks</span> (legacy <span className="font-black">tinbr*</span> fields are also kept in sync).
                 </p>
                 <div className="flex flex-wrap gap-3 mt-4">
                   <button

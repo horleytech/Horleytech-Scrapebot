@@ -566,6 +566,53 @@ app.post('/api/settings/tutorial-video', async (req, res) => {
   }
 });
 
+// Generic Global Settings Endpoints (Firebase-backed)
+app.get('/api/admin/settings/:category', async (req, res) => {
+  if (!isAdminRequest(req)) {
+    return res.status(403).json({ success: false, error: 'Admin access required.' });
+  }
+
+  const category = String(req.params?.category || '').trim();
+  if (!category) {
+    return res.status(400).json({ success: false, error: 'Settings category is required.' });
+  }
+
+  try {
+    const firestore = getAdminFirestore();
+    const docSnap = await firestore.collection(SETTINGS_COLLECTION).doc(category).get();
+    return res.json({ success: true, data: docSnap.exists ? (docSnap.data() || {}) : {} });
+  } catch (error) {
+    console.error('❌ Fetch global settings error:', error);
+    return res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+app.post('/api/admin/settings/:category', async (req, res) => {
+  if (!isAdminRequest(req)) {
+    return res.status(403).json({ success: false, error: 'Admin access required.' });
+  }
+
+  const category = String(req.params?.category || '').trim();
+  if (!category) {
+    return res.status(400).json({ success: false, error: 'Settings category is required.' });
+  }
+
+  const payload = req.body && typeof req.body === 'object' ? req.body : {};
+
+  try {
+    const firestore = getAdminFirestore();
+    await firestore.collection(SETTINGS_COLLECTION).doc(category).set({
+      ...payload,
+      lastUpdated: new Date().toISOString(),
+    }, { merge: true });
+
+    return res.json({ success: true, message: `${category} settings saved.` });
+  } catch (error) {
+    console.error('❌ Save global settings error:', error);
+    return res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 // Admin Manual Backup Endpoint
 app.get('/api/backup/manual', async (req, res) => {
   try {
