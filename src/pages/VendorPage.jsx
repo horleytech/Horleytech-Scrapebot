@@ -418,13 +418,6 @@ const VendorPage = () => {
 
           await loadActivityLogs();
 
-          const storedSessionTime = localStorage.getItem(`vendor_session_${vendorId}`);
-          if (storedSessionTime) {
-            const parsedSessionTime = Number.parseInt(storedSessionTime, 10);
-            if (!Number.isNaN(parsedSessionTime) && Date.now() - parsedSessionTime < 600000) {
-              setIsAuthenticatedVendor(true);
-            }
-          }
         } else {
           setVendorData(null);
         }
@@ -559,7 +552,6 @@ const VendorPage = () => {
     if (vendorPasswordEntry === vendorData.vendorPassword) {
       setIsAuthenticatedVendor(true);
       setVendorLoginError('');
-      localStorage.setItem(`vendor_session_${vendorId}`, Date.now().toString());
     } else {
       setVendorLoginError('Incorrect password. Please try again.');
     }
@@ -1376,7 +1368,7 @@ const VendorPage = () => {
 
             {isAdmin && (
               <div className="md:col-span-2 rounded-2xl border border-indigo-100 bg-indigo-50/60 p-4">
-              <label className="block text-sm font-bold text-indigo-900 mb-3">Tinbr / TinyURL (URL Shortener) Link Controls</label>
+              <label className="block text-sm font-bold text-indigo-900 mb-3">Tiny Link Controls</label>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                 <label className="flex items-center gap-3 text-sm font-semibold text-indigo-900">
                   <input
@@ -1389,7 +1381,7 @@ const VendorPage = () => {
                     }}
                     className="w-4 h-4"
                   />
-                  Use Tinbr Tiny links as primary store links
+                  Use Tiny links as primary store links
                 </label>
                 <label className="flex items-center gap-3 text-sm font-semibold text-indigo-900">
                   <input
@@ -1405,7 +1397,7 @@ const VendorPage = () => {
                     }}
                     className="w-4 h-4"
                   />
-                  Let vendor see both Tinbr and normal links
+                  Let vendor see both Tiny and normal links
                 </label>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -1423,7 +1415,7 @@ const VendorPage = () => {
                 </div>
               </div>
               <p className="text-xs text-indigo-800 mt-3">
-                Use the Copy TinyURL buttons in Share Links to generate and save Tinbr links to Firebase. Vendors only see both normal + Tinbr links when enabled above.<br />
+                Use the Copy TinyURL buttons in Share Links to generate and save Tiny links to Firebase. Vendors only see both normal + Tiny links when enabled above.<br />
                 These link settings are saved in the vendor record in Firebase and both storefronts read them live.<br />
                 Product images are saved with each product in Firebase using <span className="font-black">productImageBase64</span>, <span className="font-black">productImageStore1Base64</span>, and <span className="font-black">productImageStore2Base64</span> so Store 1 and Store 2 load the correct image automatically.
               </p>
