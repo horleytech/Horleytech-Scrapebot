@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { collection, getDocs } from 'firebase/firestore';
+import { collection, onSnapshot } from 'firebase/firestore';
 import { FaTrash } from 'react-icons/fa';
 import { useNavigate } from 'react-router-dom';
 import { db } from '../../services/firebase';
@@ -16,23 +16,27 @@ const TeamManagement = () => {
 
   const canAddStaff = useMemo(() => staffList.length < MAX_STAFF, [staffList.length]);
 
-  const loadStaff = useCallback(async () => {
+  const loadStaff = useCallback(() => {
     setLoading(true);
     setError('');
-    try {
-      const snapshot = await getDocs(collection(db, 'horleyTech_Staff'));
+    const unsubscribe = onSnapshot(collection(db, 'horleyTech_Staff'), (snapshot) => {
       const users = snapshot.docs.map((entry) => ({ id: entry.id, ...entry.data() }));
       setStaffList(users);
-    } catch (loadError) {
+      setLoading(false);
+    }, (loadError) => {
       setError('Unable to fetch team members right now.');
       console.error(loadError);
-    } finally {
       setLoading(false);
-    }
+    });
+
+    return unsubscribe;
   }, []);
 
   useEffect(() => {
-    loadStaff();
+    const unsubscribe = loadStaff();
+    return () => {
+      if (typeof unsubscribe === 'function') unsubscribe();
+    };
   }, [loadStaff]);
 
   const handleAddStaff = async (event) => {
@@ -73,7 +77,6 @@ const TeamManagement = () => {
 
       setUsername('');
       setPassword('');
-      await loadStaff();
     } catch (addError) {
       setError('Unable to add staff right now.');
       console.error(addError);
@@ -96,8 +99,6 @@ const TeamManagement = () => {
       if (!response.ok || !result?.success) {
         throw new Error(result?.error || 'Failed to delete staff account.');
       }
-
-      await loadStaff();
     } catch (deleteError) {
       setError('Unable to delete this staff member.');
       console.error(deleteError);
