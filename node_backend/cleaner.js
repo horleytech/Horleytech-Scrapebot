@@ -73,7 +73,7 @@ const normalizeSim = (value = '') => {
   if (/dual/.test(text)) return 'Dual SIM';
   if (hasEsim) return 'eSIM';
   if (hasPhysical) return 'Physical SIM';
-  if (/unlocked/.test(text)) return 'eSIM';
+  if (/\bfu\b|factory\s*unlocked|unlocked|\bidm\b/.test(text)) return 'Physical SIM + ESIM';
   return 'Unknown';
 };
 
@@ -166,6 +166,44 @@ const shouldIgnoreRawString = async (rawText = '') => {
   if (!text) return true;
   const phrases = await getExcludedPhrases();
   return phrases.some((phrase) => text.includes(phrase));
+};
+
+const hasStrongProductSignal = (rawText = '') => {
+  const text = String(rawText || '').toLowerCase();
+  if (!text) return false;
+
+  const hasStorage = /(\d+)\s*(gb|tb)\b/i.test(text);
+  const hasDeviceToken = /(iphone|ipad|macbook|thinkpad|probook|galaxy|samsung|tecno|infinix|pixel|redmi|xiaomi|itel|oppo|vivo)/i.test(text);
+  return hasStorage && hasDeviceToken;
+};
+
+const inferTaxonomyFromRaw = (rawText = '') => {
+  const text = String(rawText || '').toLowerCase();
+
+  const iphoneMatch = text.match(/iphone\s*(\d{1,2})/i);
+  if (iphoneMatch?.[1]) {
+    const model = iphoneMatch[1];
+    return { Category: 'Smartphones', Brand: 'Apple', Series: `iPhone ${model} Series` };
+  }
+
+  if (/macbook/.test(text)) {
+    return { Category: 'Laptops', Brand: 'Apple', Series: 'MacBook Series' };
+  }
+
+  if (/thinkpad/.test(text)) {
+    return { Category: 'Laptops', Brand: 'Lenovo', Series: 'ThinkPad Series' };
+  }
+
+  if (/probook/.test(text)) {
+    return { Category: 'Laptops', Brand: 'HP', Series: 'ProBook Series' };
+  }
+
+  const samsungGalaxy = text.match(/(galaxy\s*[a-z0-9+]+)/i);
+  if (samsungGalaxy?.[1]) {
+    return { Category: 'Smartphones', Brand: 'Samsung', Series: samsungGalaxy[1].replace(/\s+/g, ' ').trim() };
+  }
+
+  return canonicalFallbackTaxonomy();
 };
 
 const isTaxonomyEntryValid = (entry = {}) => {
@@ -372,7 +410,7 @@ export const processWithShadowTesting = async ({ rawProductString, price }) => {
   const parsedSim = normalizeSim(rawProductString);
 
   const ignoredByPhrase = await shouldIgnoreRawString(rawProductString);
-  if (ignoredByPhrase) {
+  if (ignoredByPhrase && !hasStrongProductSignal(rawProductString)) {
     return {
       rawProductString,
       price,
@@ -417,6 +455,10 @@ export const processWithShadowTesting = async ({ rawProductString, price }) => {
 
   const regexPrediction = regexPredictTaxonomy(alias, rows);
   const aiTruth = await runTwoLayerJudge(alias, canonicalTaxonomy);
+  const fallbackTaxonomy = inferTaxonomyFromRaw(rawProductString);
+  const finalTaxonomy = (aiTruth.Category === 'Others' && aiTruth.Brand === 'Others' && aiTruth.Series === 'Others')
+    ? fallbackTaxonomy
+    : aiTruth;
 
   if (aiTruth.Category === 'Others' && aiTruth.Brand === 'Others' && aiTruth.Series === 'Others') {
     await incrementMetrics({ stage2OthersFallbacks: 1 });
@@ -425,22 +467,22 @@ export const processWithShadowTesting = async ({ rawProductString, price }) => {
   const resolvedCondition = inferConditionFromRaw(rawProductString, parsedCondition);
   const resolvedSpecification = resolveSpecification({
     rawProductString,
-    category: aiTruth.Category,
+    category: finalTaxonomy.Category,
     parsedSim,
   });
 
-  const normalizedCategory = String(aiTruth.Category || '').toLowerCase();
+  const normalizedCategory = String(finalTaxonomy.Category || '').toLowerCase();
   const requiresStorage = ['smartphones', 'laptops', 'tablets', 'gaming'].includes(normalizedCategory);
   const requiresSpecification = ['smartphones', 'smartwatches'].includes(normalizedCategory);
 
   const hasUnknownVariantAttr = (requiresStorage && parsedStorage === 'UNKNOWN')
     || (requiresSpecification && resolvedSpecification === 'Unknown');
 
-  if (hasUnknownVariantAttr || (aiTruth.Category === 'Others' && aiTruth.Brand === 'Others' && aiTruth.Series === 'Others')) {
+  if (hasUnknownVariantAttr || (finalTaxonomy.Category === 'Others' && finalTaxonomy.Brand === 'Others' && finalTaxonomy.Series === 'Others')) {
     return {
       rawProductString,
       price,
-      taxonomy: aiTruth,
+      taxonomy: finalTaxonomy,
       storage: parsedStorage,
       condition: resolvedCondition,
       sim: resolvedSpecification,
@@ -452,7 +494,7 @@ export const processWithShadowTesting = async ({ rawProductString, price }) => {
   }
 
   const aiVariationId = buildVariationId({
-    series: aiTruth.Series,
+    series: finalTaxonomy.Series,
     storage: parsedStorage,
     condition: resolvedCondition,
     sim: resolvedSpecification,
@@ -464,7 +506,7 @@ export const processWithShadowTesting = async ({ rawProductString, price }) => {
       variationId: aiVariationId,
       alias,
       regexPrediction,
-      aiTruth,
+      aiTruth: finalTaxonomy,
     });
   } catch (error) {
     console.warn('⚠️ Alias tracker update skipped:', error.message);
@@ -479,7 +521,7 @@ export const processWithShadowTesting = async ({ rawProductString, price }) => {
   return {
     rawProductString,
     price,
-    taxonomy: aiTruth,
+    taxonomy: finalTaxonomy,
     storage: parsedStorage,
     condition: resolvedCondition,
     sim: resolvedSpecification,
