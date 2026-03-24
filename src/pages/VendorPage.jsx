@@ -41,6 +41,46 @@ const normalizePriceInput = (value) => {
   return raw;
 };
 
+const toBoolean = (value, fallback = false) => {
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    if (normalized === 'true' || normalized === '1' || normalized === 'yes') return true;
+    if (normalized === 'false' || normalized === '0' || normalized === 'no') return false;
+  }
+  if (typeof value === 'number') return value === 1;
+  return fallback;
+};
+
+const resolveStore1Visibility = (product) => {
+  if (product?.visibleInStore1 !== undefined) return toBoolean(product.visibleInStore1, true);
+  return toBoolean(product?.isVisible, true);
+};
+
+const resolveStore2Visibility = (product) => {
+  if (product?.visibleInStore2 !== undefined) return toBoolean(product.visibleInStore2, false);
+  return false;
+};
+
+const normalizeDualStoreProduct = (product) => {
+  const priceStore1 = normalizePriceInput(product.priceStore1 || product['Store 1 price'] || product.storeOnePrice || product['Regular price'] || '0');
+  const priceStore2 = normalizePriceInput(product.priceStore2 || product['Store 2 price'] || product.storeTwoPrice || product['Regular price'] || '0');
+  const visibleInStore1 = resolveStore1Visibility(product);
+  const visibleInStore2 = resolveStore2Visibility(product);
+
+  return {
+    ...product,
+    'Regular price': priceStore1,
+    priceStore1,
+    priceStore2,
+    'Store 1 price': priceStore1,
+    'Store 2 price': priceStore2,
+    visibleInStore1,
+    visibleInStore2,
+    isVisible: visibleInStore1,
+  };
+};
+
 const parsePriceValue = (value) => {
   const normalized = normalizePriceInput(value);
   const digits = normalized.replace(/[^0-9.]/g, '');
@@ -227,9 +267,10 @@ const VendorPage = () => {
   const [editSpecification, setEditSpecification] = useState('');
   const [editStorage, setEditStorage] = useState('');
   const [editCondition, setEditCondition] = useState('');
-  const [editPrice, setEditPrice] = useState('');
-  const [editStoreOnePrice, setEditStoreOnePrice] = useState('');
-  const [editStoreTwoPrice, setEditStoreTwoPrice] = useState('');
+  const [editPriceStore1, setEditPriceStore1] = useState('');
+  const [editPriceStore2, setEditPriceStore2] = useState('');
+  const [editVisStore1, setEditVisStore1] = useState(true);
+  const [editVisStore2, setEditVisStore2] = useState(false);
   const [savingEdit, setSavingEdit] = useState(false);
   const [inventoryView, setInventoryView] = useState('all');
 
@@ -241,11 +282,15 @@ const VendorPage = () => {
         const docSnap = await getDoc(vendorRef);
         if (docSnap.exists()) {
           const payload = docSnap.data();
+          const originalProducts = Array.isArray(payload.products) ? payload.products : [];
+          const normalizedProducts = originalProducts.map((product) => normalizeDualStoreProduct(product));
+          const productsChanged = JSON.stringify(originalProducts) !== JSON.stringify(normalizedProducts);
           const existingNumbers = Array.isArray(payload.whatsappNumbers) ? payload.whatsappNumbers : [];
           const existingAllowedGroups = Array.isArray(payload.storefrontAllowedGroups) ? payload.storefrontAllowedGroups : [];
 
           setVendorData({
             ...payload,
+            products: normalizedProducts,
             logs: normalizeLogs(payload.logs),
           });
           setVendorNameInput(payload.vendorName || '');
@@ -268,6 +313,13 @@ const VendorPage = () => {
           setShowBothTinbrAndNormalLinks(Boolean(payload.showBothTinbrAndNormalLinks));
           setTinbrStoreOneLinkInput(String(payload.tinbrStoreOneLink || ''));
           setTinbrStoreTwoLinkInput(String(payload.tinbrStoreTwoLink || ''));
+
+          if (productsChanged) {
+            await updateDoc(vendorRef, {
+              products: normalizedProducts,
+              lastUpdated: new Date().toISOString(),
+            });
+          }
 
           const storedSessionTime = localStorage.getItem(`vendor_session_${vendorId}`);
           if (storedSessionTime) {
@@ -337,8 +389,8 @@ const VendorPage = () => {
   }, [products, dateFilter, categoryFilter, groupFilter, allowedGroups]);
 
   const getInventoryPriceByView = (product, view = 'all') => {
-    if (view === 'store1') return normalizePriceInput(product['Store 1 price'] || product.storeOnePrice || product['Regular price'] || '0');
-    if (view === 'store2') return normalizePriceInput(product['Store 2 price'] || product.storeTwoPrice || product['Regular price'] || '0');
+    if (view === 'store1') return normalizePriceInput(product.priceStore1 || product['Store 1 price'] || product.storeOnePrice || product['Regular price'] || '0');
+    if (view === 'store2') return normalizePriceInput(product.priceStore2 || product['Store 2 price'] || product.storeTwoPrice || product['Regular price'] || '0');
     return normalizePriceInput(product['Regular price'] || '0');
   };
 
@@ -346,8 +398,8 @@ const VendorPage = () => {
 
   const inventoryRows = useMemo(() => displayData
     .filter(({ product }) => {
-      if (inventoryView === 'store1') return hasStoreSpecificPrice(product['Store 1 price']) || hasStoreSpecificPrice(product.storeOnePrice);
-      if (inventoryView === 'store2') return hasStoreSpecificPrice(product['Store 2 price']) || hasStoreSpecificPrice(product.storeTwoPrice);
+      if (inventoryView === 'store1') return hasStoreSpecificPrice(product.priceStore1) || hasStoreSpecificPrice(product['Store 1 price']) || hasStoreSpecificPrice(product.storeOnePrice);
+      if (inventoryView === 'store2') return hasStoreSpecificPrice(product.priceStore2) || hasStoreSpecificPrice(product['Store 2 price']) || hasStoreSpecificPrice(product.storeTwoPrice);
       return true;
     })
     .map((entry) => ({
@@ -381,7 +433,7 @@ const VendorPage = () => {
   }, [products]);
 
   const storefrontProducts = useMemo(
-    () => displayData.map(({ product }) => product).filter((product) => product.isVisible !== false),
+    () => displayData.map(({ product }) => product).filter((product) => resolveStore1Visibility(product) || resolveStore2Visibility(product)),
     [displayData]
   );
 
@@ -390,8 +442,9 @@ const VendorPage = () => {
       const category = product.Category || 'Others';
       const brand = product.Brand || 'Others';
       const device = product['Device Type'] || 'Unknown Device';
-      const price = normalizePriceInput(product['Regular price']);
-      return `${category} -> ${brand} -> ${device} -> ${price}`;
+      const p1 = normalizePriceInput(product.priceStore1 || product['Regular price']);
+      const p2 = normalizePriceInput(product.priceStore2 || product['Regular price']);
+      return `${category} -> ${brand} -> ${device} -> Store 1: ${p1} | Store 2: ${p2}`;
     })
   ), [storefrontProducts]);
 
@@ -429,19 +482,18 @@ const VendorPage = () => {
   const tutorialVideoEmbedUrl = useMemo(() => toYoutubeEmbedUrl(tutorialVideoUrl), [tutorialVideoUrl]);
 
   const handleExport = () => {
-    const priceHeader = inventoryView === 'store1' ? 'Store 1 Price' : inventoryView === 'store2' ? 'Store 2 Price' : 'Vendor Price';
-    const rows = inventoryRows.map(({ product, displayPrice }) => ({
+    const rows = displayData.map(({ product }) => ({
       Group: product.groupName || 'Direct Message',
       Device: product['Device Type'] || '',
       Condition: product.Condition || '',
       Specification: product['SIM Type/Model/Processor'] || '',
       Storage: product['Storage Capacity/Configuration'] || '',
-      [priceHeader]: displayPrice || '',
-      Status: product.isVisible === false ? 'Hidden' : 'Visible',
-      Extracted: product.DatePosted || '',
+      'Price Store 1': product.priceStore1 || product['Regular price'] || '',
+      'Price Store 2': product.priceStore2 || product['Regular price'] || '',
+      'Store 1 Status': resolveStore1Visibility(product) ? 'Visible' : 'Hidden',
+      'Store 2 Status': resolveStore2Visibility(product) ? 'Visible' : 'Hidden',
     }));
-    const suffix = inventoryView === 'store1' ? 'store-1' : inventoryView === 'store2' ? 'store-2' : 'vendor';
-    downloadCsv(`${vendorData?.vendorName || 'Vendor'}-${suffix}-inventory.csv`, rows);
+    downloadCsv(`${vendorData?.vendorName || 'Vendor'}-inventory.csv`, rows);
   };
 
   const handleCopyLink = async (link) => {
@@ -598,20 +650,20 @@ const VendorPage = () => {
     return appendRollingLog(previousVendorData?.logs, logChannel, entry);
   };
 
-  const updateSelectedVisibility = async (isVisible) => {
+  const updateSelectedVisibility = async (storeKey, isVisible) => {
     if (!selectedProductIndexes.length) {
       alert('Please select one or more products first.');
       return;
     }
 
-    const nextProducts = products.map((product, index) =>
-      selectedProductIndexes.includes(index) ? { ...product, isVisible } : product
-    );
+    const nextProducts = products.map((product, index) => {
+      if (!selectedProductIndexes.includes(index)) return product;
+      if (storeKey === 'store1') return { ...product, visibleInStore1: isVisible, isVisible };
+      if (storeKey === 'store2') return { ...product, visibleInStore2: isVisible };
+      return product;
+    });
 
-    const nextLogs = pushLogToCurrentVendorData(
-      vendorData,
-      `${isVisible ? 'Show Selected' : 'Hide Selected'} (${selectedProductIndexes.length} products)`
-    );
+    const nextLogs = pushLogToCurrentVendorData(vendorData, `Updated visibility in ${storeKey} for ${selectedProductIndexes.length} items`);
 
     setBulkUpdating(true);
     try {
@@ -628,7 +680,7 @@ const VendorPage = () => {
         logs: nextLogs,
       }));
       setSelectedProductIndexes([]);
-      alert(`✅ Selected products are now ${isVisible ? 'visible' : 'hidden'}.`);
+      alert('✅ Selected products updated.');
     } catch (error) {
       console.error('Error updating product visibility:', error);
       alert('❌ Could not update product visibility.');
@@ -853,9 +905,10 @@ const VendorPage = () => {
     setEditSpecification(specification);
     setEditStorage(storage);
     setEditCondition(product.Condition || '');
-    setEditPrice(normalizePriceInput(product['Regular price'] || '0'));
-    setEditStoreOnePrice(normalizePriceInput(product['Store 1 price'] || product.storeOnePrice || product['Regular price'] || '0'));
-    setEditStoreTwoPrice(normalizePriceInput(product['Store 2 price'] || product.storeTwoPrice || product['Regular price'] || '0'));
+    setEditPriceStore1(normalizePriceInput(product.priceStore1 || product['Store 1 price'] || product.storeOnePrice || product['Regular price'] || '0'));
+    setEditPriceStore2(normalizePriceInput(product.priceStore2 || product['Store 2 price'] || product.storeTwoPrice || product['Regular price'] || '0'));
+    setEditVisStore1(resolveStore1Visibility(product));
+    setEditVisStore2(resolveStore2Visibility(product));
   };
 
   const closeEditModal = () => {
@@ -864,9 +917,10 @@ const VendorPage = () => {
     setEditSpecification('');
     setEditStorage('');
     setEditCondition('');
-    setEditPrice('');
-    setEditStoreOnePrice('');
-    setEditStoreTwoPrice('');
+    setEditPriceStore1('');
+    setEditPriceStore2('');
+    setEditVisStore1(true);
+    setEditVisStore2(false);
   };
 
   const saveInlineEdit = async () => {
@@ -881,9 +935,14 @@ const VendorPage = () => {
         ...product,
         'Device Type': editDeviceType.trim(),
         Condition: editCondition.trim(),
-        'Regular price': normalizePriceInput(editPrice),
-        'Store 1 price': normalizePriceInput(editStoreOnePrice),
-        'Store 2 price': normalizePriceInput(editStoreTwoPrice),
+        'Regular price': normalizePriceInput(editPriceStore1),
+        priceStore1: normalizePriceInput(editPriceStore1),
+        priceStore2: normalizePriceInput(editPriceStore2),
+        'Store 1 price': normalizePriceInput(editPriceStore1),
+        'Store 2 price': normalizePriceInput(editPriceStore2),
+        visibleInStore1: editVisStore1,
+        isVisible: editVisStore1,
+        visibleInStore2: editVisStore2,
         ...parsed,
       };
     });
@@ -989,8 +1048,8 @@ const VendorPage = () => {
   }
 
   const vendorBackendLink = `${window.location.origin}/vendor/${vendorId}`;
-  const customerStoreOneLink = `${window.location.origin}/store/${vendorId}?branch=store1`;
-  const customerStoreTwoLink = `${window.location.origin}/store/${vendorId}?branch=store2`;
+  const customerStoreOneLink = `${window.location.origin}/store/1/${vendorId}`;
+  const customerStoreTwoLink = `${window.location.origin}/store/2/${vendorId}`;
   const tinbrStoreOneLink = tinbrStoreOneLinkInput.trim();
   const tinbrStoreTwoLink = tinbrStoreTwoLinkInput.trim();
   const canVendorSeeBothLinkSets = isAdmin || showBothTinbrAndNormalLinks;
@@ -1248,7 +1307,7 @@ const VendorPage = () => {
               <div className="flex gap-2 flex-wrap">
                 <button onClick={async () => { await navigator.clipboard.writeText(exportLines.join('\n')); alert('✅ Pricelist copied for WhatsApp.'); }} className="bg-[#1A1C23] text-white px-3 py-2 rounded-lg text-xs font-black uppercase">Copy for WhatsApp</button>
                 <button onClick={() => { const blob = new Blob([exportLines.join('\n')], { type: 'text/plain' }); const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `${vendorData.vendorName || 'vendor'}-pricelist.txt`; a.click(); }} className="bg-blue-600 text-white px-3 py-2 rounded-lg text-xs font-black uppercase">Download TXT</button>
-                <button onClick={() => downloadCsv(`${vendorData.vendorName || 'vendor'}-pricelist.csv`, storefrontProducts.map((product) => ({ Export: `${product.Category || 'Others'} -> ${product.Brand || 'Others'} -> ${product['Device Type'] || ''} -> ${normalizePriceInput(product['Regular price'])}` })))} className="bg-emerald-600 text-white px-3 py-2 rounded-lg text-xs font-black uppercase">Download CSV</button>
+                <button onClick={() => downloadCsv(`${vendorData.vendorName || 'vendor'}-pricelist.csv`, storefrontProducts.map((product) => ({ Export: `${product.Category || 'Others'} -> ${product.Brand || 'Others'} -> ${product['Device Type'] || ''} -> Store 1: ${normalizePriceInput(product.priceStore1 || product['Regular price'])} | Store 2: ${normalizePriceInput(product.priceStore2 || product['Regular price'])}` })))} className="bg-emerald-600 text-white px-3 py-2 rounded-lg text-xs font-black uppercase">Download CSV</button>
               </div>
             </div>
           </div>
@@ -1278,9 +1337,11 @@ const VendorPage = () => {
           </div>
 
           {/* Bulk Actions */}
-          <div className="mb-4 flex flex-wrap gap-3 items-center bg-blue-50 p-4 rounded-xl border border-blue-100">
-            <button onClick={() => updateSelectedVisibility(false)} disabled={!selectedProductIndexes.length || bulkUpdating} className="bg-red-600 text-white px-5 py-2 rounded-lg font-bold hover:bg-red-700 disabled:opacity-50 shadow-sm">Hide Selected</button>
-            <button onClick={() => updateSelectedVisibility(true)} disabled={!selectedProductIndexes.length || bulkUpdating} className="bg-emerald-600 text-white px-5 py-2 rounded-lg font-bold hover:bg-emerald-700 disabled:opacity-50 shadow-sm">Show Selected</button>
+          <div className="mb-4 flex flex-wrap gap-2 items-center bg-blue-50 p-4 rounded-xl border border-blue-100">
+            <button onClick={() => updateSelectedVisibility('store1', true)} disabled={!selectedProductIndexes.length || bulkUpdating} className="bg-blue-600 text-white px-3 py-2 text-xs rounded-lg font-bold disabled:opacity-50">Show in Store 1</button>
+            <button onClick={() => updateSelectedVisibility('store1', false)} disabled={!selectedProductIndexes.length || bulkUpdating} className="bg-gray-400 text-white px-3 py-2 text-xs rounded-lg font-bold disabled:opacity-50">Hide in Store 1</button>
+            <button onClick={() => updateSelectedVisibility('store2', true)} disabled={!selectedProductIndexes.length || bulkUpdating} className="bg-purple-600 text-white px-3 py-2 text-xs rounded-lg font-bold disabled:opacity-50">Show in Store 2</button>
+            <button onClick={() => updateSelectedVisibility('store2', false)} disabled={!selectedProductIndexes.length || bulkUpdating} className="bg-gray-400 text-white px-3 py-2 text-xs rounded-lg font-bold disabled:opacity-50">Hide in Store 2</button>
             <span className="text-sm font-bold text-blue-700">{selectedProductIndexes.length} products selected</span>
           </div>
 
@@ -1295,24 +1356,34 @@ const VendorPage = () => {
                   <th className="hidden md:table-cell p-4 text-xs font-bold uppercase tracking-wider">Condition</th>
                   <th className="hidden md:table-cell p-4 text-xs font-bold uppercase tracking-wider">Specification</th>
                   <th className="hidden md:table-cell p-4 text-xs font-bold uppercase tracking-wider">Storage</th>
-                  <th className="p-4 text-xs font-bold uppercase tracking-wider">{inventoryView === 'store1' ? 'Store 1 Price' : inventoryView === 'store2' ? 'Store 2 Price' : 'Vendor Price'}</th>
-                  <th className="p-4 text-xs font-bold uppercase tracking-wider">Status</th>
+                  <th className="p-4 text-xs font-bold uppercase">Store 1 (Classic)</th>
+                  <th className="p-4 text-xs font-bold uppercase">Store 2 (Premium)</th>
                   <th className="hidden md:table-cell p-4 text-xs font-bold uppercase tracking-wider">Extracted</th>
                   <th className="p-4 text-xs font-bold uppercase tracking-wider">Image</th>
                   <th className="p-4 text-xs font-bold uppercase tracking-wider">Edit</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {inventoryRows.map(({ product, index, displayPrice }) => (
-                  <tr key={`${product['Device Type']}-${index}`} className={`hover:bg-blue-50/30 transition-colors ${product.isVisible === false ? 'bg-gray-50 opacity-60 line-through text-gray-400' : ''}`}>
+                {inventoryRows.map(({ product, index }) => (
+                  <tr key={`${product['Device Type']}-${index}`} className={`hover:bg-blue-50/30 transition-colors ${(!resolveStore1Visibility(product) && !resolveStore2Visibility(product)) ? 'bg-gray-50 opacity-60 line-through text-gray-400' : ''}`}>
                     <td className="p-4"><input type="checkbox" checked={selectedProductIndexes.includes(index)} onChange={() => toggleProductSelection(index)} className="w-4 h-4" /></td>
                     <td className="hidden md:table-cell p-4"><span className="text-[10px] font-bold bg-white border px-2 py-1 rounded text-gray-500 whitespace-nowrap">{product.groupName || 'Direct Message'}</span></td>
                     <td className="p-4 font-bold text-[#1A1C23]">{product['Device Type'] || 'N/A'}</td>
                     <td className="hidden md:table-cell p-4"><span className={`text-xs font-bold px-2 py-1 rounded ${product.Condition?.toLowerCase().includes('new') ? 'bg-blue-100 text-blue-700' : 'bg-orange-100 text-orange-700'}`}>{product.Condition || 'N/A'}</span></td>
                     <td className="hidden md:table-cell p-4 text-sm text-gray-600">{product['SIM Type/Model/Processor'] || 'N/A'}</td>
                     <td className="hidden md:table-cell p-4 text-sm font-semibold text-gray-700">{product['Storage Capacity/Configuration'] || 'N/A'}</td>
-                    <td className="p-4 font-black text-green-700 text-lg">{displayPrice}</td>
-                    <td className="p-4"><span className={`px-2 py-1 rounded text-[10px] font-black uppercase ${product.isVisible === false ? 'bg-gray-200 text-gray-500' : 'bg-emerald-100 text-emerald-700'}`}>{product.isVisible === false ? 'Hidden' : 'Visible'}</span></td>
+                    <td className="p-4">
+                      <div className="font-black text-blue-700">{normalizePriceInput(product.priceStore1 || product['Regular price'] || '0')}</div>
+                      <span className={`px-2 py-0.5 rounded text-[9px] font-black uppercase ${resolveStore1Visibility(product) ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-200 text-gray-500'}`}>
+                        {resolveStore1Visibility(product) ? 'Visible' : 'Hidden'}
+                      </span>
+                    </td>
+                    <td className="p-4">
+                      <div className="font-black text-purple-700">{normalizePriceInput(product.priceStore2 || product['Regular price'] || '0')}</div>
+                      <span className={`px-2 py-0.5 rounded text-[9px] font-black uppercase ${resolveStore2Visibility(product) ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-200 text-gray-500'}`}>
+                        {resolveStore2Visibility(product) ? 'Visible' : 'Hidden'}
+                      </span>
+                    </td>
                     <td className="hidden md:table-cell p-4 text-[11px] text-gray-400 font-medium">{product.DatePosted || 'N/A'}</td>
                     <td className="p-4">
                       <div className="flex flex-col gap-2">
@@ -1576,16 +1647,21 @@ const VendorPage = () => {
                 <input type="text" value={editCondition} onChange={(e) => setEditCondition(e.target.value)} className="w-full p-3 border rounded-xl focus:ring-2 focus:ring-blue-500 outline-none font-medium text-gray-700" />
               </div>
               <div>
-                <label className="block text-xs font-black text-gray-400 uppercase mb-1">Regular Price</label>
-                <input type="text" value={editPrice} onChange={(e) => setEditPrice(e.target.value)} className="w-full p-3 border rounded-xl focus:ring-2 focus:ring-blue-500 outline-none font-black text-green-600" />
-              </div>
-              <div>
                 <label className="block text-xs font-black text-gray-400 uppercase mb-1">Store 1 Price</label>
-                <input type="text" value={editStoreOnePrice} onChange={(e) => setEditStoreOnePrice(e.target.value)} className="w-full p-3 border rounded-xl focus:ring-2 focus:ring-blue-500 outline-none font-black text-indigo-600" />
+                <input type="text" value={editPriceStore1} onChange={(e) => setEditPriceStore1(e.target.value)} className="w-full p-3 border rounded-xl font-black text-blue-600" />
               </div>
+              <div className="flex items-center mt-6">
+                <input type="checkbox" checked={editVisStore1} onChange={(e) => setEditVisStore1(e.target.checked)} className="w-5 h-5 mr-2" />
+                <label className="text-sm font-bold">Show in Store 1</label>
+              </div>
+
               <div>
                 <label className="block text-xs font-black text-gray-400 uppercase mb-1">Store 2 Price</label>
-                <input type="text" value={editStoreTwoPrice} onChange={(e) => setEditStoreTwoPrice(e.target.value)} className="w-full p-3 border rounded-xl focus:ring-2 focus:ring-blue-500 outline-none font-black text-emerald-600" />
+                <input type="text" value={editPriceStore2} onChange={(e) => setEditPriceStore2(e.target.value)} className="w-full p-3 border rounded-xl font-black text-purple-600" />
+              </div>
+              <div className="flex items-center mt-6">
+                <input type="checkbox" checked={editVisStore2} onChange={(e) => setEditVisStore2(e.target.checked)} className="w-5 h-5 mr-2" />
+                <label className="text-sm font-bold">Show in Store 2</label>
               </div>
             </div>
             <div className="p-6 bg-gray-50 border-t flex justify-end gap-3">
