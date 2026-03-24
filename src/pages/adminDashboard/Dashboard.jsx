@@ -2904,8 +2904,8 @@ const AdminDashboard = () => {
                   </label>
                 </div>
                 <p className="text-[11px] text-indigo-800 mt-3">
-                  Firebase save path: <span className="font-black">horleytech-2287c / horleyTech_OfflineInventories / {'{vendorDocId}'}</span><br />
-                  Fields updated for each vendor doc: <span className="font-black">tinbrLinksEnabled</span> and <span className="font-black">showBothTinbrAndNormalLinks</span>.
+                  These settings are saved directly in Firebase for each vendor and both storefronts read them live.<br />
+                  Fields updated per vendor: <span className="font-black">tinbrLinksEnabled</span> and <span className="font-black">showBothTinbrAndNormalLinks</span>.
                 </p>
                 <div className="flex flex-wrap gap-3 mt-4">
                   <button
@@ -2933,10 +2933,8 @@ const AdminDashboard = () => {
                   This permanently clears Scrapebot + Auto Responder operational collections from Firebase containers. Type <span className="font-black">NUKE EVERYTHING</span> to enable the button.
                 </p>
                 <div className="text-[11px] text-red-800 bg-white border border-red-200 rounded-lg p-3 mb-3 space-y-1">
-                  <p className="font-black uppercase tracking-wider">Collections deleted:</p>
-                  <p>ar_analytics, ar_customers, ar_raw_requests, horleyTech_AuditLogs, horleyTech_Backups, horleyTech_OfflineInventories, horleyTech_PlatformMessages, horleyTech_ProductAliasIndex, horleyTech_ProductContainers, and most horleyTech_Settings docs.</p>
-                  <p className="font-black uppercase tracking-wider pt-1">Collections preserved:</p>
-                  <p>ar_settings, horleyTech_PricingSessions, and horleyTech_Settings docs: adminPreferences + aiControl.</p>
+                  <p className="font-black uppercase tracking-wider">Impact summary:</p>
+                  <p>This wipes operational live data used by the bot and storefront flows while preserving core control/config records required to boot the system safely.</p>
                 </div>
                 <div className="flex flex-col md:flex-row gap-3">
                   <input
