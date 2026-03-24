@@ -1100,6 +1100,20 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
   res.status(200).json({ data: [{ message: '' }] });
 
   try {
+    const isLikelyFragment = (raw = '') => {
+      const text = String(raw || '').trim();
+      if (!text) return true;
+      if (text.length <= 3) return true;
+
+      const lower = text.toLowerCase();
+      const colorOnly = /^(black|white|gold|silver|purple|blue|green|red|pink|gray|grey|midnight)$/i.test(lower);
+      const specOnly = /^(esim|physical\s*sim|locked|fu|idm|ibm|wifi|wi-?fi\s*only)$/i.test(lower);
+      const memoryOnly = /^\d+\s*\/\s*\d+\s*(gb|tb)$/i.test(lower);
+      const storageOnly = /^\d+\s*(gb|tb)$/i.test(lower);
+
+      return colorOnly || specOnly || memoryOnly || storageOnly;
+    };
+
     const stageOnePrompt = `
         You are Stage 1 Extractor.
         Extract products from messy WhatsApp broadcasts.
@@ -1203,6 +1217,7 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
     for (const item of extractedProducts) {
       const rawProductString = String(item?.rawProductString || '').trim();
       if (!rawProductString) continue;
+      if (isLikelyFragment(rawProductString)) continue;
 
       const parsedPrice = Number(String(item?.price || '').replace(/[^0-9.]/g, '')) || 0;
 
@@ -1234,7 +1249,7 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
         Category: product.taxonomy?.Category || 'Others',
         Brand: product.taxonomy?.Brand || 'Others',
         Series: product.taxonomy?.Series || 'Others',
-        'Device Type': product.taxonomy?.Series || product.rawProductString,
+        'Device Type': product.deviceType || product.taxonomy?.Series || product.rawProductString,
         Condition: product.condition,
         'SIM Type/Model/Processor': product.sim,
         'Storage Capacity/Configuration': product.storage,
@@ -1270,8 +1285,6 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
 
 
 const _normalizeMappingKey = (value) => String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-
-const { getFirestore } = require('firebase-admin/firestore');
 
 const _fetchUnknownVendorsList = async () => {
   const firestore = getAdminFirestore();
@@ -1327,10 +1340,10 @@ const _runOpenAIExtraction = async (rows = [], signal) => {
 app.post('/api/admin/trigger-background-sync', async (_req, res) => {
   res.status(200).json({ message: 'Background sync started' });
 
-  const db = getFirestore();
   const CAT_LIST = ['Smartphones', 'Smartwatches', 'Laptops', 'Sounds', 'Accessories', 'Tablets', 'Gaming', 'Others'];
   const CHUNK_SIZE = 20;
   const CHUNK_TIMEOUT_MS = 45000;
+  let db;
 
   const withTimeout = async (promiseFactory, timeoutMs, timeoutMessage) => Promise.race([
     promiseFactory(),
@@ -1338,6 +1351,7 @@ app.post('/api/admin/trigger-background-sync', async (_req, res) => {
   ]);
 
   const safeSetSyncStatus = async (payload) => {
+    if (!db) return;
     try {
       await db.collection('horleyTech_Settings').doc('syncStatus').set(payload, { merge: true });
     } catch (error) {
@@ -1346,6 +1360,7 @@ app.post('/api/admin/trigger-background-sync', async (_req, res) => {
   };
 
   try {
+    db = getAdminFirestore();
     console.log('🔄 Background Sync: Initializing...');
 
     const accumulatedMappings = {};
