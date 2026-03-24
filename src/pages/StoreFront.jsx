@@ -182,6 +182,11 @@ const StoreFront = ({ storeType = '1' }) => {
     return product.priceStore1 || product['Store 1 price'] || product.storeOnePrice || product['Regular price'] || 'N/A';
   };
 
+  const getProductImage = (product) => {
+    if (isStore2) return product.productImageStore2Base64 || product.productImageBase64 || product.productImageStore1Base64 || '';
+    return product.productImageStore1Base64 || product.productImageBase64 || product.productImageStore2Base64 || '';
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen grid place-items-center bg-gray-50">
@@ -256,9 +261,9 @@ const StoreFront = ({ storeType = '1' }) => {
               >
                 <td className="px-6 py-5">
                   <div className="flex items-center gap-3">
-                    {product.productImageBase64 && (
+                    {getProductImage(product) && (
                       <img
-                        src={product.productImageBase64}
+                        src={getProductImage(product)}
                         alt=""
                         style={HD_IMAGE_STYLE}
                         className={`w-12 h-12 rounded-lg object-cover shadow-sm border ${isDarkLayout ? 'bg-[#202020] border-[#333]' : 'bg-gray-100 border-gray-200'}`}
@@ -306,8 +311,8 @@ const StoreFront = ({ storeType = '1' }) => {
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
       {visibleProducts.map((product, index) => (
         <div key={index} className={`rounded-3xl overflow-hidden border shadow-[0_8px_30px_rgb(0,0,0,0.04)] ${isDarkLayout ? 'bg-[#1a1a1a] border-[#2b2b2b]' : 'bg-white/70 backdrop-blur-xl border-white/20'}`}>
-          {product.productImageBase64 ? (
-            <img src={product.productImageBase64} alt={product['Device Type'] || 'Product'} style={HD_IMAGE_STYLE} className="w-full h-48 object-cover" />
+          {getProductImage(product) ? (
+            <img src={getProductImage(product)} alt={product['Device Type'] || 'Product'} style={HD_IMAGE_STYLE} className="w-full h-48 object-cover" />
           ) : (
             <div className={`w-full h-48 flex items-center justify-center text-sm font-bold ${isDarkLayout ? 'bg-[#202020] text-gray-500' : 'bg-gray-100 text-gray-400'}`}>No Image</div>
           )}
@@ -366,9 +371,9 @@ const StoreFront = ({ storeType = '1' }) => {
       {visibleProducts.map((product, index) => (
         <div key={index} className={`group relative rounded-[2rem] overflow-hidden shadow-xl border transition-all duration-300 ${isDarkLayout ? 'bg-[#1a1a1a] border-[#2b2b2b] hover:shadow-[0_0_30px_rgba(255,255,255,0.05)]' : 'bg-white border-gray-100 hover:shadow-2xl'}`}>
           <div className="relative h-96 overflow-hidden cursor-pointer bg-gray-50">
-            {product.productImageBase64 ? (
+            {getProductImage(product) ? (
               <img
-                src={product.productImageBase64}
+                src={getProductImage(product)}
                 alt={product['Device Type'] || 'Product'}
                 style={HD_IMAGE_STYLE}
                 className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700 ease-out"

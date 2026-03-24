@@ -248,8 +248,8 @@ const VendorPage = () => {
   const [tutorialVideoUrl, setTutorialVideoUrl] = useState('');
   const [businessTypeInput, setBusinessTypeInput] = useState('Other');
   const [storefrontDisplayLimit, setStorefrontDisplayLimit] = useState(20);
-  const [tinbrLinksEnabled, setTinbrLinksEnabled] = useState(false);
-  const [showBothTinbrAndNormalLinks, setShowBothTinbrAndNormalLinks] = useState(false);
+  const [tinbrLinksEnabled, setTinbrLinksEnabled] = useState(true);
+  const [showBothTinbrAndNormalLinks, setShowBothTinbrAndNormalLinks] = useState(true);
   const [tinbrStoreOneLinkInput, setTinbrStoreOneLinkInput] = useState('');
   const [tinbrStoreTwoLinkInput, setTinbrStoreTwoLinkInput] = useState('');
 
@@ -309,10 +309,43 @@ const VendorPage = () => {
           ]);
           setBusinessTypeInput(payload.metaData || payload.businessType || 'Other');
           setStorefrontDisplayLimit(Number(payload.storefrontDisplayLimit) > 0 ? Number(payload.storefrontDisplayLimit) : 20);
-          setTinbrLinksEnabled(Boolean(payload.tinbrLinksEnabled));
-          setShowBothTinbrAndNormalLinks(Boolean(payload.showBothTinbrAndNormalLinks));
+          setTinbrLinksEnabled(payload.tinbrLinksEnabled !== false);
+          setShowBothTinbrAndNormalLinks(payload.showBothTinbrAndNormalLinks !== false);
           setTinbrStoreOneLinkInput(String(payload.tinbrStoreOneLink || ''));
           setTinbrStoreTwoLinkInput(String(payload.tinbrStoreTwoLink || ''));
+
+          const shouldUseTinyByDefault = payload.tinbrLinksEnabled !== false;
+          if (shouldUseTinyByDefault && (String(payload.tinbrStoreOneLink || '').trim() === '' || String(payload.tinbrStoreTwoLink || '').trim() === '')) {
+            const autoPatch = {};
+            const storeOneNormal = `${window.location.origin}/store/1/${vendorId}`;
+            const storeTwoNormal = `${window.location.origin}/store/2/${vendorId}`;
+            try {
+              if (String(payload.tinbrStoreOneLink || '').trim() === '') {
+                autoPatch.tinbrStoreOneLink = await createTinyUrl(storeOneNormal);
+                setTinbrStoreOneLinkInput(autoPatch.tinbrStoreOneLink);
+              }
+              if (String(payload.tinbrStoreTwoLink || '').trim() === '') {
+                autoPatch.tinbrStoreTwoLink = await createTinyUrl(storeTwoNormal);
+                setTinbrStoreTwoLinkInput(autoPatch.tinbrStoreTwoLink);
+              }
+              if (Object.keys(autoPatch).length) {
+                await updateDoc(vendorRef, {
+                  ...autoPatch,
+                  tinbrLinksEnabled: true,
+                  showBothTinbrAndNormalLinks: payload.showBothTinbrAndNormalLinks !== false,
+                  lastUpdated: new Date().toISOString(),
+                });
+                setVendorData((prev) => ({
+                  ...prev,
+                  ...autoPatch,
+                  tinbrLinksEnabled: true,
+                  showBothTinbrAndNormalLinks: payload.showBothTinbrAndNormalLinks !== false,
+                }));
+              }
+            } catch (tinyError) {
+              console.error('Auto TinyURL generation failed:', tinyError);
+            }
+          }
 
           if (productsChanged) {
             await updateDoc(vendorRef, {
@@ -392,6 +425,12 @@ const VendorPage = () => {
     if (view === 'store1') return normalizePriceInput(product.priceStore1 || product['Store 1 price'] || product.storeOnePrice || product['Regular price'] || '0');
     if (view === 'store2') return normalizePriceInput(product.priceStore2 || product['Store 2 price'] || product.storeTwoPrice || product['Regular price'] || '0');
     return normalizePriceInput(product['Regular price'] || '0');
+  };
+
+  const getInventoryPreviewImage = (product) => {
+    if (inventoryView === 'store1') return product.productImageStore1Base64 || product.productImageBase64 || product.productImageStore2Base64 || '';
+    if (inventoryView === 'store2') return product.productImageStore2Base64 || product.productImageBase64 || product.productImageStore1Base64 || '';
+    return product.productImageBase64 || product.productImageStore1Base64 || product.productImageStore2Base64 || '';
   };
 
   const inventoryRows = useMemo(() => displayData
@@ -548,8 +587,37 @@ const VendorPage = () => {
     }
   };
 
+  const createTinyUrl = async (link) => {
+    if (!link || !/^https?:\/\//i.test(link)) return '';
+    const tinyUrlRes = await fetch(`https://tinyurl.com/api-create.php?url=${encodeURIComponent(link)}`);
+    const shortUrl = await tinyUrlRes.text();
+    if (!tinyUrlRes.ok || !/^https?:\/\//i.test(shortUrl)) {
+      throw new Error('TinyURL generation failed.');
+    }
+    return shortUrl;
+  };
+
   const saveLinkPreference = async (patch, actionLabel) => {
     if (!isAdmin) return;
+    const nextPatch = { ...patch };
+
+    if (patch.tinbrLinksEnabled === true) {
+      const storeOneNormal = `${window.location.origin}/store/1/${vendorId}`;
+      const storeTwoNormal = `${window.location.origin}/store/2/${vendorId}`;
+      try {
+        if (!String(vendorData?.tinbrStoreOneLink || '').trim()) {
+          nextPatch.tinbrStoreOneLink = await createTinyUrl(storeOneNormal);
+          setTinbrStoreOneLinkInput(nextPatch.tinbrStoreOneLink);
+        }
+        if (!String(vendorData?.tinbrStoreTwoLink || '').trim()) {
+          nextPatch.tinbrStoreTwoLink = await createTinyUrl(storeTwoNormal);
+          setTinbrStoreTwoLinkInput(nextPatch.tinbrStoreTwoLink);
+        }
+      } catch (error) {
+        console.error('Failed to auto-generate TinyURL links:', error);
+      }
+    }
+
     const nextLogs = appendRollingLog(vendorData?.logs, 'admin', {
       action: actionLabel,
       date: new Date().toISOString(),
@@ -557,13 +625,13 @@ const VendorPage = () => {
 
     try {
       await updateDoc(vendorRef, {
-        ...patch,
+        ...nextPatch,
         lastUpdated: new Date().toISOString(),
         logs: nextLogs,
       });
       setVendorData((prev) => ({
         ...prev,
-        ...patch,
+        ...nextPatch,
         lastUpdated: new Date().toISOString(),
         logs: nextLogs,
       }));
@@ -680,7 +748,7 @@ const VendorPage = () => {
     }
   };
 
-  const handleProductImageUpload = async (index, file) => {
+  const handleProductImageUpload = async (index, file, target = 'both') => {
     if (!file) return;
 
     try {
@@ -691,11 +759,33 @@ const VendorPage = () => {
         format: 'image/webp',
         qualityStart: 0.86,
       });
-      const nextProducts = products.map((product, pIndex) =>
-        pIndex === index ? { ...product, productImageBase64: thumbBase64 } : product
-      );
+      const nextProducts = products.map((product, pIndex) => {
+        if (pIndex !== index) return product;
 
-      const nextLogs = pushLogToCurrentVendorData(vendorData, 'Updated Product Image');
+        if (target === 'store1') {
+          return {
+            ...product,
+            productImageStore1Base64: thumbBase64,
+          };
+        }
+
+        if (target === 'store2') {
+          return {
+            ...product,
+            productImageStore2Base64: thumbBase64,
+          };
+        }
+
+        return {
+          ...product,
+          productImageBase64: thumbBase64,
+          productImageStore1Base64: thumbBase64,
+          productImageStore2Base64: thumbBase64,
+        };
+      });
+
+      const targetLabel = target === 'both' ? 'Store 1 + Store 2' : target === 'store1' ? 'Store 1' : 'Store 2';
+      const nextLogs = pushLogToCurrentVendorData(vendorData, `Updated Product Image (${targetLabel})`);
 
       await updateDoc(vendorRef, {
         products: nextProducts,
@@ -928,8 +1018,8 @@ const VendorPage = () => {
       businessType: businessTypeInput || 'Other',
       metaData: businessTypeInput || 'Other',
       storefrontDisplayLimit: Number(storefrontDisplayLimit) > 0 ? Number(storefrontDisplayLimit) : 20,
-      tinbrLinksEnabled: isAdmin ? Boolean(tinbrLinksEnabled) : Boolean(vendorData?.tinbrLinksEnabled),
-      showBothTinbrAndNormalLinks: isAdmin ? Boolean(showBothTinbrAndNormalLinks) : Boolean(vendorData?.showBothTinbrAndNormalLinks),
+      tinbrLinksEnabled: isAdmin ? Boolean(tinbrLinksEnabled) : vendorData?.tinbrLinksEnabled !== false,
+      showBothTinbrAndNormalLinks: isAdmin ? Boolean(showBothTinbrAndNormalLinks) : vendorData?.showBothTinbrAndNormalLinks !== false,
       tinbrStoreOneLink: isAdmin ? tinbrStoreOneLinkInput.trim() : String(vendorData?.tinbrStoreOneLink || '').trim(),
       tinbrStoreTwoLink: isAdmin ? tinbrStoreTwoLinkInput.trim() : String(vendorData?.tinbrStoreTwoLink || '').trim(),
     };
@@ -1125,8 +1215,10 @@ const VendorPage = () => {
   const tinbrStoreOneLink = tinbrStoreOneLinkInput.trim();
   const tinbrStoreTwoLink = tinbrStoreTwoLinkInput.trim();
   const canVendorSeeBothLinkSets = isAdmin || showBothTinbrAndNormalLinks;
-  const primaryStoreOneLink = (tinbrLinksEnabled && tinbrStoreOneLink) ? tinbrStoreOneLink : customerStoreOneLink;
-  const primaryStoreTwoLink = (tinbrLinksEnabled && tinbrStoreTwoLink) ? tinbrStoreTwoLink : customerStoreTwoLink;
+  const storeOneTinyActive = tinbrLinksEnabled && Boolean(tinbrStoreOneLink);
+  const storeTwoTinyActive = tinbrLinksEnabled && Boolean(tinbrStoreTwoLink);
+  const primaryStoreOneLink = storeOneTinyActive ? tinbrStoreOneLink : customerStoreOneLink;
+  const primaryStoreTwoLink = storeTwoTinyActive ? tinbrStoreTwoLink : customerStoreTwoLink;
   const timelineLogs = normalizeLogs(vendorData.logs);
   const timelineEntries = {
     vendor: [...timelineLogs.vendor].sort((a, b) => new Date(b.date) - new Date(a.date)),
@@ -1157,12 +1249,12 @@ const VendorPage = () => {
             </div>
           </div>
           <div className="border rounded-[10px] p-4 bg-gray-50">
-            <p className="text-xs font-bold text-gray-500 mb-2 uppercase tracking-wider">Customer Store One Link {tinbrLinksEnabled ? '(Tinbr Active)' : '(Normal Active)'}</p>
+            <p className="text-xs font-bold text-gray-500 mb-2 uppercase tracking-wider">Customer Store One Link {storeOneTinyActive ? '(Tiny Active)' : '(Normal Active)'}</p>
             <p className="text-sm break-all text-[#1A1C23] mb-2 font-mono bg-white p-2 rounded border">{primaryStoreOneLink}</p>
             {canVendorSeeBothLinkSets && (
               <div className="mb-3 text-[11px] space-y-1 text-gray-600">
                 <p><span className="font-black">Normal:</span> {customerStoreOneLink}</p>
-                <p><span className="font-black">Tinbr:</span> {tinbrStoreOneLink || 'Not set'}</p>
+                <p><span className="font-black">Tiny:</span> {tinbrStoreOneLink || 'Not set'}</p>
               </div>
             )}
             <div className="flex gap-2 flex-wrap">
@@ -1173,12 +1265,12 @@ const VendorPage = () => {
             </div>
           </div>
           <div className="border rounded-[10px] p-4 bg-gray-50">
-            <p className="text-xs font-bold text-gray-500 mb-2 uppercase tracking-wider">Customer Store Two Link {tinbrLinksEnabled ? '(Tinbr Active)' : '(Normal Active)'}</p>
+            <p className="text-xs font-bold text-gray-500 mb-2 uppercase tracking-wider">Customer Store Two Link {storeTwoTinyActive ? '(Tiny Active)' : '(Normal Active)'}</p>
             <p className="text-sm break-all text-[#1A1C23] mb-2 font-mono bg-white p-2 rounded border">{primaryStoreTwoLink}</p>
             {canVendorSeeBothLinkSets && (
               <div className="mb-3 text-[11px] space-y-1 text-gray-600">
                 <p><span className="font-black">Normal:</span> {customerStoreTwoLink}</p>
-                <p><span className="font-black">Tinbr:</span> {tinbrStoreTwoLink || 'Not set'}</p>
+                <p><span className="font-black">Tiny:</span> {tinbrStoreTwoLink || 'Not set'}</p>
               </div>
             )}
             <div className="flex gap-2 flex-wrap">
@@ -1287,7 +1379,7 @@ const VendorPage = () => {
                     }}
                     className="w-4 h-4"
                   />
-                  Use Tinbr short links as primary store links
+                  Use Tinbr Tiny links as primary store links
                 </label>
                 <label className="flex items-center gap-3 text-sm font-semibold text-indigo-900">
                   <input
@@ -1480,9 +1572,15 @@ const VendorPage = () => {
                     <td className="hidden md:table-cell p-4 text-[11px] text-gray-400 font-medium">{product.DatePosted || 'N/A'}</td>
                     <td className="p-4">
                       <div className="flex flex-col gap-2">
-                        {product.productImageBase64 && <img src={product.productImageBase64} alt="Product" style={HD_IMAGE_STYLE} className="w-10 h-10 object-cover rounded border shadow-sm" />}
-                        <input id={`product-image-${index}`} type="file" accept="image/*" className="hidden" onChange={(e) => handleProductImageUpload(index, e.target.files?.[0])} />
-                        <label htmlFor={`product-image-${index}`} className="cursor-pointer bg-purple-100 text-purple-700 px-3 py-1.5 rounded-md text-[10px] font-black uppercase text-center hover:bg-purple-200">🖼️ Upload</label>
+                        {getInventoryPreviewImage(product) && <img src={getInventoryPreviewImage(product)} alt="Product" style={HD_IMAGE_STYLE} className="w-10 h-10 object-cover rounded border shadow-sm" />}
+                        <input id={`product-image-store1-${index}`} type="file" accept="image/*" className="hidden" onChange={(e) => handleProductImageUpload(index, e.target.files?.[0], 'store1')} />
+                        <input id={`product-image-store2-${index}`} type="file" accept="image/*" className="hidden" onChange={(e) => handleProductImageUpload(index, e.target.files?.[0], 'store2')} />
+                        <input id={`product-image-both-${index}`} type="file" accept="image/*" className="hidden" onChange={(e) => handleProductImageUpload(index, e.target.files?.[0], 'both')} />
+                        <div className="flex flex-wrap gap-1">
+                          <label htmlFor={`product-image-store1-${index}`} className="cursor-pointer bg-blue-100 text-blue-700 px-2 py-1 rounded-md text-[9px] font-black uppercase text-center hover:bg-blue-200">S1</label>
+                          <label htmlFor={`product-image-store2-${index}`} className="cursor-pointer bg-purple-100 text-purple-700 px-2 py-1 rounded-md text-[9px] font-black uppercase text-center hover:bg-purple-200">S2</label>
+                          <label htmlFor={`product-image-both-${index}`} className="cursor-pointer bg-emerald-100 text-emerald-700 px-2 py-1 rounded-md text-[9px] font-black uppercase text-center hover:bg-emerald-200">Both</label>
+                        </div>
                       </div>
                     </td>
                     <td className="p-4"><button onClick={() => openEditModal(index, product)} className="bg-blue-600 text-white px-3 py-1.5 rounded-md text-xs font-bold hover:bg-blue-700">✏️ Edit</button></td>
