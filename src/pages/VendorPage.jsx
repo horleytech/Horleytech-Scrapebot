@@ -250,6 +250,7 @@ const VendorPage = () => {
   const [storefrontDisplayLimit, setStorefrontDisplayLimit] = useState(20);
   const [tinbrLinksEnabled, setTinbrLinksEnabled] = useState(true);
   const [showBothTinbrAndNormalLinks, setShowBothTinbrAndNormalLinks] = useState(true);
+  const [tinbrVendorLinkInput, setTinbrVendorLinkInput] = useState('');
   const [tinbrStoreOneLinkInput, setTinbrStoreOneLinkInput] = useState('');
   const [tinbrStoreTwoLinkInput, setTinbrStoreTwoLinkInput] = useState('');
 
@@ -311,15 +312,21 @@ const VendorPage = () => {
           setStorefrontDisplayLimit(Number(payload.storefrontDisplayLimit) > 0 ? Number(payload.storefrontDisplayLimit) : 20);
           setTinbrLinksEnabled(payload.tinbrLinksEnabled !== false);
           setShowBothTinbrAndNormalLinks(payload.showBothTinbrAndNormalLinks !== false);
+          setTinbrVendorLinkInput(String(payload.tinbrVendorLink || ''));
           setTinbrStoreOneLinkInput(String(payload.tinbrStoreOneLink || ''));
           setTinbrStoreTwoLinkInput(String(payload.tinbrStoreTwoLink || ''));
 
           const shouldUseTinyByDefault = payload.tinbrLinksEnabled !== false;
-          if (shouldUseTinyByDefault && (String(payload.tinbrStoreOneLink || '').trim() === '' || String(payload.tinbrStoreTwoLink || '').trim() === '')) {
+          if (shouldUseTinyByDefault && (String(payload.tinbrVendorLink || '').trim() === '' || String(payload.tinbrStoreOneLink || '').trim() === '' || String(payload.tinbrStoreTwoLink || '').trim() === '')) {
             const autoPatch = {};
+            const vendorNormal = `${window.location.origin}/vendor/${vendorId}`;
             const storeOneNormal = `${window.location.origin}/store/1/${vendorId}`;
             const storeTwoNormal = `${window.location.origin}/store/2/${vendorId}`;
             try {
+              if (String(payload.tinbrVendorLink || '').trim() === '') {
+                autoPatch.tinbrVendorLink = await createTinyUrl(vendorNormal);
+                setTinbrVendorLinkInput(autoPatch.tinbrVendorLink);
+              }
               if (String(payload.tinbrStoreOneLink || '').trim() === '') {
                 autoPatch.tinbrStoreOneLink = await createTinyUrl(storeOneNormal);
                 setTinbrStoreOneLinkInput(autoPatch.tinbrStoreOneLink);
@@ -552,10 +559,9 @@ const VendorPage = () => {
         throw new Error('TinyURL generation failed.');
       }
 
-      if (isAdmin && (keyLabel === 'store1' || keyLabel === 'store2')) {
-        const isStoreOne = keyLabel === 'store1';
-        const fieldName = isStoreOne ? 'tinbrStoreOneLink' : 'tinbrStoreTwoLink';
-        const actionLabel = isStoreOne ? 'Updated Tinbr Store 1 Link' : 'Updated Tinbr Store 2 Link';
+      if (isAdmin && (keyLabel === 'vendor' || keyLabel === 'store1' || keyLabel === 'store2')) {
+        const fieldName = keyLabel === 'vendor' ? 'tinbrVendorLink' : keyLabel === 'store1' ? 'tinbrStoreOneLink' : 'tinbrStoreTwoLink';
+        const actionLabel = keyLabel === 'vendor' ? 'Updated Tinbr Vendor Link' : keyLabel === 'store1' ? 'Updated Tinbr Store 1 Link' : 'Updated Tinbr Store 2 Link';
         const nextLogs = appendRollingLog(vendorData?.logs, 'admin', {
           action: actionLabel,
           date: new Date().toISOString(),
@@ -574,7 +580,8 @@ const VendorPage = () => {
           logs: nextLogs,
         }));
 
-        if (isStoreOne) setTinbrStoreOneLinkInput(shortUrl);
+        if (keyLabel === 'vendor') setTinbrVendorLinkInput(shortUrl);
+        else if (keyLabel === 'store1') setTinbrStoreOneLinkInput(shortUrl);
         else setTinbrStoreTwoLinkInput(shortUrl);
       }
 
@@ -602,9 +609,14 @@ const VendorPage = () => {
     const nextPatch = { ...patch };
 
     if (patch.tinbrLinksEnabled === true) {
+      const vendorNormal = `${window.location.origin}/vendor/${vendorId}`;
       const storeOneNormal = `${window.location.origin}/store/1/${vendorId}`;
       const storeTwoNormal = `${window.location.origin}/store/2/${vendorId}`;
       try {
+        if (!String(vendorData?.tinbrVendorLink || '').trim()) {
+          nextPatch.tinbrVendorLink = await createTinyUrl(vendorNormal);
+          setTinbrVendorLinkInput(nextPatch.tinbrVendorLink);
+        }
         if (!String(vendorData?.tinbrStoreOneLink || '').trim()) {
           nextPatch.tinbrStoreOneLink = await createTinyUrl(storeOneNormal);
           setTinbrStoreOneLinkInput(nextPatch.tinbrStoreOneLink);
@@ -994,6 +1006,7 @@ const VendorPage = () => {
       actions.push(nextState.showBothTinbrAndNormalLinks ? 'Enabled Both Tinbr + Normal Links View' : 'Disabled Both Tinbr + Normal Links View');
     }
 
+    if ((previousVendorData.tinbrVendorLink || '') !== nextState.tinbrVendorLink) actions.push('Updated Tinbr Vendor Link');
     if ((previousVendorData.tinbrStoreOneLink || '') !== nextState.tinbrStoreOneLink) actions.push('Updated Tinbr Store 1 Link');
     if ((previousVendorData.tinbrStoreTwoLink || '') !== nextState.tinbrStoreTwoLink) actions.push('Updated Tinbr Store 2 Link');
     if (!actions.length) actions.push('Saved Settings (No Field Changes Detected)');
@@ -1020,6 +1033,7 @@ const VendorPage = () => {
       storefrontDisplayLimit: Number(storefrontDisplayLimit) > 0 ? Number(storefrontDisplayLimit) : 20,
       tinbrLinksEnabled: isAdmin ? Boolean(tinbrLinksEnabled) : vendorData?.tinbrLinksEnabled !== false,
       showBothTinbrAndNormalLinks: isAdmin ? Boolean(showBothTinbrAndNormalLinks) : vendorData?.showBothTinbrAndNormalLinks !== false,
+      tinbrVendorLink: isAdmin ? tinbrVendorLinkInput.trim() : String(vendorData?.tinbrVendorLink || '').trim(),
       tinbrStoreOneLink: isAdmin ? tinbrStoreOneLinkInput.trim() : String(vendorData?.tinbrStoreOneLink || '').trim(),
       tinbrStoreTwoLink: isAdmin ? tinbrStoreTwoLinkInput.trim() : String(vendorData?.tinbrStoreTwoLink || '').trim(),
     };
@@ -1210,13 +1224,16 @@ const VendorPage = () => {
   }
 
   const vendorBackendLink = `${window.location.origin}/vendor/${vendorId}`;
+  const tinbrVendorLink = tinbrVendorLinkInput.trim();
   const customerStoreOneLink = `${window.location.origin}/store/1/${vendorId}`;
   const customerStoreTwoLink = `${window.location.origin}/store/2/${vendorId}`;
   const tinbrStoreOneLink = tinbrStoreOneLinkInput.trim();
   const tinbrStoreTwoLink = tinbrStoreTwoLinkInput.trim();
   const canVendorSeeBothLinkSets = isAdmin || showBothTinbrAndNormalLinks;
+  const vendorTinyActive = tinbrLinksEnabled && Boolean(tinbrVendorLink);
   const storeOneTinyActive = tinbrLinksEnabled && Boolean(tinbrStoreOneLink);
   const storeTwoTinyActive = tinbrLinksEnabled && Boolean(tinbrStoreTwoLink);
+  const primaryVendorLink = vendorTinyActive ? tinbrVendorLink : vendorBackendLink;
   const primaryStoreOneLink = storeOneTinyActive ? tinbrStoreOneLink : customerStoreOneLink;
   const primaryStoreTwoLink = storeTwoTinyActive ? tinbrStoreTwoLink : customerStoreTwoLink;
   const timelineLogs = normalizeLogs(vendorData.logs);
@@ -1239,10 +1256,16 @@ const VendorPage = () => {
         <h2 className="text-xl font-bold text-[#1A1C23] mb-4">Share Links</h2>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div className="border rounded-[10px] p-4 bg-gray-50">
-            <p className="text-xs font-bold text-gray-500 mb-2 uppercase tracking-wider">Vendor Backend Link</p>
-            <p className="text-sm break-all text-[#1A1C23] mb-3 font-mono bg-white p-2 rounded border">{vendorBackendLink}</p>
+            <p className="text-xs font-bold text-gray-500 mb-2 uppercase tracking-wider">Vendor Backend Link {vendorTinyActive ? '(Tiny Active)' : '(Normal Active)'}</p>
+            <p className="text-sm break-all text-[#1A1C23] mb-2 font-mono bg-white p-2 rounded border">{primaryVendorLink}</p>
+            {canVendorSeeBothLinkSets && (
+              <div className="mb-3 text-[11px] space-y-1 text-gray-600">
+                <p><span className="font-black">Normal:</span> {vendorBackendLink}</p>
+                <p><span className="font-black">Tiny:</span> {tinbrVendorLink || 'Not set'}</p>
+              </div>
+            )}
             <div className="flex gap-2 flex-wrap">
-              <button onClick={() => handleCopyLink(vendorBackendLink)} className="bg-blue-600 text-white px-4 py-2 rounded-[8px] text-sm font-bold hover:bg-blue-700 transition-colors shadow-sm">Copy Backend Link</button>
+              <button onClick={() => handleCopyLink(primaryVendorLink)} className="bg-blue-600 text-white px-4 py-2 rounded-[8px] text-sm font-bold hover:bg-blue-700 transition-colors shadow-sm">Copy Backend Link</button>
               {isAdmin && (
                 <button onClick={() => handleTinyUrlCopy(vendorBackendLink, 'vendor')} disabled={shorteningLinkKey === 'vendor'} className="bg-slate-700 text-white px-4 py-2 rounded-[8px] text-sm font-bold hover:bg-slate-800 transition-colors shadow-sm disabled:opacity-50">{shorteningLinkKey === 'vendor' ? 'Shortening...' : 'Copy TinyURL'}</button>
               )}
@@ -1398,7 +1421,11 @@ const VendorPage = () => {
                   Let vendor see both Tinbr and normal links
                 </label>
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-xs font-black uppercase tracking-wider text-indigo-700 mb-1">Tinbr Vendor URL</label>
+                  <input type="text" value={tinbrVendorLinkInput} readOnly className="w-full p-3 border rounded-[8px] bg-gray-100 text-gray-600 cursor-not-allowed" placeholder="Auto-generated from Share Links" />
+                </div>
                 <div>
                   <label className="block text-xs font-black uppercase tracking-wider text-indigo-700 mb-1">Tinbr Store 1 URL</label>
                   <input type="text" value={tinbrStoreOneLinkInput} readOnly className="w-full p-3 border rounded-[8px] bg-gray-100 text-gray-600 cursor-not-allowed" placeholder="Auto-generated from Share Links" />
