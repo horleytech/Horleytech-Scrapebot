@@ -72,7 +72,7 @@ const buildMappingIndex = (customMappings = []) => {
   return index;
 };
 
-export const runRetroactiveSweep = async () => {
+export const runRetroactiveSweep = async ({ dryRun = false } = {}) => {
   const firestore = getAdminFirestore();
   const customMappings = await getLatestCustomMappings();
   const mappingIndex = buildMappingIndex(customMappings);
@@ -88,6 +88,7 @@ export const runRetroactiveSweep = async () => {
   let correctedProducts = 0;
   let aiRepairsAttempted = 0;
   const RETRO_MAX_AI_REPAIRS = 200;
+  const proposedByVendor = {};
 
   for (const docSnap of snapshot.docs) {
     const vendorData = docSnap.data() || {};
@@ -144,7 +145,7 @@ export const runRetroactiveSweep = async () => {
               Category: repaired.taxonomy?.Category || nextProduct.Category || 'Others',
               Brand: repaired.taxonomy?.Brand || nextProduct.Brand || 'Others',
               Series: repaired.taxonomy?.Series || nextProduct.Series || 'Others',
-              'Device Type': repaired.taxonomy?.Series || nextProduct['Device Type'] || 'Unknown Device',
+              'Device Type': repaired.deviceType || repaired.taxonomy?.Series || nextProduct['Device Type'] || 'Unknown Device',
               Condition: repaired.condition || nextProduct.Condition || 'Unknown',
               'SIM Type/Model/Processor': repaired.sim || nextProduct['SIM Type/Model/Processor'] || 'Unknown',
               'Storage Capacity/Configuration': repaired.storage || nextProduct['Storage Capacity/Configuration'] || 'UNKNOWN',
@@ -154,6 +155,7 @@ export const runRetroactiveSweep = async () => {
             };
             vendorTouched = true;
             correctedProducts += 1;
+            proposedByVendor[docSnap.id] = (proposedByVendor[docSnap.id] || 0) + 1;
           }
         } catch (error) {
           console.warn('⚠️ Retro sweep AI repair skipped for one product:', error.message);
@@ -164,20 +166,26 @@ export const runRetroactiveSweep = async () => {
     }
 
     if (vendorTouched) {
-      batch.update(docSnap.ref, {
-        products: updatedProducts,
-        lastUpdated: new Date().toISOString(),
-      });
+      if (!dryRun) {
+        batch.update(docSnap.ref, {
+          products: updatedProducts,
+          lastUpdated: new Date().toISOString(),
+        });
+      }
     }
   }
 
-  await batch.commit();
+  if (!dryRun) {
+    await batch.commit();
+  }
 
   return {
     success: true,
     inspectedProducts,
     correctedProducts,
     aiRepairsAttempted,
+    dryRun: Boolean(dryRun),
+    proposedByVendor,
   };
 };
 

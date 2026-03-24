@@ -83,10 +83,10 @@ const normalizeSim = (value = '') => {
   if (hasIdm && hasEsim) return 'eSIM';
   if (hasIdm) return 'Physical SIM';
   if ((hasEsim && hasPhysical) || /physical\s*\+\s*esim/.test(text)) return 'Physical SIM + ESIM';
-  if (/dual/.test(text)) return 'Dual SIM';
+  if (/dual/.test(text)) return 'Physical SIM';
   if (hasEsim) return 'eSIM';
   if (hasPhysical) return 'Physical SIM';
-  if (/\blocked\b/.test(text)) return 'Locked';
+  if (/\blocked\b/.test(text)) return 'Physical SIM';
   if (/\bfu\b|factory\s*unlocked|unlocked/.test(text)) return 'Physical SIM';
   return 'Unknown';
 };
@@ -113,10 +113,35 @@ const normalizeProcessorSpec = (value = '') => {
 const inferConditionFromRaw = (raw = '', current = 'Unknown') => {
   if (current !== 'Unknown') return current;
   const text = String(raw || '').toLowerCase();
-  if (/\bbh\s*\d{2,3}\b|battery\s*health/.test(text)) return 'Grade A UK Used';
+  if (/\bbh\s*\d{2,3}\b|\b\d{2,3}\s*bh\b|battery\s*health/.test(text)) return 'Grade A UK Used';
+  if (/face\s*id\s*(issue|fault|not)|swap|crack|line\s*on\s*screen|dot\s*on\s*screen|ghost\s*touch/.test(text)) return 'Grade A UK Used';
   if (/\buk\s*used\b|used|pre-?owned|tt\b/.test(text)) return 'Grade A UK Used';
   if (/brand\s*new|sealed|new\s*sealed/.test(text)) return 'Brand New';
   return current;
+};
+
+const resolveSimWithLowCostAI = async (rawProductString = '') => {
+  const raw = String(rawProductString || '').trim();
+  if (!raw) return 'Unknown';
+
+  try {
+    const textAI = await resolveTextAIConfig({ background: false });
+    const response = await textAI.client.chat.completions.create({
+      model: textAI.model,
+      messages: [
+        { role: 'system', content: 'Classify SIM as exactly one label: Physical SIM, eSIM, Physical SIM + ESIM, Unknown. Return one label only.' },
+        { role: 'user', content: raw.slice(0, 220) },
+      ],
+      temperature: 0,
+      max_tokens: 10,
+    });
+
+    const label = String(response?.choices?.[0]?.message?.content || '').trim();
+    return normalizeSimLabel(label) || 'Unknown';
+  } catch (error) {
+    console.warn('⚠️ Low-cost SIM AI classification skipped:', error.message);
+    return 'Unknown';
+  }
 };
 
 const resolveSpecification = ({ rawProductString, category, parsedSim }) => {
@@ -130,7 +155,13 @@ const resolveSpecification = ({ rawProductString, category, parsedSim }) => {
   return parsedSim;
 };
 
-const buildVariationId = ({ series, storage, condition, sim }) => `${series}_${storage}_${condition}_${sim}`
+const normalizeVariationSpecLabel = (value = '') => {
+  const normalized = normalizeSimLabel(value);
+  if (normalized) return normalized;
+  return String(value || 'Unknown').trim() || 'Unknown';
+};
+
+const buildVariationId = ({ series, storage, condition, sim }) => `${series}_${storage}_${condition}_${normalizeVariationSpecLabel(sim)}`
   .toLowerCase()
   .replace(/\s+/g, '-');
 
@@ -168,9 +199,9 @@ const PRODUCT_CATALOG_CACHE_TTL_MS = 60000;
 const normalizeSimLabel = (value = '') => {
   const text = String(value || '').toLowerCase().trim();
   if (!text) return null;
-  if (text.includes('locked')) return 'Locked';
+  if (text.includes('locked')) return 'Physical SIM';
   if (text.includes('physical') && text.includes('esim')) return 'Physical SIM + ESIM';
-  if (text.includes('dual')) return 'Dual SIM';
+  if (text.includes('dual')) return 'Physical SIM';
   if (text.includes('esim')) return 'eSIM';
   if (text.includes('physical')) return 'Physical SIM';
   return null;
@@ -436,6 +467,28 @@ const inferTaxonomyFromRaw = (rawText = '') => {
   return canonicalFallbackTaxonomy();
 };
 
+const inferDeviceTypeFromRaw = (rawText = '', fallbackSeries = 'Unknown Device') => {
+  const text = String(rawText || '').toLowerCase();
+  const iphone = text.match(/iphone\s*(\d{1,2})(?:\s*(pro\s*max|pro|max|plus))?/i);
+  if (iphone?.[1]) {
+    const suffix = iphone?.[2] ? ` ${iphone[2].replace(/\s+/g, ' ').trim()}` : '';
+    return `iPhone ${iphone[1]}${suffix}`.trim();
+  }
+
+  const compactIphone = text.match(/\b(1[1-7])\s*(pro\s*max|pro|max|plus)\b/i);
+  if (compactIphone?.[1]) {
+    return `iPhone ${compactIphone[1]} ${compactIphone[2].replace(/\s+/g, ' ').trim()}`.trim();
+  }
+
+  if (/macbook\s*pro/i.test(text)) return 'MacBook Pro';
+  if (/macbook\s*air/i.test(text)) return 'MacBook Air';
+  if (/macbook/i.test(text)) return 'MacBook';
+  if (/thinkpad/i.test(text)) return 'Lenovo ThinkPad';
+  if (/probook/i.test(text)) return 'HP ProBook';
+
+  return fallbackSeries || 'Unknown Device';
+};
+
 const sanitizeTaxonomyCandidate = (entry = canonicalFallbackTaxonomy()) => {
   const invalidSeriesPattern = /(grade\s*a|brand\s*new|uk\s*used|unknown|physical\s*sim|esim|locked)/i;
   const safeSeries = invalidSeriesPattern.test(String(entry.Series || '')) ? 'Others' : String(entry.Series || 'Others');
@@ -654,10 +707,12 @@ export const processWithShadowTesting = async ({ rawProductString, price }) => {
 
   const ignoredByPhrase = await shouldIgnoreRawString(rawProductString);
   if (ignoredByPhrase) {
+    const fallbackDeviceType = inferDeviceTypeFromRaw(rawProductString, 'Unknown Device');
     return {
       rawProductString,
       price,
       taxonomy: canonicalFallbackTaxonomy(),
+      deviceType: fallbackDeviceType,
       storage: parsedStorage,
       condition: parsedCondition,
       sim: parsedSim,
@@ -673,10 +728,12 @@ export const processWithShadowTesting = async ({ rawProductString, price }) => {
   const fastLane = await tryTrustedFastLane(alias);
   if (fastLane) {
     await incrementMetrics({ fastLaneHits: 1 });
+    const fastLaneDeviceType = inferDeviceTypeFromRaw(rawProductString, fastLane.taxonomy?.Series || 'Unknown Device');
     return {
       rawProductString,
       price,
       taxonomy: fastLane.taxonomy,
+      deviceType: fastLaneDeviceType,
       storage: parsedStorage,
       condition: parsedCondition,
       sim: parsedSim,
@@ -720,13 +777,20 @@ export const processWithShadowTesting = async ({ rawProductString, price }) => {
   const resolvedCondition = parsedCondition === 'Unknown' && catalogEntry?.condition && catalogEntry.condition !== 'Unknown'
     ? catalogEntry.condition
     : inferConditionFromRaw(rawProductString, parsedCondition);
-  const resolvedSpecification = resolveSpecification({
+  const resolvedDeviceType = catalogEntry?.deviceType
+    || inferDeviceTypeFromRaw(rawProductString, finalTaxonomy.Series || 'Unknown Device');
+  let resolvedSpecification = resolveSpecification({
     rawProductString,
     category: finalTaxonomy.Category,
     parsedSim,
   });
 
   const normalizedCategory = String(finalTaxonomy.Category || '').toLowerCase();
+  const shouldUseAiForSim = ['smartphones', 'smartwatches'].includes(normalizedCategory) && resolvedSpecification === 'Unknown';
+  if (shouldUseAiForSim) {
+    resolvedSpecification = await resolveSimWithLowCostAI(rawProductString);
+  }
+
   const requiresStorage = ['smartphones', 'laptops', 'tablets', 'gaming'].includes(normalizedCategory);
   const hasUnknownVariantAttr = (requiresStorage && parsedStorage === 'UNKNOWN');
 
@@ -735,6 +799,7 @@ export const processWithShadowTesting = async ({ rawProductString, price }) => {
       rawProductString,
       price,
       taxonomy: finalTaxonomy,
+      deviceType: resolvedDeviceType,
       storage: parsedStorage,
       condition: resolvedCondition,
       sim: resolvedSpecification,
@@ -774,6 +839,7 @@ export const processWithShadowTesting = async ({ rawProductString, price }) => {
     rawProductString,
     price,
     taxonomy: finalTaxonomy,
+    deviceType: resolvedDeviceType,
     storage: parsedStorage,
     condition: resolvedCondition,
     sim: resolvedSpecification,
@@ -787,6 +853,8 @@ export const __testables = {
   normalizeStorage,
   normalizeCondition,
   normalizeSim,
+  inferConditionFromRaw,
+  inferDeviceTypeFromRaw,
   buildVariationId,
   canonicalFallbackTaxonomy,
   regexPredictTaxonomy,
