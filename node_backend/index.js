@@ -521,16 +521,20 @@ app.post('/api/admin/onboard-vendor', async (req, res) => {
 });
 
 app.post('/api/admin/tiny-link-controls/apply', async (req, res) => {
-  if (!isAdminRequest(req)) {
-    return res.status(403).json({ success: false, error: 'Admin access required.' });
-  }
-
-  const nextTinyLinksEnabled = Boolean(req.body?.tinyLinksEnabled);
-  const nextShowBothTinyAndNormalLinks = Boolean(req.body?.showBothTinyAndNormalLinks);
-  const now = new Date().toISOString();
-  const actionLabel = `${nextTinyLinksEnabled ? 'Enabled' : 'Disabled'} Tiny Links + ${nextShowBothTinyAndNormalLinks ? 'Enabled' : 'Disabled'} Both Tiny + Normal Links View (Bulk)`;
-
   try {
+    if (!isAdminRequest(req)) {
+      return res.status(403).json({
+        success: false,
+        message: 'Admin access required.',
+      });
+    }
+
+    const payload = req.body && typeof req.body === 'object' ? req.body : {};
+    const nextTinyLinksEnabled = Boolean(payload.tinyLinksEnabled);
+    const nextShowBothTinyAndNormalLinks = Boolean(payload.showBothTinyAndNormalLinks);
+    const now = new Date().toISOString();
+    const actionLabel = `${nextTinyLinksEnabled ? 'Enabled' : 'Disabled'} Tiny Links + ${nextShowBothTinyAndNormalLinks ? 'Enabled' : 'Disabled'} Both Tiny + Normal Links View (Bulk)`;
+
     const firestore = getAdminFirestore();
     const snapshot = await firestore.collection(OFFLINE_COLLECTION).get();
     const docs = snapshot.docs || [];
@@ -570,10 +574,20 @@ app.post('/api/admin/tiny-link-controls/apply', async (req, res) => {
       tinyLinkControlsUpdatedAt: now,
     }, { merge: true });
 
-    return res.json({ success: true, updatedVendors: docs.length });
+    return res.status(200).json({
+      success: true,
+      message: 'Tiny controls applied successfully.',
+      updatedVendors: docs.length,
+      tinyLinksEnabled: nextTinyLinksEnabled,
+      showBothTinyAndNormalLinks: nextShowBothTinyAndNormalLinks,
+    });
   } catch (error) {
-    console.error('❌ Tiny link bulk apply error:', error);
-    return res.status(500).json({ success: false, error: error.message });
+    console.error('❌ Tiny Link Control Crash:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Backend failed to apply Tiny link controls',
+      error: error?.message || 'Unknown server error',
+    });
   }
 });
 
