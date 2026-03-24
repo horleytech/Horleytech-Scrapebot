@@ -2903,6 +2903,10 @@ const AdminDashboard = () => {
                     Let vendor see both Tinbr + normal links
                   </label>
                 </div>
+                <p className="text-[11px] text-indigo-800 mt-3">
+                  Firebase save path: <span className="font-black">horleytech-2287c / horleyTech_OfflineInventories / {'{vendorDocId}'}</span><br />
+                  Fields updated for each vendor doc: <span className="font-black">tinbrLinksEnabled</span> and <span className="font-black">showBothTinbrAndNormalLinks</span>.
+                </p>
                 <div className="flex flex-wrap gap-3 mt-4">
                   <button
                     onClick={() => applyTinbrControlsToAllVendors(bulkTinbrUseTinyChecked, bulkTinbrShowBothChecked)}

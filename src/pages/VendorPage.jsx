@@ -1435,7 +1435,11 @@ const VendorPage = () => {
                   <input type="text" value={tinbrStoreTwoLinkInput} readOnly className="w-full p-3 border rounded-[8px] bg-gray-100 text-gray-600 cursor-not-allowed" placeholder="Auto-generated from Share Links" />
                 </div>
               </div>
-              <p className="text-xs text-indigo-800 mt-3">Use the Copy TinyURL buttons in Share Links to generate and save Tinbr links to Firebase. Vendors only see both normal + Tinbr links when enabled above.</p>
+              <p className="text-xs text-indigo-800 mt-3">
+                Use the Copy TinyURL buttons in Share Links to generate and save Tinbr links to Firebase. Vendors only see both normal + Tinbr links when enabled above.<br />
+                Firebase path: <span className="font-black">horleytech-2287c / horleyTech_OfflineInventories / {vendorId}</span> fields <span className="font-black">tinbrLinksEnabled</span>, <span className="font-black">showBothTinbrAndNormalLinks</span>, <span className="font-black">tinbrVendorLink</span>, <span className="font-black">tinbrStoreOneLink</span>, <span className="font-black">tinbrStoreTwoLink</span>.<br />
+                Product images are also saved in this same vendor document inside <span className="font-black">products[]</span> fields: <span className="font-black">productImageBase64</span>, <span className="font-black">productImageStore1Base64</span>, <span className="font-black">productImageStore2Base64</span>.
+              </p>
               </div>
             )}
 
