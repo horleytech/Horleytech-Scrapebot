@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { doc, getDoc, updateDoc } from 'firebase/firestore';
+import { doc, getDoc, getDocs, updateDoc, collection, addDoc, serverTimestamp, query, orderBy, limit } from 'firebase/firestore';
 import { db } from '../services/firebase/index.js';
 import { useSelector } from 'react-redux';
 import { BASE_URL } from '../services/constants/apiConstants.js';
@@ -256,6 +256,7 @@ const VendorPage = () => {
 
   // Timeline & Chat State
   const [timelineTab, setTimelineTab] = useState('vendor');
+  const [activityLogs, setActivityLogs] = useState(normalizeLogs());
   const [supportMessages, setSupportMessages] = useState([]);
   const [supportLoading, setSupportLoading] = useState(false);
   const [supportInput, setSupportInput] = useState('');
@@ -277,6 +278,51 @@ const VendorPage = () => {
 
   const vendorRef = useMemo(() => doc(db, 'horleyTech_OfflineInventories', vendorId), [vendorId]);
 
+  const saveAuditLog = async (action, channelOverride = logChannel) => {
+    if (!action) return;
+    const date = new Date().toISOString();
+    setActivityLogs((prev) => appendRollingLog(prev, channelOverride, { action, date }));
+    try {
+      await addDoc(collection(db, 'horleyTech_OfflineInventories', vendorId, 'activityLogs'), {
+        action,
+        channel: channelOverride,
+        date,
+        actor: channelOverride,
+        timestamp: serverTimestamp(),
+      });
+    } catch (error) {
+      console.error('Failed to save activity log entry:', error);
+    }
+  };
+
+  const saveAuditLogs = async (actions = [], channelOverride = logChannel) => {
+    const normalizedActions = actions.map((action) => String(action || '').trim()).filter(Boolean);
+    if (!normalizedActions.length) return;
+    await Promise.all(normalizedActions.map((action) => saveAuditLog(action, channelOverride)));
+  };
+
+  const loadActivityLogs = async () => {
+    try {
+      const logsRef = collection(db, 'horleyTech_OfflineInventories', vendorId, 'activityLogs');
+      const logsQuery = query(logsRef, orderBy('date', 'desc'), limit(MAX_LOG_ITEMS * 3));
+      const logsSnap = await getDocs(logsQuery);
+      const nextLogs = normalizeLogs({});
+
+      logsSnap.forEach((docSnap) => {
+        const payload = docSnap.data() || {};
+        const channel = ['admin', 'vendor', 'customer'].includes(payload.channel) ? payload.channel : 'vendor';
+        const action = String(payload.action || '').trim();
+        const date = String(payload.date || '').trim();
+        if (!action || !date) return;
+        nextLogs[channel].push({ action, date });
+      });
+
+      setActivityLogs(nextLogs);
+    } catch (error) {
+      console.error('Failed to load activity logs subcollection:', error);
+    }
+  };
+
   useEffect(() => {
     const fetchVendorData = async () => {
       try {
@@ -294,6 +340,7 @@ const VendorPage = () => {
             products: normalizedProducts,
             logs: normalizeLogs(payload.logs),
           });
+          setActivityLogs(normalizeLogs(payload.logs));
           setVendorNameInput(payload.vendorName || '');
           setAddressInput(payload.address || '');
           setStoreDescriptionInput(payload.storeDescription || '');
@@ -360,6 +407,8 @@ const VendorPage = () => {
               lastUpdated: new Date().toISOString(),
             });
           }
+
+          await loadActivityLogs();
 
           const storedSessionTime = localStorage.getItem(`vendor_session_${vendorId}`);
           if (storedSessionTime) {
@@ -570,8 +619,8 @@ const VendorPage = () => {
         await updateDoc(vendorRef, {
           [fieldName]: shortUrl,
           lastUpdated: new Date().toISOString(),
-          logs: nextLogs,
         });
+        await saveAuditLog(actionLabel, 'admin');
 
         setVendorData((prev) => ({
           ...prev,
@@ -639,8 +688,8 @@ const VendorPage = () => {
       await updateDoc(vendorRef, {
         ...nextPatch,
         lastUpdated: new Date().toISOString(),
-        logs: nextLogs,
       });
+      await saveAuditLog(actionLabel, 'admin');
       setVendorData((prev) => ({
         ...prev,
         ...nextPatch,
@@ -802,8 +851,8 @@ const VendorPage = () => {
       await updateDoc(vendorRef, {
         products: nextProducts,
         lastUpdated: new Date().toISOString(),
-        logs: nextLogs,
       });
+      await saveAuditLog(`Updated Product Image (${targetLabel})`, logChannel);
 
       setVendorData((prev) => ({
         ...prev,
@@ -844,8 +893,8 @@ const VendorPage = () => {
       await updateDoc(vendorRef, {
         products: nextProducts,
         lastUpdated: new Date().toISOString(),
-        logs: nextLogs,
       });
+      await saveAuditLog(`Updated visibility in ${storeKey} for ${selectedProductIndexes.length} items`, logChannel);
 
       setVendorData((prev) => ({
         ...prev,
@@ -916,8 +965,8 @@ const VendorPage = () => {
       await updateDoc(vendorRef, {
         products: mergedProducts,
         lastUpdated: new Date().toISOString(),
-        logs: nextLogs,
       });
+      await saveAuditLog(`${actionLabel} (${scopeLabel})`, logChannel);
 
       setVendorData((prev) => ({
         ...prev,
@@ -949,8 +998,8 @@ const VendorPage = () => {
       await updateDoc(vendorRef, {
         advancedEnabled: nextAdvancedEnabled,
         lastUpdated: new Date().toISOString(),
-        logs: nextLogs,
       });
+      await saveAuditLog(action, 'admin');
 
       setVendorData((prev) => ({
         ...prev,
@@ -1049,8 +1098,8 @@ const VendorPage = () => {
       await updateDoc(vendorRef, {
         ...nextState,
         lastUpdated: new Date().toISOString(),
-        logs: nextLogs,
       });
+      await saveAuditLogs(actions, logChannel);
 
       setVendorData((prev) => ({
         ...prev,
@@ -1102,13 +1151,24 @@ const VendorPage = () => {
   const saveInlineEdit = async () => {
     if (editingIndex === null || editingIndex === undefined) return;
 
-    const oldProduct = products[editingIndex] || {};
+    setSavingEdit(true);
+    try {
+      const freshDoc = await getDoc(vendorRef);
+      if (!freshDoc.exists()) {
+        throw new Error('Vendor document not found.');
+      }
 
-    const nextProducts = products.map((product, index) => {
-      if (index !== editingIndex) return product;
+      const freshData = freshDoc.data() || {};
+      const currentProducts = Array.isArray(freshData.products) ? freshData.products.map((product) => normalizeDualStoreProduct(product)) : [];
+      const oldProduct = currentProducts[editingIndex] || {};
+      if (!currentProducts[editingIndex]) {
+        throw new Error('Product index no longer exists. Refresh and try again.');
+      }
+
+      const nextProducts = [...currentProducts];
       const parsed = parseEditFromValues(editSpecification.trim(), editStorage.trim());
-      return {
-        ...product,
+      nextProducts[editingIndex] = {
+        ...nextProducts[editingIndex],
         'Device Type': editDeviceType.trim(),
         Condition: editCondition.trim(),
         'Regular price': normalizePriceInput(editPriceStore1),
@@ -1121,26 +1181,21 @@ const VendorPage = () => {
         visibleInStore2: editVisStore2,
         ...parsed,
       };
-    });
 
-    const nextLogs = appendRollingLog(vendorData?.logs, logChannel, {
-      action: `Edited product details for ${oldProduct['Device Type'] || 'Unknown Device'}`,
-      date: new Date().toISOString(),
-    });
-
-    setSavingEdit(true);
-    try {
       await updateDoc(vendorRef, {
         products: nextProducts,
         lastUpdated: new Date().toISOString(),
-        logs: nextLogs,
       });
+      await saveAuditLog(`Edited product details for ${oldProduct['Device Type'] || 'Unknown Device'}`, logChannel);
 
       setVendorData((prev) => ({
         ...prev,
         products: nextProducts,
         lastUpdated: new Date().toISOString(),
-        logs: nextLogs,
+        logs: appendRollingLog(prev?.logs, logChannel, {
+          action: `Edited product details for ${oldProduct['Device Type'] || 'Unknown Device'}`,
+          date: new Date().toISOString(),
+        }),
       }));
 
       closeEditModal();
@@ -1236,7 +1291,7 @@ const VendorPage = () => {
   const primaryVendorLink = vendorTinyActive ? tinbrVendorLink : vendorBackendLink;
   const primaryStoreOneLink = storeOneTinyActive ? tinbrStoreOneLink : customerStoreOneLink;
   const primaryStoreTwoLink = storeTwoTinyActive ? tinbrStoreTwoLink : customerStoreTwoLink;
-  const timelineLogs = normalizeLogs(vendorData.logs);
+  const timelineLogs = normalizeLogs(activityLogs);
   const timelineEntries = {
     vendor: [...timelineLogs.vendor].sort((a, b) => new Date(b.date) - new Date(a.date)),
     customer: [...timelineLogs.customer].sort((a, b) => new Date(b.date) - new Date(a.date)),
@@ -1437,8 +1492,8 @@ const VendorPage = () => {
               </div>
               <p className="text-xs text-indigo-800 mt-3">
                 Use the Copy TinyURL buttons in Share Links to generate and save Tinbr links to Firebase. Vendors only see both normal + Tinbr links when enabled above.<br />
-                Firebase path: <span className="font-black">horleytech-2287c / horleyTech_OfflineInventories / {vendorId}</span> fields <span className="font-black">tinbrLinksEnabled</span>, <span className="font-black">showBothTinbrAndNormalLinks</span>, <span className="font-black">tinbrVendorLink</span>, <span className="font-black">tinbrStoreOneLink</span>, <span className="font-black">tinbrStoreTwoLink</span>.<br />
-                Product images are also saved in this same vendor document inside <span className="font-black">products[]</span> fields: <span className="font-black">productImageBase64</span>, <span className="font-black">productImageStore1Base64</span>, <span className="font-black">productImageStore2Base64</span>.
+                These link settings are saved in the vendor record in Firebase and both storefronts read them live.<br />
+                Product images are saved with each product in Firebase using <span className="font-black">productImageBase64</span>, <span className="font-black">productImageStore1Base64</span>, and <span className="font-black">productImageStore2Base64</span> so Store 1 and Store 2 load the correct image automatically.
               </p>
               </div>
             )}
