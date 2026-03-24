@@ -36,17 +36,25 @@ const USED_QUALIFIERS = /(uk used|pre-?owned|fair|open box|used|mint|pristine|al
 const NEW_QUALIFIERS = /(brand new|new sealed|sealed|^new$)/i;
 
 const normalizeStorage = (value = '') => {
-  const raw = String(value || '').toUpperCase().replace(/\s+/g, '');
-  const storageMatch = raw.match(/(\d+)(GB|TB)/i);
-  if (!storageMatch) return 'UNKNOWN';
+  const raw = String(value || '').toUpperCase();
+  const matches = [...raw.matchAll(/\b(\d{1,4})\s*(GB|TB)\b/g)];
+  if (!matches.length) return 'UNKNOWN';
 
-  const amount = Number(storageMatch[1]);
-  const unit = storageMatch[2].toUpperCase();
+  const normalized = matches
+    .map((match) => ({ amount: Number(match[1]), unit: String(match[2] || '').toUpperCase() }))
+    .filter(({ amount, unit }) => Number.isFinite(amount)
+      && !((unit === 'GB' && amount > 2048) || (unit === 'TB' && amount > 8)));
 
-  // Guard against malformed joins like 13128GB which create noisy container IDs.
-  if ((unit === 'GB' && amount > 2048) || (unit === 'TB' && amount > 8)) return 'UNKNOWN';
+  if (!normalized.length) return 'UNKNOWN';
 
-  return `${amount}${unit}`;
+  // Prefer the largest capacity token to avoid RAM being chosen over storage (e.g. 8GB RAM + 512GB SSD).
+  const best = normalized.reduce((current, next) => {
+    const currentGb = current.unit === 'TB' ? current.amount * 1024 : current.amount;
+    const nextGb = next.unit === 'TB' ? next.amount * 1024 : next.amount;
+    return nextGb > currentGb ? next : current;
+  });
+
+  return `${best.amount}${best.unit}`;
 };
 
 const normalizeCondition = (value = '') => {
@@ -186,6 +194,18 @@ const inferTaxonomyFromRaw = (rawText = '') => {
     return { Category: 'Smartphones', Brand: 'Apple', Series: `iPhone ${model} Series` };
   }
 
+  const iphoneCompactMatch = text.match(/\b(\d{2})\s*pro\b|\b(\d{2})pro\b|\b(\d{2})\s*pm\b/i);
+  if (iphoneCompactMatch) {
+    const model = iphoneCompactMatch[1] || iphoneCompactMatch[2] || iphoneCompactMatch[3];
+    if (Number(model) >= 11 && Number(model) <= 17) {
+      return { Category: 'Smartphones', Brand: 'Apple', Series: `iPhone ${model} Series` };
+    }
+  }
+
+  if (/xs\s*max|xsm\b|xsmax/.test(text)) {
+    return { Category: 'Smartphones', Brand: 'Apple', Series: 'iPhone X Series' };
+  }
+
   if (/macbook/.test(text)) {
     return { Category: 'Laptops', Brand: 'Apple', Series: 'MacBook Series' };
   }
@@ -196,6 +216,10 @@ const inferTaxonomyFromRaw = (rawText = '') => {
 
   if (/probook/.test(text)) {
     return { Category: 'Laptops', Brand: 'HP', Series: 'ProBook Series' };
+  }
+
+  if (/tecno\s*spark/.test(text)) {
+    return { Category: 'Smartphones', Brand: 'Tecno', Series: 'Spark Series' };
   }
 
   const samsungGalaxy = text.match(/(galaxy\s*[a-z0-9+]+)/i);
@@ -473,10 +497,7 @@ export const processWithShadowTesting = async ({ rawProductString, price }) => {
 
   const normalizedCategory = String(finalTaxonomy.Category || '').toLowerCase();
   const requiresStorage = ['smartphones', 'laptops', 'tablets', 'gaming'].includes(normalizedCategory);
-  const requiresSpecification = ['smartphones', 'smartwatches'].includes(normalizedCategory);
-
-  const hasUnknownVariantAttr = (requiresStorage && parsedStorage === 'UNKNOWN')
-    || (requiresSpecification && resolvedSpecification === 'Unknown');
+  const hasUnknownVariantAttr = (requiresStorage && parsedStorage === 'UNKNOWN');
 
   if (hasUnknownVariantAttr || (finalTaxonomy.Category === 'Others' && finalTaxonomy.Brand === 'Others' && finalTaxonomy.Series === 'Others')) {
     return {
