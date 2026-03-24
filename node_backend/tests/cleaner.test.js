@@ -21,7 +21,7 @@ test('normalizeCondition maps slang and unknown', () => {
 });
 
 test('normalizeSim maps expected formats and unknown', () => {
-  assert.equal(__testables.normalizeSim('dual sim'), 'Dual SIM');
+  assert.equal(__testables.normalizeSim('dual sim'), 'Physical SIM');
   assert.equal(__testables.normalizeSim('physical + esim'), 'Physical SIM + ESIM');
   assert.equal(__testables.normalizeSim('esim only'), 'eSIM');
   assert.equal(__testables.normalizeSim('eSIM unlocked'), 'eSIM');
@@ -30,7 +30,7 @@ test('normalizeSim maps expected formats and unknown', () => {
   assert.equal(__testables.normalizeSim('IDM with eSIM'), 'eSIM');
   assert.equal(__testables.normalizeSim('IDM physical dual'), 'Physical SIM');
   assert.equal(__testables.normalizeSim('IDM physical + eSIM'), 'Physical SIM + ESIM');
-  assert.equal(__testables.normalizeSim('locked 16pro'), 'Locked');
+  assert.equal(__testables.normalizeSim('locked 16pro'), 'Physical SIM');
   assert.equal(__testables.normalizeSim('single sim physical'), 'Physical SIM');
   assert.equal(__testables.normalizeSim('sim unknown'), 'Unknown');
 });

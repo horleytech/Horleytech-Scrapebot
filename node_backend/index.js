@@ -204,6 +204,10 @@ app.use(async (req, res, next) => {
   let targetDocId = null;
 
   try {
+    const pipelineMetrics = {
+      fragmentsMerged: 0,
+      fragmentsSkippedWithoutBase: 0,
+    };
     const firestore = getAdminFirestore();
     const candidateId = req.body?.vendorDocId || req.body?.vendorId;
 
@@ -759,7 +763,8 @@ app.post('/api/backup/upload-restore', upload.single('file'), async (req, res) =
 // Manual Retroactive Sweeper Trigger
 app.post('/api/admin/retroactive-sweep', async (_req, res) => {
   try {
-    const result = await runRetroactiveSweep();
+    const dryRun = String(_req.query?.dryRun || _req.body?.dryRun || '').toLowerCase() === 'true';
+    const result = await runRetroactiveSweep({ dryRun });
     return res.json(result);
   } catch (error) {
     console.error('❌ Retroactive sweep error:', error);
@@ -1125,6 +1130,9 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
           const previous = merged[merged.length - 1];
           if (previous) {
             previous.rawProductString = `${previous.rawProductString} | ${raw}`;
+            pipelineMetrics.fragmentsMerged += 1;
+          } else {
+            pipelineMetrics.fragmentsSkippedWithoutBase += 1;
           }
           return;
         }
@@ -1359,6 +1367,23 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
       }];
 
       await saveVendorsToFirebase(vendorData);
+
+      const excludedDrops = shadowProcessed.filter((item) => item?.ignoreReason === 'excluded-phrase').length;
+      const taxonomyFallbacks = shadowProcessed.filter((item) => item?.ignoreReason === 'taxonomy-others').length;
+      const lowConfidence = shadowProcessed.filter((item) => String(item?.confidenceLevel || '') === 'low').length;
+      try {
+        const firestore = getAdminFirestore();
+        await firestore.collection(SETTINGS_COLLECTION).doc('pipelineMetrics').set({
+          lastUpdated: new Date().toISOString(),
+          fragmentsMerged: admin.firestore.FieldValue.increment(pipelineMetrics.fragmentsMerged),
+          fragmentsSkippedWithoutBase: admin.firestore.FieldValue.increment(pipelineMetrics.fragmentsSkippedWithoutBase),
+          excludedPhraseDrops: admin.firestore.FieldValue.increment(excludedDrops),
+          taxonomyFallbackDrops: admin.firestore.FieldValue.increment(taxonomyFallbacks),
+          lowConfidenceRows: admin.firestore.FieldValue.increment(lowConfidence),
+        }, { merge: true });
+      } catch (metricError) {
+        console.warn('⚠️ Pipeline metrics write skipped:', metricError.message);
+      }
     } else {
       console.log('🤷‍♂️ No products found in message.');
     }

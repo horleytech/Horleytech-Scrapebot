@@ -83,10 +83,10 @@ const normalizeSim = (value = '') => {
   if (hasIdm && hasEsim) return 'eSIM';
   if (hasIdm) return 'Physical SIM';
   if ((hasEsim && hasPhysical) || /physical\s*\+\s*esim/.test(text)) return 'Physical SIM + ESIM';
-  if (/dual/.test(text)) return 'Dual SIM';
+  if (/dual/.test(text)) return 'Physical SIM';
   if (hasEsim) return 'eSIM';
   if (hasPhysical) return 'Physical SIM';
-  if (/\blocked\b/.test(text)) return 'Locked';
+  if (/\blocked\b/.test(text)) return 'Physical SIM';
   if (/\bfu\b|factory\s*unlocked|unlocked/.test(text)) return 'Physical SIM';
   return 'Unknown';
 };
@@ -114,9 +114,34 @@ const inferConditionFromRaw = (raw = '', current = 'Unknown') => {
   if (current !== 'Unknown') return current;
   const text = String(raw || '').toLowerCase();
   if (/\bbh\s*\d{2,3}\b|\b\d{2,3}\s*bh\b|battery\s*health/.test(text)) return 'Grade A UK Used';
+  if (/face\s*id\s*(issue|fault|not)|swap|crack|line\s*on\s*screen|dot\s*on\s*screen|ghost\s*touch/.test(text)) return 'Grade A UK Used';
   if (/\buk\s*used\b|used|pre-?owned|tt\b/.test(text)) return 'Grade A UK Used';
   if (/brand\s*new|sealed|new\s*sealed/.test(text)) return 'Brand New';
   return current;
+};
+
+const resolveSimWithLowCostAI = async (rawProductString = '') => {
+  const raw = String(rawProductString || '').trim();
+  if (!raw) return 'Unknown';
+
+  try {
+    const textAI = await resolveTextAIConfig({ background: false });
+    const response = await textAI.client.chat.completions.create({
+      model: textAI.model,
+      messages: [
+        { role: 'system', content: 'Classify SIM as exactly one label: Physical SIM, eSIM, Physical SIM + ESIM, Unknown. Return one label only.' },
+        { role: 'user', content: raw.slice(0, 220) },
+      ],
+      temperature: 0,
+      max_tokens: 10,
+    });
+
+    const label = String(response?.choices?.[0]?.message?.content || '').trim();
+    return normalizeSimLabel(label) || 'Unknown';
+  } catch (error) {
+    console.warn('⚠️ Low-cost SIM AI classification skipped:', error.message);
+    return 'Unknown';
+  }
 };
 
 const resolveSpecification = ({ rawProductString, category, parsedSim }) => {
@@ -130,7 +155,13 @@ const resolveSpecification = ({ rawProductString, category, parsedSim }) => {
   return parsedSim;
 };
 
-const buildVariationId = ({ series, storage, condition, sim }) => `${series}_${storage}_${condition}_${sim}`
+const normalizeVariationSpecLabel = (value = '') => {
+  const normalized = normalizeSimLabel(value);
+  if (normalized) return normalized;
+  return String(value || 'Unknown').trim() || 'Unknown';
+};
+
+const buildVariationId = ({ series, storage, condition, sim }) => `${series}_${storage}_${condition}_${normalizeVariationSpecLabel(sim)}`
   .toLowerCase()
   .replace(/\s+/g, '-');
 
@@ -168,9 +199,9 @@ const PRODUCT_CATALOG_CACHE_TTL_MS = 60000;
 const normalizeSimLabel = (value = '') => {
   const text = String(value || '').toLowerCase().trim();
   if (!text) return null;
-  if (text.includes('locked')) return 'Locked';
+  if (text.includes('locked')) return 'Physical SIM';
   if (text.includes('physical') && text.includes('esim')) return 'Physical SIM + ESIM';
-  if (text.includes('dual')) return 'Dual SIM';
+  if (text.includes('dual')) return 'Physical SIM';
   if (text.includes('esim')) return 'eSIM';
   if (text.includes('physical')) return 'Physical SIM';
   return null;
@@ -748,13 +779,18 @@ export const processWithShadowTesting = async ({ rawProductString, price }) => {
     : inferConditionFromRaw(rawProductString, parsedCondition);
   const resolvedDeviceType = catalogEntry?.deviceType
     || inferDeviceTypeFromRaw(rawProductString, finalTaxonomy.Series || 'Unknown Device');
-  const resolvedSpecification = resolveSpecification({
+  let resolvedSpecification = resolveSpecification({
     rawProductString,
     category: finalTaxonomy.Category,
     parsedSim,
   });
 
   const normalizedCategory = String(finalTaxonomy.Category || '').toLowerCase();
+  const shouldUseAiForSim = ['smartphones', 'smartwatches'].includes(normalizedCategory) && resolvedSpecification === 'Unknown';
+  if (shouldUseAiForSim) {
+    resolvedSpecification = await resolveSimWithLowCostAI(rawProductString);
+  }
+
   const requiresStorage = ['smartphones', 'laptops', 'tablets', 'gaming'].includes(normalizedCategory);
   const hasUnknownVariantAttr = (requiresStorage && parsedStorage === 'UNKNOWN');
 
