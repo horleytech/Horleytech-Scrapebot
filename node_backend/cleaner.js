@@ -66,11 +66,54 @@ const normalizeCondition = (value = '') => {
 
 const normalizeSim = (value = '') => {
   const text = String(value || '').toLowerCase();
+  const hasEsim = /esim|e-sim/.test(text);
+  const hasPhysical = /physical|single/.test(text);
+
+  if ((hasEsim && hasPhysical) || /physical\s*\+\s*esim/.test(text)) return 'Physical SIM + ESIM';
   if (/dual/.test(text)) return 'Dual SIM';
-  if (/esim|e-sim/.test(text)) return 'eSIM';
-  if (/physical|single/.test(text)) return 'Physical SIM';
+  if (hasEsim) return 'eSIM';
+  if (hasPhysical) return 'Physical SIM';
   if (/unlocked/.test(text)) return 'eSIM';
   return 'Unknown';
+};
+
+const normalizeProcessorSpec = (value = '') => {
+  const text = String(value || '');
+  const patterns = [
+    /core\s*i[3579](?:\s*[- ]?\d{3,5}[a-z]{0,2})?(?:\s*\d{1,2}(?:st|nd|rd|th)?\s*gen)?/i,
+    /ryzen\s*[3579](?:\s*\d{3,5}[a-z]{0,2})?/i,
+    /apple\s*m[1-4](?:\s*(?:pro|max|ultra))?/i,
+    /\bm[1-4](?:\s*(?:pro|max|ultra))?\b/i,
+    /intel\s*(?:uhd|iris)\s*\d*/i,
+    /snapdragon\s*[a-z0-9+]+/i,
+  ];
+
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (match?.[0]) return match[0].replace(/\s+/g, ' ').trim();
+  }
+
+  return 'Unknown';
+};
+
+const inferConditionFromRaw = (raw = '', current = 'Unknown') => {
+  if (current !== 'Unknown') return current;
+  const text = String(raw || '').toLowerCase();
+  if (/\bbh\s*\d{2,3}\b|battery\s*health/.test(text)) return 'Grade A UK Used';
+  if (/\buk\s*used\b|used|pre-?owned|tt\b/.test(text)) return 'Grade A UK Used';
+  if (/brand\s*new|sealed|new\s*sealed/.test(text)) return 'Brand New';
+  return current;
+};
+
+const resolveSpecification = ({ rawProductString, category, parsedSim }) => {
+  const normalizedCategory = String(category || '').toLowerCase();
+
+  if (['laptops', 'gaming'].includes(normalizedCategory)) {
+    const processor = normalizeProcessorSpec(rawProductString);
+    if (processor !== 'Unknown') return processor;
+  }
+
+  return parsedSim;
 };
 
 const buildVariationId = ({ series, storage, condition, sim }) => `${series}_${storage}_${condition}_${sim}`
@@ -379,15 +422,28 @@ export const processWithShadowTesting = async ({ rawProductString, price }) => {
     await incrementMetrics({ stage2OthersFallbacks: 1 });
   }
 
-  const hasUnknownVariantAttr = parsedStorage === 'UNKNOWN' || parsedCondition === 'Unknown' || parsedSim === 'Unknown';
+  const resolvedCondition = inferConditionFromRaw(rawProductString, parsedCondition);
+  const resolvedSpecification = resolveSpecification({
+    rawProductString,
+    category: aiTruth.Category,
+    parsedSim,
+  });
+
+  const normalizedCategory = String(aiTruth.Category || '').toLowerCase();
+  const requiresStorage = ['smartphones', 'laptops', 'tablets', 'gaming'].includes(normalizedCategory);
+  const requiresSpecification = ['smartphones', 'smartwatches'].includes(normalizedCategory);
+
+  const hasUnknownVariantAttr = (requiresStorage && parsedStorage === 'UNKNOWN')
+    || (requiresSpecification && resolvedSpecification === 'Unknown');
+
   if (hasUnknownVariantAttr || (aiTruth.Category === 'Others' && aiTruth.Brand === 'Others' && aiTruth.Series === 'Others')) {
     return {
       rawProductString,
       price,
       taxonomy: aiTruth,
       storage: parsedStorage,
-      condition: parsedCondition,
-      sim: parsedSim,
+      condition: resolvedCondition,
+      sim: resolvedSpecification,
       variationId: null,
       trustedFastLane: false,
       ignored: true,
@@ -398,8 +454,8 @@ export const processWithShadowTesting = async ({ rawProductString, price }) => {
   const aiVariationId = buildVariationId({
     series: aiTruth.Series,
     storage: parsedStorage,
-    condition: parsedCondition,
-    sim: parsedSim,
+    condition: resolvedCondition,
+    sim: resolvedSpecification,
   });
 
   let shadowResult = { didMatch: false, promotedToTrusted: false };
@@ -425,8 +481,8 @@ export const processWithShadowTesting = async ({ rawProductString, price }) => {
     price,
     taxonomy: aiTruth,
     storage: parsedStorage,
-    condition: parsedCondition,
-    sim: parsedSim,
+    condition: resolvedCondition,
+    sim: resolvedSpecification,
     variationId: aiVariationId,
     trustedFastLane: false,
     ignored: false,
