@@ -27,6 +27,27 @@ const appendRollingLog = (logs, channel, entry) => {
   };
 };
 
+const toBoolean = (value, fallback = false) => {
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    if (normalized === 'true' || normalized === '1' || normalized === 'yes') return true;
+    if (normalized === 'false' || normalized === '0' || normalized === 'no') return false;
+  }
+  if (typeof value === 'number') return value === 1;
+  return fallback;
+};
+
+const resolveStore1Visibility = (product) => {
+  if (product?.visibleInStore1 !== undefined) return toBoolean(product.visibleInStore1, true);
+  return toBoolean(product?.isVisible, true);
+};
+
+const resolveStore2Visibility = (product) => {
+  if (product?.visibleInStore2 !== undefined) return toBoolean(product.visibleInStore2, false);
+  return false;
+};
+
 // Utility to generate theme shades dynamically
 const lightenHex = (hex, amount = 0.18) => {
   if (!hex || typeof hex !== 'string') return '#22c55e';
@@ -93,8 +114,8 @@ const StoreFront = ({ storeType = '1' }) => {
     return products
       .filter((product) => {
         if (isStore2) {
-          if (product.visibleInStore2 !== true) return false;
-        } else if (product.visibleInStore1 === false || product.isVisible === false) {
+          if (!resolveStore2Visibility(product)) return false;
+        } else if (!resolveStore1Visibility(product)) {
           return false;
         }
 
