@@ -1437,8 +1437,8 @@ const VendorPage = () => {
               </div>
               <p className="text-xs text-indigo-800 mt-3">
                 Use the Copy TinyURL buttons in Share Links to generate and save Tinbr links to Firebase. Vendors only see both normal + Tinbr links when enabled above.<br />
-                Firebase path: <span className="font-black">horleytech-2287c / horleyTech_OfflineInventories / {vendorId}</span> fields <span className="font-black">tinbrLinksEnabled</span>, <span className="font-black">showBothTinbrAndNormalLinks</span>, <span className="font-black">tinbrVendorLink</span>, <span className="font-black">tinbrStoreOneLink</span>, <span className="font-black">tinbrStoreTwoLink</span>.<br />
-                Product images are also saved in this same vendor document inside <span className="font-black">products[]</span> fields: <span className="font-black">productImageBase64</span>, <span className="font-black">productImageStore1Base64</span>, <span className="font-black">productImageStore2Base64</span>.
+                These link settings are saved in the vendor record in Firebase and both storefronts read them live.<br />
+                Product images are saved with each product in Firebase using <span className="font-black">productImageBase64</span>, <span className="font-black">productImageStore1Base64</span>, and <span className="font-black">productImageStore2Base64</span> so Store 1 and Store 2 load the correct image automatically.
               </p>
               </div>
             )}
