@@ -78,6 +78,7 @@ const normalizeSim = (value = '') => {
   const hasPhysical = /physical|single/.test(text);
   const hasIdm = /\bidm\b/.test(text);
 
+  if (hasIdm && hasPhysical && hasEsim) return 'Physical SIM + ESIM';
   if (hasIdm && hasPhysical) return 'Physical SIM';
   if (hasIdm && hasEsim) return 'eSIM';
   if (hasIdm) return 'Physical SIM';

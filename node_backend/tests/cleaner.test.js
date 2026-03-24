@@ -28,6 +28,7 @@ test('normalizeSim maps expected formats and unknown', () => {
   assert.equal(__testables.normalizeSim('IDM line'), 'Physical SIM');
   assert.equal(__testables.normalizeSim('IDM with eSIM'), 'eSIM');
   assert.equal(__testables.normalizeSim('IDM physical dual'), 'Physical SIM');
+  assert.equal(__testables.normalizeSim('IDM physical + eSIM'), 'Physical SIM + ESIM');
   assert.equal(__testables.normalizeSim('locked 16pro'), 'Locked');
   assert.equal(__testables.normalizeSim('single sim physical'), 'Physical SIM');
   assert.equal(__testables.normalizeSim('sim unknown'), 'Unknown');
