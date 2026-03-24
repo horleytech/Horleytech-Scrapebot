@@ -81,7 +81,8 @@ const normalizeSim = (value = '') => {
   if (/dual/.test(text)) return 'Dual SIM';
   if (hasEsim) return 'eSIM';
   if (hasPhysical) return 'Physical SIM';
-  if (/\blocked\b|\bfu\b|factory\s*unlocked|unlocked|\bidm\b/.test(text)) return 'Physical SIM';
+  if (/\blocked\b|\bidm\b/.test(text)) return 'Locked';
+  if (/\bfu\b|factory\s*unlocked|unlocked/.test(text)) return 'Physical SIM';
   return 'Unknown';
 };
 
@@ -159,6 +160,7 @@ const SIM_DICTIONARY_CACHE_TTL_MS = 60000;
 const normalizeSimLabel = (value = '') => {
   const text = String(value || '').toLowerCase().trim();
   if (!text) return null;
+  if (text.includes('locked') || text == 'idm') return 'Locked';
   if (text.includes('physical') && text.includes('esim')) return 'Physical SIM + ESIM';
   if (text.includes('dual')) return 'Dual SIM';
   if (text.includes('esim')) return 'eSIM';
@@ -264,15 +266,6 @@ const shouldIgnoreRawString = async (rawText = '') => {
   if (!text) return true;
   const phrases = await getExcludedPhrases();
   return phrases.some((phrase) => text.includes(phrase));
-};
-
-const hasStrongProductSignal = (rawText = '') => {
-  const text = String(rawText || '').toLowerCase();
-  if (!text) return false;
-
-  const hasStorage = /(\d+)\s*(gb|tb)\b/i.test(text);
-  const hasDeviceToken = /(iphone|ipad|macbook|thinkpad|probook|galaxy|samsung|tecno|infinix|pixel|redmi|xiaomi|itel|oppo|vivo)/i.test(text);
-  return hasStorage && hasDeviceToken;
 };
 
 const inferTaxonomyFromRaw = (rawText = '') => {
@@ -524,7 +517,7 @@ export const processWithShadowTesting = async ({ rawProductString, price }) => {
   const parsedSim = (await resolveSimWithDictionary(rawProductString)) || normalizeSim(rawProductString);
 
   const ignoredByPhrase = await shouldIgnoreRawString(rawProductString);
-  if (ignoredByPhrase && !hasStrongProductSignal(rawProductString)) {
+  if (ignoredByPhrase) {
     return {
       rawProductString,
       price,
