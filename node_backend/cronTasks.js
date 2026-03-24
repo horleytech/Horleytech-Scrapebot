@@ -5,6 +5,7 @@ import { fileURLToPath } from 'url';
 import admin from 'firebase-admin';
 import { runBackup, getAdminFirestore } from './backup.js';
 import { resolveTextAIConfig } from './aiConfig.js';
+import { processWithShadowTesting } from './cleaner.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -71,7 +72,7 @@ const buildMappingIndex = (customMappings = []) => {
   return index;
 };
 
-export const runRetroactiveSweep = async () => {
+export const runRetroactiveSweep = async ({ dryRun = false } = {}) => {
   const firestore = getAdminFirestore();
   const customMappings = await getLatestCustomMappings();
   const mappingIndex = buildMappingIndex(customMappings);
@@ -85,13 +86,17 @@ export const runRetroactiveSweep = async () => {
 
   let inspectedProducts = 0;
   let correctedProducts = 0;
+  let aiRepairsAttempted = 0;
+  const RETRO_MAX_AI_REPAIRS = 200;
+  const proposedByVendor = {};
 
-  snapshot.docs.forEach((docSnap) => {
+  for (const docSnap of snapshot.docs) {
     const vendorData = docSnap.data() || {};
     const products = Array.isArray(vendorData.products) ? [...vendorData.products] : [];
     let vendorTouched = false;
 
-    const updatedProducts = products.map((product) => {
+    const updatedProducts = [];
+    for (const product of products) {
       inspectedProducts += 1;
 
       const currentCategory = String(product?.Category || '').trim();
@@ -99,38 +104,88 @@ export const runRetroactiveSweep = async () => {
       const needsRepair = ['others'].includes(currentCategory.toLowerCase())
         || ['unknown device', ''].includes(currentDeviceType.toLowerCase());
 
-      if (!needsRepair) return product;
+      const rawString = String(
+        product?.rawProductString
+        || product?.raw
+        || product?.rawString
+        || product?.['Device Type']
+        || ''
+      ).trim();
 
-      const rawString = String(product?.raw || product?.rawString || product?.['Device Type'] || '').trim();
+      let nextProduct = { ...product };
       const mapping = mappingIndex.get(normalizeMappingKey(rawString));
-      if (!mapping?.deviceType) return product;
+      if (needsRepair && mapping?.deviceType) {
+        nextProduct = {
+          ...nextProduct,
+          Category: mapping.category || nextProduct.Category || 'Others',
+          Brand: mapping.brand || nextProduct.Brand || 'Others',
+          Series: mapping.series || nextProduct.Series || 'Others',
+          'Device Type': mapping.deviceType,
+        };
+        vendorTouched = true;
+        correctedProducts += 1;
+      }
 
-      vendorTouched = true;
-      correctedProducts += 1;
+      const hasUnknownIgnoreReason = ['unknown-variant-attribute', 'taxonomy-others'].includes(String(nextProduct?.ignoreReason || '').trim());
+      const shouldTryAiRepair = (needsRepair || hasUnknownIgnoreReason) && rawString && aiRepairsAttempted < RETRO_MAX_AI_REPAIRS;
 
-      return {
-        ...product,
-        Category: mapping.category || product.Category || 'Others',
-        Brand: mapping.brand || product.Brand || 'Others',
-        Series: mapping.series || product.Series || 'Others',
-        'Device Type': mapping.deviceType,
-      };
-    });
+      if (shouldTryAiRepair) {
+        try {
+          const priceValue = Number(String(nextProduct?.['Regular price'] || '').replace(/[^0-9.]/g, '')) || 0;
+          const repaired = await processWithShadowTesting({ rawProductString: rawString, price: priceValue });
+          aiRepairsAttempted += 1;
+
+          const repairedIsKnown = !(repaired?.ignored)
+            && String(repaired?.taxonomy?.Category || '').toLowerCase() !== 'others'
+            && String(repaired?.taxonomy?.Series || '').toLowerCase() !== 'others';
+
+          if (repairedIsKnown) {
+            nextProduct = {
+              ...nextProduct,
+              Category: repaired.taxonomy?.Category || nextProduct.Category || 'Others',
+              Brand: repaired.taxonomy?.Brand || nextProduct.Brand || 'Others',
+              Series: repaired.taxonomy?.Series || nextProduct.Series || 'Others',
+              'Device Type': repaired.deviceType || repaired.taxonomy?.Series || nextProduct['Device Type'] || 'Unknown Device',
+              Condition: repaired.condition || nextProduct.Condition || 'Unknown',
+              'SIM Type/Model/Processor': repaired.sim || nextProduct['SIM Type/Model/Processor'] || 'Unknown',
+              'Storage Capacity/Configuration': repaired.storage || nextProduct['Storage Capacity/Configuration'] || 'UNKNOWN',
+              variationId: repaired.variationId || nextProduct.variationId || null,
+              ignored: false,
+              ignoreReason: '',
+            };
+            vendorTouched = true;
+            correctedProducts += 1;
+            proposedByVendor[docSnap.id] = (proposedByVendor[docSnap.id] || 0) + 1;
+          }
+        } catch (error) {
+          console.warn('⚠️ Retro sweep AI repair skipped for one product:', error.message);
+        }
+      }
+
+      updatedProducts.push(nextProduct);
+    }
 
     if (vendorTouched) {
-      batch.update(docSnap.ref, {
-        products: updatedProducts,
-        lastUpdated: new Date().toISOString(),
-      });
+      if (!dryRun) {
+        batch.update(docSnap.ref, {
+          products: updatedProducts,
+          lastUpdated: new Date().toISOString(),
+        });
+      }
     }
-  });
+  }
 
-  await batch.commit();
+  if (!dryRun) {
+    await batch.commit();
+  }
 
   return {
     success: true,
     inspectedProducts,
     correctedProducts,
+    aiRepairsAttempted,
+    dryRun: Boolean(dryRun),
+    proposedByVendor,
   };
 };
 

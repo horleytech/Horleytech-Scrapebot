@@ -204,6 +204,10 @@ app.use(async (req, res, next) => {
   let targetDocId = null;
 
   try {
+    const pipelineMetrics = {
+      fragmentsMerged: 0,
+      fragmentsSkippedWithoutBase: 0,
+    };
     const firestore = getAdminFirestore();
     const candidateId = req.body?.vendorDocId || req.body?.vendorId;
 
@@ -759,7 +763,8 @@ app.post('/api/backup/upload-restore', upload.single('file'), async (req, res) =
 // Manual Retroactive Sweeper Trigger
 app.post('/api/admin/retroactive-sweep', async (_req, res) => {
   try {
-    const result = await runRetroactiveSweep();
+    const dryRun = String(_req.query?.dryRun || _req.body?.dryRun || '').toLowerCase() === 'true';
+    const result = await runRetroactiveSweep({ dryRun });
     return res.json(result);
   } catch (error) {
     console.error('❌ Retroactive sweep error:', error);
@@ -1100,6 +1105,93 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
   res.status(200).json({ data: [{ message: '' }] });
 
   try {
+    const isLikelyFragment = (raw = '') => {
+      const text = String(raw || '').trim();
+      if (!text) return true;
+      if (text.length <= 3) return true;
+
+      const lower = text.toLowerCase();
+      const colorOnly = /^(black|white|gold|silver|purple|blue|green|red|pink|gray|grey|midnight)$/i.test(lower);
+      const specOnly = /^(esim|physical\s*sim|locked|fu|idm|ibm|wifi|wi-?fi\s*only)$/i.test(lower);
+      const memoryOnly = /^\d+\s*\/\s*\d+\s*(gb|tb)$/i.test(lower);
+      const storageOnly = /^\d+\s*(gb|tb)$/i.test(lower);
+
+      return colorOnly || specOnly || memoryOnly || storageOnly;
+    };
+
+    const mergeFragmentedProducts = (products = []) => {
+      const merged = [];
+
+      products.forEach((item) => {
+        const raw = String(item?.rawProductString || '').trim();
+        if (!raw) return;
+
+        if (isLikelyFragment(raw)) {
+          const previous = merged[merged.length - 1];
+          if (previous) {
+            previous.rawProductString = `${previous.rawProductString} | ${raw}`;
+            pipelineMetrics.fragmentsMerged += 1;
+          } else {
+            pipelineMetrics.fragmentsSkippedWithoutBase += 1;
+          }
+          return;
+        }
+
+        merged.push({
+          ...item,
+          rawProductString: raw,
+        });
+      });
+
+      return merged;
+    };
+
+    const parsePriceFromRaw = (raw = '') => {
+      const text = String(raw || '');
+      const candidates = [];
+
+      const groupedMatches = text.match(/\d{1,3}(?:[,\s]\d{3}){1,3}/g) || [];
+      groupedMatches.forEach((match) => {
+        const numeric = Number(match.replace(/[^0-9]/g, ''));
+        if (numeric > 0) candidates.push(numeric);
+      });
+
+      const plainMatches = text.match(/\b\d{4,7}\b/g) || [];
+      plainMatches.forEach((match) => {
+        const numeric = Number(match);
+        if (numeric > 0) candidates.push(numeric);
+      });
+
+      return candidates.length ? Math.max(...candidates) : 0;
+    };
+
+    const computeConfidence = ({ shadowResult, normalizedPrice, rawProductString }) => {
+      if (shadowResult?.ignored) {
+        return { score: 10, level: 'low' };
+      }
+
+      let score = 0;
+      const taxonomy = shadowResult?.taxonomy || {};
+      const category = String(taxonomy?.Category || '').toLowerCase();
+      const series = String(taxonomy?.Series || '').toLowerCase();
+      const deviceType = String(shadowResult?.deviceType || '').toLowerCase();
+      const condition = String(shadowResult?.condition || '').toLowerCase();
+      const spec = String(shadowResult?.sim || '').toLowerCase();
+      const storage = String(shadowResult?.storage || '').toUpperCase();
+
+      if (category && category !== 'others') score += 30;
+      if (series && series !== 'others') score += 15;
+      if (deviceType && !['others', 'unknown device'].includes(deviceType)) score += 15;
+      if (storage && storage !== 'UNKNOWN') score += 10;
+      if (spec && spec !== 'unknown') score += 10;
+      if (condition && condition !== 'unknown') score += 10;
+      if (normalizedPrice >= 10000 || /₦|naira|k\b/i.test(String(rawProductString || ''))) score += 10;
+
+      const bounded = Math.min(100, Math.max(0, score));
+      const level = bounded >= 75 ? 'high' : bounded >= 45 ? 'medium' : 'low';
+      return { score: bounded, level };
+    };
+
     const stageOnePrompt = `
         You are Stage 1 Extractor.
         Extract products from messy WhatsApp broadcasts.
@@ -1199,22 +1291,33 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
       processedMessageCache.set(msgHash, extractedProducts);
     }
 
+    const stitchedProducts = mergeFragmentedProducts(extractedProducts);
+
     const shadowProcessed = [];
-    for (const item of extractedProducts) {
+    for (const item of stitchedProducts) {
       const rawProductString = String(item?.rawProductString || '').trim();
       if (!rawProductString) continue;
-
       const parsedPrice = Number(String(item?.price || '').replace(/[^0-9.]/g, '')) || 0;
+      const rawPrice = parsePriceFromRaw(rawProductString);
+      const normalizedPrice = (parsedPrice > 0 && parsedPrice < 10000 && rawPrice >= 10000)
+        ? rawPrice
+        : (parsedPrice || rawPrice || 0);
 
       try {
-        const shadowResult = await processWithShadowTesting({ rawProductString, price: parsedPrice });
-        shadowProcessed.push(shadowResult);
+        const shadowResult = await processWithShadowTesting({ rawProductString, price: normalizedPrice });
+        const confidence = computeConfidence({ shadowResult, normalizedPrice, rawProductString });
+        shadowProcessed.push({
+          ...shadowResult,
+          confidenceScore: confidence.score,
+          confidenceLevel: confidence.level,
+        });
       } catch (error) {
         console.warn('⚠️ Shadow processing failed for one item. Falling back to Others:', error.message);
         shadowProcessed.push({
           rawProductString,
-          price: parsedPrice,
+          price: normalizedPrice,
           taxonomy: { Category: 'Others', Brand: 'Others', Series: 'Others' },
+          deviceType: 'Unknown Device',
           storage: 'UNKNOWN',
           condition: 'Unknown',
           sim: 'Unknown',
@@ -1222,6 +1325,8 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
           trustedFastLane: false,
           ignored: true,
           ignoreReason: 'shadow-failure',
+          confidenceScore: 5,
+          confidenceLevel: 'low',
         });
       }
     }
@@ -1234,7 +1339,7 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
         Category: product.taxonomy?.Category || 'Others',
         Brand: product.taxonomy?.Brand || 'Others',
         Series: product.taxonomy?.Series || 'Others',
-        'Device Type': product.taxonomy?.Series || product.rawProductString,
+        'Device Type': product.deviceType || product.taxonomy?.Series || product.rawProductString,
         Condition: product.condition,
         'SIM Type/Model/Processor': product.sim,
         'Storage Capacity/Configuration': product.storage,
@@ -1244,6 +1349,8 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
         trustedFastLane: product.trustedFastLane,
         ignored: Boolean(product.ignored),
         ignoreReason: product.ignoreReason || '',
+        confidenceScore: Number(product.confidenceScore || 0),
+        confidenceLevel: product.confidenceLevel || 'low',
         DatePosted: exactServerDate,
         isGroupMessage: isMessageFromGroup || false,
         groupName: isMessageFromGroup ? groupName : 'Direct Message'
@@ -1260,6 +1367,23 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
       }];
 
       await saveVendorsToFirebase(vendorData);
+
+      const excludedDrops = shadowProcessed.filter((item) => item?.ignoreReason === 'excluded-phrase').length;
+      const taxonomyFallbacks = shadowProcessed.filter((item) => item?.ignoreReason === 'taxonomy-others').length;
+      const lowConfidence = shadowProcessed.filter((item) => String(item?.confidenceLevel || '') === 'low').length;
+      try {
+        const firestore = getAdminFirestore();
+        await firestore.collection(SETTINGS_COLLECTION).doc('pipelineMetrics').set({
+          lastUpdated: new Date().toISOString(),
+          fragmentsMerged: admin.firestore.FieldValue.increment(pipelineMetrics.fragmentsMerged),
+          fragmentsSkippedWithoutBase: admin.firestore.FieldValue.increment(pipelineMetrics.fragmentsSkippedWithoutBase),
+          excludedPhraseDrops: admin.firestore.FieldValue.increment(excludedDrops),
+          taxonomyFallbackDrops: admin.firestore.FieldValue.increment(taxonomyFallbacks),
+          lowConfidenceRows: admin.firestore.FieldValue.increment(lowConfidence),
+        }, { merge: true });
+      } catch (metricError) {
+        console.warn('⚠️ Pipeline metrics write skipped:', metricError.message);
+      }
     } else {
       console.log('🤷‍♂️ No products found in message.');
     }
@@ -1270,8 +1394,6 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
 
 
 const _normalizeMappingKey = (value) => String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-
-const { getFirestore } = require('firebase-admin/firestore');
 
 const _fetchUnknownVendorsList = async () => {
   const firestore = getAdminFirestore();
@@ -1327,10 +1449,10 @@ const _runOpenAIExtraction = async (rows = [], signal) => {
 app.post('/api/admin/trigger-background-sync', async (_req, res) => {
   res.status(200).json({ message: 'Background sync started' });
 
-  const db = getFirestore();
   const CAT_LIST = ['Smartphones', 'Smartwatches', 'Laptops', 'Sounds', 'Accessories', 'Tablets', 'Gaming', 'Others'];
   const CHUNK_SIZE = 20;
   const CHUNK_TIMEOUT_MS = 45000;
+  let db;
 
   const withTimeout = async (promiseFactory, timeoutMs, timeoutMessage) => Promise.race([
     promiseFactory(),
@@ -1338,6 +1460,7 @@ app.post('/api/admin/trigger-background-sync', async (_req, res) => {
   ]);
 
   const safeSetSyncStatus = async (payload) => {
+    if (!db) return;
     try {
       await db.collection('horleyTech_Settings').doc('syncStatus').set(payload, { merge: true });
     } catch (error) {
@@ -1346,6 +1469,7 @@ app.post('/api/admin/trigger-background-sync', async (_req, res) => {
   };
 
   try {
+    db = getAdminFirestore();
     console.log('🔄 Background Sync: Initializing...');
 
     const accumulatedMappings = {};
