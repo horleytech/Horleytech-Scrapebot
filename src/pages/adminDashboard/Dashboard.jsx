@@ -883,10 +883,18 @@ const AdminDashboard = () => {
     const unsubscribe = onSnapshot(preferencesRef, (preferencesSnap) => {
       if (!preferencesSnap.exists()) {
         setExcludedPhrases('');
+        setBulkTinbrUseTinyChecked(true);
+        setBulkTinbrShowBothChecked(true);
         return;
       }
       const preferencesData = preferencesSnap.data() || {};
       setExcludedPhrases(String(preferencesData.excludedPhrases || ''));
+      if (typeof preferencesData.globalTinbrLinksEnabled === 'boolean') {
+        setBulkTinbrUseTinyChecked(preferencesData.globalTinbrLinksEnabled);
+      }
+      if (typeof preferencesData.globalShowBothTinbrAndNormalLinks === 'boolean') {
+        setBulkTinbrShowBothChecked(preferencesData.globalShowBothTinbrAndNormalLinks);
+      }
     }, (error) => {
       console.error('Failed to load admin preferences:', error);
     });
@@ -1711,6 +1719,12 @@ const AdminDashboard = () => {
         });
         await batch.commit();
       }
+
+      await setDoc(doc(db, 'horleyTech_Settings', 'adminPreferences'), {
+        globalTinbrLinksEnabled: nextTinbrLinksEnabled,
+        globalShowBothTinbrAndNormalLinks: nextShowBothTinbrAndNormalLinks,
+        tinyLinkControlsUpdatedAt: now,
+      }, { merge: true });
 
       setOfflineVendors((prev) =>
         prev.map((vendor) => {
@@ -2880,9 +2894,9 @@ const AdminDashboard = () => {
                 <button onClick={forceBuildProductCache} className="bg-purple-600 text-white px-4 py-2 rounded-lg font-bold text-sm hover:bg-purple-700">🏗️ Force Build Product Cache</button>
               </div>
               <div className="mb-5 border border-indigo-200 rounded-2xl p-4 bg-indigo-50">
-                <h3 className="text-sm font-black uppercase tracking-wider text-indigo-700 mb-2">Tinbr Link Controls (All Vendors)</h3>
+                <h3 className="text-sm font-black uppercase tracking-wider text-indigo-700 mb-2">Tiny Link Controls (All Vendors)</h3>
                 <p className="text-xs text-indigo-700 mb-3">
-                  Apply both controls globally: <span className="font-black">Use Tinbr Tiny links as primary</span> and <span className="font-black">Let vendor see both Tinbr + normal links</span>.
+                  Apply both controls globally: <span className="font-black">Use Tiny links as primary</span> and <span className="font-black">Let vendor see both Tiny + normal links</span>.
                 </p>
                 <div className="space-y-3">
                   <label className="flex items-center gap-2 text-xs font-semibold text-indigo-900">
@@ -2893,7 +2907,7 @@ const AdminDashboard = () => {
                       disabled={bulkTinbrSaving}
                       className="h-4 w-4 rounded border-indigo-300 text-indigo-600 focus:ring-indigo-500"
                     />
-                    Use Tinbr Tiny links as primary
+                    Use Tiny links as primary
                   </label>
                   <label className="flex items-center gap-2 text-xs font-semibold text-indigo-900">
                     <input
@@ -2903,7 +2917,7 @@ const AdminDashboard = () => {
                       disabled={bulkTinbrSaving}
                       className="h-4 w-4 rounded border-indigo-300 text-indigo-600 focus:ring-indigo-500"
                     />
-                    Let vendor see both Tinbr + normal links
+                    Let vendor see both Tiny + normal links
                   </label>
                 </div>
                 <p className="text-[11px] text-indigo-800 mt-3">
