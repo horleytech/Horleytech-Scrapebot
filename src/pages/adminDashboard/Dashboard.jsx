@@ -603,8 +603,8 @@ const AdminDashboard = () => {
           vendorPassword: data.vendorPassword || '',
           storeWhatsappNumber: data.storeWhatsappNumber || '',
           advancedEnabled: Boolean(data.advancedEnabled),
-          tinbrLinksEnabled: data.tinbrLinksEnabled !== false,
-          showBothTinbrAndNormalLinks: data.showBothTinbrAndNormalLinks !== false,
+          tinbrLinksEnabled: (data.tinyLinksEnabled ?? data.tinbrLinksEnabled) !== false,
+          showBothTinbrAndNormalLinks: (data.showBothTinyAndNormalLinks ?? data.showBothTinbrAndNormalLinks) !== false,
           products: data.products || [],
           logs: normalizeLogs(data.logs),
           metaData: data.metaData || 'Electronics',
@@ -889,11 +889,13 @@ const AdminDashboard = () => {
       }
       const preferencesData = preferencesSnap.data() || {};
       setExcludedPhrases(String(preferencesData.excludedPhrases || ''));
-      if (typeof preferencesData.globalTinbrLinksEnabled === 'boolean') {
-        setBulkTinbrUseTinyChecked(preferencesData.globalTinbrLinksEnabled);
+      const globalTinyEnabled = preferencesData.globalTinyLinksEnabled ?? preferencesData.globalTinbrLinksEnabled;
+      if (typeof globalTinyEnabled === 'boolean') {
+        setBulkTinbrUseTinyChecked(globalTinyEnabled);
       }
-      if (typeof preferencesData.globalShowBothTinbrAndNormalLinks === 'boolean') {
-        setBulkTinbrShowBothChecked(preferencesData.globalShowBothTinbrAndNormalLinks);
+      const globalShowBothTiny = preferencesData.globalShowBothTinyAndNormalLinks ?? preferencesData.globalShowBothTinbrAndNormalLinks;
+      if (typeof globalShowBothTiny === 'boolean') {
+        setBulkTinbrShowBothChecked(globalShowBothTiny);
       }
     }, (error) => {
       console.error('Failed to load admin preferences:', error);
@@ -1680,11 +1682,11 @@ const AdminDashboard = () => {
 
   const applyTinbrControlsToAllVendors = async (nextTinbrLinksEnabled, nextShowBothTinbrAndNormalLinks) => {
     const summaryText = [
-      `Use Tinbr Tiny links as primary: ${nextTinbrLinksEnabled ? 'ON' : 'OFF'}`,
-      `Let vendor see both Tinbr + normal links: ${nextShowBothTinbrAndNormalLinks ? 'ON' : 'OFF'}`,
+      `Use Tiny links as primary: ${nextTinbrLinksEnabled ? 'ON' : 'OFF'}`,
+      `Let vendor see both Tiny + normal links: ${nextShowBothTinbrAndNormalLinks ? 'ON' : 'OFF'}`,
     ].join('\n');
 
-    if (!window.confirm(`Apply these Tinbr settings for ALL vendors?\n\n${summaryText}`)) return;
+    if (!window.confirm(`Apply these Tiny settings for ALL vendors?\n\n${summaryText}`)) return;
 
     setBulkTinbrSaving(true);
     try {
@@ -1697,7 +1699,7 @@ const AdminDashboard = () => {
 
       const CHUNK_SIZE = 400;
       const now = new Date().toISOString();
-      const actionLabel = `${nextTinbrLinksEnabled ? 'Enabled' : 'Disabled'} Tinbr Links + ${nextShowBothTinbrAndNormalLinks ? 'Enabled' : 'Disabled'} Both Tinbr + Normal Links View (Bulk)`;
+      const actionLabel = `${nextTinbrLinksEnabled ? 'Enabled' : 'Disabled'} Tiny Links + ${nextShowBothTinbrAndNormalLinks ? 'Enabled' : 'Disabled'} Both Tiny + Normal Links View (Bulk)`;
 
       for (let index = 0; index < docs.length; index += CHUNK_SIZE) {
         const chunk = docs.slice(index, index + CHUNK_SIZE);
@@ -1709,7 +1711,9 @@ const AdminDashboard = () => {
 
           batch.update(vendorDoc.ref, {
             tinbrLinksEnabled: nextTinbrLinksEnabled,
+            tinyLinksEnabled: nextTinbrLinksEnabled,
             showBothTinbrAndNormalLinks: nextShowBothTinbrAndNormalLinks,
+            showBothTinyAndNormalLinks: nextShowBothTinbrAndNormalLinks,
             logs: {
               ...logs,
               admin: nextAdminLogs,
@@ -1721,7 +1725,9 @@ const AdminDashboard = () => {
       }
 
       await setDoc(doc(db, 'horleyTech_Settings', 'adminPreferences'), {
+        globalTinyLinksEnabled: nextTinbrLinksEnabled,
         globalTinbrLinksEnabled: nextTinbrLinksEnabled,
+        globalShowBothTinyAndNormalLinks: nextShowBothTinbrAndNormalLinks,
         globalShowBothTinbrAndNormalLinks: nextShowBothTinbrAndNormalLinks,
         tinyLinkControlsUpdatedAt: now,
       }, { merge: true });
@@ -1743,9 +1749,9 @@ const AdminDashboard = () => {
         })
       );
 
-      alert(`✅ Tinbr controls updated for ${docs.length} vendors.`);
+      alert(`✅ Tiny link controls updated for ${docs.length} vendors.`);
     } catch (error) {
-      console.error('Failed to bulk update Tinbr controls:', error);
+      console.error('Failed to bulk update Tiny controls:', error);
       alert(`❌ ${error.message}`);
     } finally {
       setBulkTinbrSaving(false);
@@ -2922,7 +2928,7 @@ const AdminDashboard = () => {
                 </div>
                 <p className="text-[11px] text-indigo-800 mt-3">
                   These settings are saved directly in Firebase for each vendor and both storefronts read them live.<br />
-                  Fields updated per vendor: <span className="font-black">tinbrLinksEnabled</span> and <span className="font-black">showBothTinbrAndNormalLinks</span>.
+                  Fields updated per vendor: <span className="font-black">tinyLinksEnabled</span> + <span className="font-black">showBothTinyAndNormalLinks</span> (legacy <span className="font-black">tinbr*</span> fields are also kept in sync).
                 </p>
                 <div className="flex flex-wrap gap-3 mt-4">
                   <button
