@@ -260,7 +260,7 @@ const updateAliasTracker = async ({ variationId, alias, regexPrediction, aiTruth
 
     const nextCount = didMatch ? Number(currentAlias.consecutiveMatches || 0) + 1 : 0;
     const nextTrusted = didMatch ? nextCount >= 100 : false;
-    promotedToTrusted = nextTrusted && !Boolean(currentAlias.isTrusted);
+    promotedToTrusted = nextTrusted && !currentAlias.isTrusted;
 
     const updatePayload = {
       [`aliasTracker.${alias}.consecutiveMatches`]: didMatch

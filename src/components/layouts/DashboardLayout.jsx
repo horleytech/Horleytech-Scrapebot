@@ -1,5 +1,3 @@
-/* eslint-disable react/prop-types */
-
 import { Fragment, useMemo, useState } from 'react';
 import { Dialog, Menu, Transition } from '@headlessui/react';
 import UserProfile from '../../assets/user.svg';
