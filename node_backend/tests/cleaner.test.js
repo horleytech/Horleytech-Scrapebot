@@ -7,6 +7,7 @@ test('normalizeStorage standardizes units and unknown', () => {
   assert.equal(__testables.normalizeStorage('macbook 1tb'), '1TB');
   assert.equal(__testables.normalizeStorage('no storage text'), 'UNKNOWN');
   assert.equal(__testables.normalizeStorage('iphone 15 13128gb'), 'UNKNOWN');
+  assert.equal(__testables.normalizeStorage('core i5 8GB RAM 512GB SSD'), '512GB');
 });
 
 test('normalizeCondition maps slang and unknown', () => {
@@ -20,10 +21,10 @@ test('normalizeCondition maps slang and unknown', () => {
 
 test('normalizeSim maps expected formats and unknown', () => {
   assert.equal(__testables.normalizeSim('dual sim'), 'Dual SIM');
-  assert.equal(__testables.normalizeSim('physical + esim'), 'eSIM');
+  assert.equal(__testables.normalizeSim('physical + esim'), 'Physical SIM + ESIM');
   assert.equal(__testables.normalizeSim('esim only'), 'eSIM');
   assert.equal(__testables.normalizeSim('eSIM unlocked'), 'eSIM');
-  assert.equal(__testables.normalizeSim('factory unlocked'), 'eSIM');
+  assert.equal(__testables.normalizeSim('factory unlocked'), 'Physical SIM');
   assert.equal(__testables.normalizeSim('single sim physical'), 'Physical SIM');
   assert.equal(__testables.normalizeSim('sim unknown'), 'Unknown');
 });

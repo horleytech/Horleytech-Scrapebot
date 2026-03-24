@@ -81,7 +81,7 @@ const normalizeSim = (value = '') => {
   if (/dual/.test(text)) return 'Dual SIM';
   if (hasEsim) return 'eSIM';
   if (hasPhysical) return 'Physical SIM';
-  if (/\bfu\b|factory\s*unlocked|unlocked|\bidm\b/.test(text)) return 'Physical SIM + ESIM';
+  if (/\blocked\b|\bfu\b|factory\s*unlocked|unlocked|\bidm\b/.test(text)) return 'Physical SIM';
   return 'Unknown';
 };
 
@@ -151,6 +151,96 @@ const withRetries = async (operation, { retries = 2, delayMs = 300 } = {}) => {
 let excludedPhraseCache = [];
 let excludedPhraseCacheAt = 0;
 const EXCLUDED_PHRASE_CACHE_TTL_MS = 60000;
+
+let simDictionaryCache = [];
+let simDictionaryCacheAt = 0;
+const SIM_DICTIONARY_CACHE_TTL_MS = 60000;
+
+const normalizeSimLabel = (value = '') => {
+  const text = String(value || '').toLowerCase().trim();
+  if (!text) return null;
+  if (text.includes('physical') && text.includes('esim')) return 'Physical SIM + ESIM';
+  if (text.includes('dual')) return 'Dual SIM';
+  if (text.includes('esim')) return 'eSIM';
+  if (text.includes('physical')) return 'Physical SIM';
+  return null;
+};
+
+const toFetchableDictionaryUrl = (rawUrl = '') => {
+  const url = String(rawUrl || '').trim();
+  if (!url) return '';
+
+  const match = url.match(/docs\.google\.com\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/i);
+  if (!match?.[1]) return url;
+
+  const gidMatch = url.match(/[?&]gid=(\d+)/i);
+  const gid = gidMatch?.[1] || '0';
+  return `https://docs.google.com/spreadsheets/d/${match[1]}/export?format=csv&gid=${gid}`;
+};
+
+const parseDictionaryText = (rawText = '') => rawText
+  .split(/\r?\n/)
+  .map((line) => line.trim())
+  .filter(Boolean)
+  .map((line) => line.replace(/^"|"$/g, ''))
+  .map((line) => {
+    const parts = line.split(/[\t,]/).map((token) => token.trim()).filter(Boolean);
+    if (parts.length < 2) return null;
+    const key = String(parts[0] || '').toLowerCase();
+    const value = normalizeSimLabel(parts[1]);
+    if (!key || !value || key === 'key') return null;
+    return { key, value };
+  })
+  .filter(Boolean);
+
+const loadSimDictionary = async () => {
+  const now = Date.now();
+  if ((now - simDictionaryCacheAt) < SIM_DICTIONARY_CACHE_TTL_MS) return simDictionaryCache;
+
+  const entries = [];
+
+  const jsonBlob = process.env.SIM_DICTIONARY_JSON || process.env.ESIM_DICTIONARY_JSON || '';
+  if (jsonBlob) {
+    try {
+      const parsed = JSON.parse(jsonBlob);
+      Object.entries(parsed || {}).forEach(([key, value]) => {
+        const normalized = normalizeSimLabel(value);
+        if (normalized && String(key || '').trim()) {
+          entries.push({ key: String(key).toLowerCase().trim(), value: normalized });
+        }
+      });
+    } catch (error) {
+      console.warn('⚠️ SIM dictionary JSON parse skipped:', error.message);
+    }
+  }
+
+  const sourceUrlRaw = process.env.SIM_DICTIONARY_URL || process.env.ESIM_DICTIONARY_URL || process.env.SIM_KEY_VALUE_URL || '';
+  const sourceUrl = toFetchableDictionaryUrl(sourceUrlRaw);
+  if (sourceUrl) {
+    try {
+      const response = await fetch(sourceUrl, { signal: AbortSignal.timeout(5000) });
+      if (response.ok) {
+        const text = await response.text();
+        entries.push(...parseDictionaryText(text));
+      }
+    } catch (error) {
+      console.warn('⚠️ SIM dictionary URL fetch skipped:', error.message);
+    }
+  }
+
+  simDictionaryCache = entries.sort((a, b) => b.key.length - a.key.length);
+  simDictionaryCacheAt = now;
+  return simDictionaryCache;
+};
+
+const resolveSimWithDictionary = async (rawText = '') => {
+  const entries = await loadSimDictionary();
+  if (!entries.length) return null;
+
+  const haystack = String(rawText || '').toLowerCase();
+  const match = entries.find((entry) => haystack.includes(entry.key));
+  return match?.value || null;
+};
 
 const getExcludedPhrases = async () => {
   const now = Date.now();
@@ -431,7 +521,7 @@ export const processWithShadowTesting = async ({ rawProductString, price }) => {
   const alias = normalizeAlias(rawProductString);
   const parsedStorage = normalizeStorage(rawProductString);
   const parsedCondition = normalizeCondition(rawProductString);
-  const parsedSim = normalizeSim(rawProductString);
+  const parsedSim = (await resolveSimWithDictionary(rawProductString)) || normalizeSim(rawProductString);
 
   const ignoredByPhrase = await shouldIgnoreRawString(rawProductString);
   if (ignoredByPhrase && !hasStrongProductSignal(rawProductString)) {
