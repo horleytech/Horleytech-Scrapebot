@@ -1708,6 +1708,14 @@ const AdminDashboard = () => {
         throw new Error(payload.error || 'Failed to apply Tiny link controls');
       }
 
+      await setDoc(doc(db, 'horleyTech_Settings', 'adminPreferences'), {
+        globalTinyLinksEnabled: nextTinbrLinksEnabled,
+        globalTinbrLinksEnabled: nextTinbrLinksEnabled,
+        globalShowBothTinyAndNormalLinks: nextShowBothTinbrAndNormalLinks,
+        globalShowBothTinbrAndNormalLinks: nextShowBothTinbrAndNormalLinks,
+        tinyLinkControlsUpdatedAt: now,
+      }, { merge: true });
+
       setOfflineVendors((prev) =>
         prev.map((vendor) => {
           const logs = normalizeLogs(vendor.logs);
