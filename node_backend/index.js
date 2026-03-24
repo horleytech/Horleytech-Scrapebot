@@ -551,9 +551,7 @@ app.post('/api/admin/tiny-link-controls/apply', async (req, res) => {
         const nextAdminLogs = [{ action: actionLabel, date: now }, ...adminLogs].slice(0, 200);
 
         batch.set(vendorDoc.ref, {
-          tinbrLinksEnabled: nextTinyLinksEnabled,
           tinyLinksEnabled: nextTinyLinksEnabled,
-          showBothTinbrAndNormalLinks: nextShowBothTinyAndNormalLinks,
           showBothTinyAndNormalLinks: nextShowBothTinyAndNormalLinks,
           logs: {
             ...logs,
@@ -568,9 +566,7 @@ app.post('/api/admin/tiny-link-controls/apply', async (req, res) => {
 
     await firestore.collection(SETTINGS_COLLECTION).doc('adminPreferences').set({
       globalTinyLinksEnabled: nextTinyLinksEnabled,
-      globalTinbrLinksEnabled: nextTinyLinksEnabled,
       globalShowBothTinyAndNormalLinks: nextShowBothTinyAndNormalLinks,
-      globalShowBothTinbrAndNormalLinks: nextShowBothTinyAndNormalLinks,
       tinyLinkControlsUpdatedAt: now,
     }, { merge: true });
 
