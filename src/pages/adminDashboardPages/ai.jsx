@@ -5,8 +5,7 @@ import { MutatingDots } from 'react-loader-spinner';
 //import { collection, addDoc, writeBatch, doc } from 'firebase/firestore';
 import { toast } from 'react-toastify';
 //import { db } from '../../services/firebase';
-import { generateRandomString } from '../../services/utils/generateString';
-const localBE = 'http://localhost:8000/process';
+const _localBE = 'http://localhost:8000/process';
 const cloudBE = 'https://backend.horleytech.com/process';
 
 const Ai = () => {
@@ -21,7 +20,7 @@ const Ai = () => {
   const [savingGlobalSettings, setSavingGlobalSettings] = useState(false);
   const [loadingGlobalSettings, setLoadingGlobalSettings] = useState(false);
 
-  const dummyData = [
+  const _dummyData = [
     {
       model: 'Iphone X',
       storage: '64gb',
@@ -40,28 +39,6 @@ const Ai = () => {
     'This may take some time...',
   ];
 
-  // FIREBASE...
-  // Add a group
-  const addGroup = async () => {
-    const docRef = await addDoc(collection(db, 'groups'), {
-      name: title.trim(),
-    });
-    console.log('Document written with ID: ', docRef.id);
-    return docRef;
-  };
-
-  const addPrices = async (pricesData) => {
-    const batch = writeBatch(db);
-    // pricesData = JSON.parse(pricesData);
-
-    pricesData.forEach((priceDatum) => {
-      const datumRef = doc(db, 'prices', generateRandomString(10));
-      batch.set(datumRef, { ...priceDatum, group: title });
-    });
-
-    await batch.commit();
-  };
-
   useEffect(() => {
     let interval;
     if (loading) {
@@ -70,8 +47,7 @@ const Ai = () => {
       }, 2000); // Change message every 2 seconds
     }
     return () => clearInterval(interval);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loading]);
+  }, [loading, messages.length]);
 
   useEffect(() => {
     console.log({ file });

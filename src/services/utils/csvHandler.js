@@ -1,4 +1,4 @@
-export const convertToCSV = (data, exportType) => {
+export const convertToCSV = (data, _exportType) => {
   console.log({ rawDataBeforeCSV: data });
   const headers = Object.keys(data[0]).join(',');
   console.log({ headers });
@@ -6,7 +6,6 @@ export const convertToCSV = (data, exportType) => {
 
   const rows = data
     .map((row) => {
-      const values = Object.values(row);
       console.log({ headersArray });
       const rowResult = headersArray.map((header) => {
         const singleDatum = row[header];

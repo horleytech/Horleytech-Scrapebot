@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 
 const AutoListen = () => {
   const [logs, setLogs] = useState('Connecting to server logs...\n');

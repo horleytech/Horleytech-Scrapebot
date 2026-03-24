@@ -1,8 +1,9 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { doc, getDoc, getDocs, updateDoc, collection, addDoc, serverTimestamp, query, orderBy, limit } from 'firebase/firestore';
 import { db } from '../services/firebase/index.js';
 import { useSelector } from 'react-redux';
+import PropTypes from 'prop-types';
 import { BASE_URL } from '../services/constants/apiConstants.js';
 
 const MAX_LOG_ITEMS = 200;
@@ -211,6 +212,19 @@ const VendorLogin = ({ vendorName, onSubmit, passwordValue, setPasswordValue, er
   );
 };
 
+VendorLogin.propTypes = {
+  vendorName: PropTypes.string,
+  onSubmit: PropTypes.func.isRequired,
+  passwordValue: PropTypes.string.isRequired,
+  setPasswordValue: PropTypes.func.isRequired,
+  error: PropTypes.string,
+};
+
+VendorLogin.defaultProps = {
+  vendorName: '',
+  error: '',
+};
+
 const VendorPage = () => {
   const { vendorId } = useParams();
   const isAdmin = useSelector((state) => state.auth?.isAuthenticated);
@@ -301,7 +315,7 @@ const VendorPage = () => {
     await Promise.all(normalizedActions.map((action) => saveAuditLog(action, channelOverride)));
   };
 
-  const syncVendorFromFirebase = async () => {
+  const syncVendorFromFirebase = useCallback(async () => {
     const freshSnap = await getDoc(vendorRef);
     if (!freshSnap.exists()) return null;
 
@@ -337,9 +351,9 @@ const VendorPage = () => {
     setTinbrStoreOneLinkInput(String(payload.tinyStoreOneLink || payload.tinbrStoreOneLink || ''));
     setTinbrStoreTwoLinkInput(String(payload.tinyStoreTwoLink || payload.tinbrStoreTwoLink || ''));
     return payload;
-  };
+  }, [vendorRef]);
 
-  const loadActivityLogs = async () => {
+  const loadActivityLogs = useCallback(async () => {
     try {
       const logsRef = collection(db, 'horleyTech_OfflineInventories', vendorId, 'activityLogs');
       const logsQuery = query(logsRef, orderBy('date', 'desc'), limit(MAX_LOG_ITEMS * 3));
@@ -359,7 +373,7 @@ const VendorPage = () => {
     } catch (error) {
       console.error('Failed to load activity logs subcollection:', error);
     }
-  };
+  }, [vendorId]);
 
   useEffect(() => {
     const fetchVendorData = async () => {
@@ -439,13 +453,13 @@ const VendorPage = () => {
     };
 
     fetchVendorData();
-  }, [vendorRef]);
+  }, [vendorRef, loadActivityLogs, syncVendorFromFirebase, vendorId]);
 
   useEffect(() => {
     fetchTutorialVideo();
   }, []);
 
-  const products = vendorData?.products || [];
+  const products = useMemo(() => vendorData?.products || [], [vendorData]);
 
   const uniqueGroups = useMemo(() => {
     const filteredProducts = products.filter((product) => {
@@ -1154,7 +1168,7 @@ const VendorPage = () => {
     }
   };
 
-  const fetchSupportMessages = async () => {
+  const fetchSupportMessages = useCallback(async () => {
     setSupportLoading(true);
     try {
       const response = await fetch(`${BASE_URL}/api/messages/${vendorId}`, {
@@ -1170,14 +1184,14 @@ const VendorPage = () => {
     } finally {
       setSupportLoading(false);
     }
-  };
+  }, [vendorId]);
 
   useEffect(() => {
     if (!vendorData || mainTab !== 'support') return;
     fetchSupportMessages();
     const timer = setInterval(fetchSupportMessages, 12000);
     return () => clearInterval(timer);
-  }, [vendorData, mainTab]);
+  }, [vendorData, mainTab, fetchSupportMessages]);
 
   const sendSupportMessage = async () => {
     if (!supportInput.trim()) return;

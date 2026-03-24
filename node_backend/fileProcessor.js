@@ -128,7 +128,7 @@ const groupProductsByVendor = (allExtractedProducts, options = {}) => {
       };
     }
 
-    const { vendorId, ...cleanProduct } = product;
+    const { vendorId: _vendorId, ...cleanProduct } = product;
 
     vendorMap[vendor].products.push({
       ...cleanProduct,

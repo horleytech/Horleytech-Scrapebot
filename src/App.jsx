@@ -1,5 +1,6 @@
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { useSelector } from 'react-redux';
+import PropTypes from 'prop-types';
 import TechLogin from './pages/authPages/login';
 import Dashboard from './pages/adminDashboard/Dashboard';
 import VendorPage from './pages/VendorPage';
@@ -20,6 +21,14 @@ const AdminRoute = ({ children }) => {
   if (!isAuthenticated) return <Navigate to="/" replace />;
   if (user?.role === 'staff') return <Navigate to="/hub" replace />;
   return children;
+};
+
+ProtectedRoute.propTypes = {
+  children: PropTypes.node.isRequired,
+};
+
+AdminRoute.propTypes = {
+  children: PropTypes.node.isRequired,
 };
 
 function App() {
