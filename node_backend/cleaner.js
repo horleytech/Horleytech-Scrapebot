@@ -702,6 +702,7 @@ export const processWithShadowTesting = async ({ rawProductString, price }) => {
   const alias = normalizeAlias(rawProductString);
   const parsedStorage = normalizeStorage(rawProductString);
   const parsedCondition = normalizeCondition(rawProductString);
+  const inferredConditionBase = inferConditionFromRaw(rawProductString, parsedCondition);
   const catalogEntry = await resolveCatalogEntry(rawProductString, parsedStorage);
   const parsedSim = catalogEntry?.spec || (await resolveSimWithDictionary(rawProductString)) || normalizeSim(rawProductString);
 
@@ -714,7 +715,7 @@ export const processWithShadowTesting = async ({ rawProductString, price }) => {
       taxonomy: canonicalFallbackTaxonomy(),
       deviceType: fallbackDeviceType,
       storage: parsedStorage,
-      condition: parsedCondition,
+      condition: inferredConditionBase,
       sim: parsedSim,
       variationId: null,
       trustedFastLane: false,
@@ -735,7 +736,7 @@ export const processWithShadowTesting = async ({ rawProductString, price }) => {
       taxonomy: fastLane.taxonomy,
       deviceType: fastLaneDeviceType,
       storage: parsedStorage,
-      condition: parsedCondition,
+      condition: inferredConditionBase,
       sim: parsedSim,
       variationId: fastLane.variationId,
       trustedFastLane: true,
@@ -776,7 +777,7 @@ export const processWithShadowTesting = async ({ rawProductString, price }) => {
 
   const resolvedCondition = parsedCondition === 'Unknown' && catalogEntry?.condition && catalogEntry.condition !== 'Unknown'
     ? catalogEntry.condition
-    : inferConditionFromRaw(rawProductString, parsedCondition);
+    : inferredConditionBase;
   const resolvedDeviceType = catalogEntry?.deviceType
     || inferDeviceTypeFromRaw(rawProductString, finalTaxonomy.Series || 'Unknown Device');
   let resolvedSpecification = resolveSpecification({
