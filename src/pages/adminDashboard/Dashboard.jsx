@@ -1690,38 +1690,22 @@ const AdminDashboard = () => {
 
     setBulkTinbrSaving(true);
     try {
-      const snapshot = await getDocs(collection(db, COLLECTIONS.offline));
-      const docs = snapshot.docs || [];
-      if (!docs.length) {
-        alert('No vendor records found.');
-        return;
-      }
-
-      const CHUNK_SIZE = 400;
       const now = new Date().toISOString();
       const actionLabel = `${nextTinbrLinksEnabled ? 'Enabled' : 'Disabled'} Tiny Links + ${nextShowBothTinbrAndNormalLinks ? 'Enabled' : 'Disabled'} Both Tiny + Normal Links View (Bulk)`;
-
-      for (let index = 0; index < docs.length; index += CHUNK_SIZE) {
-        const chunk = docs.slice(index, index + CHUNK_SIZE);
-        const batch = writeBatch(db);
-        chunk.forEach((vendorDoc) => {
-          const vendorPayload = vendorDoc.data() || {};
-          const logs = normalizeLogs(vendorPayload.logs);
-          const nextAdminLogs = [{ action: actionLabel, date: now }, ...(logs.admin || [])].slice(0, 200);
-
-          batch.update(vendorDoc.ref, {
-            tinbrLinksEnabled: nextTinbrLinksEnabled,
-            tinyLinksEnabled: nextTinbrLinksEnabled,
-            showBothTinbrAndNormalLinks: nextShowBothTinbrAndNormalLinks,
-            showBothTinyAndNormalLinks: nextShowBothTinbrAndNormalLinks,
-            logs: {
-              ...logs,
-              admin: nextAdminLogs,
-            },
-            lastUpdated: now,
-          });
-        });
-        await batch.commit();
+      const response = await fetch(`${BASE_URL}/api/admin/tiny-link-controls/apply`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-user-role': 'admin',
+        },
+        body: JSON.stringify({
+          tinyLinksEnabled: nextTinbrLinksEnabled,
+          showBothTinyAndNormalLinks: nextShowBothTinbrAndNormalLinks,
+        }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload.success) {
+        throw new Error(payload.error || 'Failed to apply Tiny link controls');
       }
 
       await setDoc(doc(db, 'horleyTech_Settings', 'adminPreferences'), {
@@ -1749,7 +1733,7 @@ const AdminDashboard = () => {
         })
       );
 
-      alert(`✅ Tiny link controls updated for ${docs.length} vendors.`);
+      alert(`✅ Tiny link controls updated for ${payload.updatedVendors || offlineVendors.length || 0} vendors.`);
     } catch (error) {
       console.error('Failed to bulk update Tiny controls:', error);
       alert(`❌ ${error.message}`);

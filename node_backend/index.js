@@ -520,6 +520,63 @@ app.post('/api/admin/onboard-vendor', async (req, res) => {
   return res.json({ success: true, url, message });
 });
 
+app.post('/api/admin/tiny-link-controls/apply', async (req, res) => {
+  if (!isAdminRequest(req)) {
+    return res.status(403).json({ success: false, error: 'Admin access required.' });
+  }
+
+  const nextTinyLinksEnabled = Boolean(req.body?.tinyLinksEnabled);
+  const nextShowBothTinyAndNormalLinks = Boolean(req.body?.showBothTinyAndNormalLinks);
+  const now = new Date().toISOString();
+  const actionLabel = `${nextTinyLinksEnabled ? 'Enabled' : 'Disabled'} Tiny Links + ${nextShowBothTinyAndNormalLinks ? 'Enabled' : 'Disabled'} Both Tiny + Normal Links View (Bulk)`;
+
+  try {
+    const firestore = getAdminFirestore();
+    const snapshot = await firestore.collection(OFFLINE_COLLECTION).get();
+    const docs = snapshot.docs || [];
+
+    const CHUNK_SIZE = 400;
+    for (let index = 0; index < docs.length; index += CHUNK_SIZE) {
+      const chunk = docs.slice(index, index + CHUNK_SIZE);
+      const batch = firestore.batch();
+
+      chunk.forEach((vendorDoc) => {
+        const payload = vendorDoc.data() || {};
+        const logs = payload.logs && typeof payload.logs === 'object' ? payload.logs : {};
+        const adminLogs = Array.isArray(logs.admin) ? logs.admin : [];
+        const nextAdminLogs = [{ action: actionLabel, date: now }, ...adminLogs].slice(0, 200);
+
+        batch.set(vendorDoc.ref, {
+          tinbrLinksEnabled: nextTinyLinksEnabled,
+          tinyLinksEnabled: nextTinyLinksEnabled,
+          showBothTinbrAndNormalLinks: nextShowBothTinyAndNormalLinks,
+          showBothTinyAndNormalLinks: nextShowBothTinyAndNormalLinks,
+          logs: {
+            ...logs,
+            admin: nextAdminLogs,
+          },
+          lastUpdated: now,
+        }, { merge: true });
+      });
+
+      await batch.commit();
+    }
+
+    await firestore.collection(SETTINGS_COLLECTION).doc('adminPreferences').set({
+      globalTinyLinksEnabled: nextTinyLinksEnabled,
+      globalTinbrLinksEnabled: nextTinyLinksEnabled,
+      globalShowBothTinyAndNormalLinks: nextShowBothTinyAndNormalLinks,
+      globalShowBothTinbrAndNormalLinks: nextShowBothTinyAndNormalLinks,
+      tinyLinkControlsUpdatedAt: now,
+    }, { merge: true });
+
+    return res.json({ success: true, updatedVendors: docs.length });
+  } catch (error) {
+    console.error('❌ Tiny link bulk apply error:', error);
+    return res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 
 // Tutorial Video Settings Endpoints
 app.get('/api/settings/tutorial-video', async (_req, res) => {
