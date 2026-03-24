@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { collection, getDocs } from 'firebase/firestore';
+import { collection, onSnapshot, query, orderBy } from 'firebase/firestore';
 import { BASE_URL } from '../../services/constants/apiConstants.js';
 import { db } from '../../services/firebase/index.js';
 
@@ -12,23 +12,21 @@ const UploadData = () => {
   const [createNewVendor, setCreateNewVendor] = useState(false);
 
   useEffect(() => {
-    const fetchVendors = async () => {
-      try {
-        const snap = await getDocs(collection(db, 'horleyTech_OfflineInventories'));
-        const rows = snap.docs.map((docSnap) => {
-          const data = docSnap.data();
-          return {
-            id: docSnap.id,
-            name: data.vendorName || data.vendorId || docSnap.id,
-          };
-        });
-        setVendors(rows.sort((a, b) => a.name.localeCompare(b.name)));
-      } catch (error) {
-        console.error('Unable to fetch vendors for TXT upload:', error);
-      }
-    };
+    const vendorsRef = query(collection(db, 'horleyTech_OfflineInventories'), orderBy('vendorName', 'asc'));
+    const unsubscribe = onSnapshot(vendorsRef, (snap) => {
+      const rows = snap.docs.map((docSnap) => {
+        const data = docSnap.data();
+        return {
+          id: docSnap.id,
+          name: data.vendorName || data.vendorId || docSnap.id,
+        };
+      });
+      setVendors(rows.sort((a, b) => a.name.localeCompare(b.name)));
+    }, (error) => {
+      console.error('Unable to fetch vendors for TXT upload:', error);
+    });
 
-    fetchVendors();
+    return () => unsubscribe();
   }, []);
 
   const selectedVendor = useMemo(() => vendors.find((vendor) => vendor.name.toLowerCase() === vendorQuery.trim().toLowerCase()), [vendors, vendorQuery]);

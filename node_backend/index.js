@@ -43,6 +43,10 @@ const MESSAGE_FETCH_TIMEOUT_MS = 8000;
 const processedMessageCache = new Map();
 const lineLevelExtractionCache = new Map();
 
+const sanitizeForFirestore = (value) => JSON.parse(JSON.stringify(value, (_key, entry) => (
+  entry === undefined ? null : entry
+)));
+
 const withTimeout = async (promiseFactory, timeoutMs, timeoutMessage) => Promise.race([
   promiseFactory(),
   new Promise((_, reject) => setTimeout(() => reject(new Error(timeoutMessage)), timeoutMs)),
@@ -891,7 +895,7 @@ app.post('/api/ai/fix-inventory', async (req, res) => {
 
       const rawContent = aiResponse.choices?.[0]?.message?.content || '[]';
       const cleanJson = rawContent.replace(/```json/gi, '').replace(/```/g, '').trim();
-      const parsed = JSON.parse(cleanJson);
+      const parsed = sanitizeForFirestore(JSON.parse(cleanJson));
 
       if (!Array.isArray(parsed)) {
         return res.status(500).json({ success: false, error: 'AI response was not an array.' });
@@ -1041,7 +1045,7 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
             });
             const rawContent = String(aiResponse?.choices?.[0]?.message?.content || '');
             const cleanJson = rawContent.replace(/```json/g, '').replace(/```/g, '').trim();
-            const parsed = JSON.parse(cleanJson);
+            const parsed = sanitizeForFirestore(JSON.parse(cleanJson));
             return Array.isArray(parsed) ? parsed : [];
           } catch (err) {
             localRetries -= 1;
@@ -1112,7 +1116,7 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
       console.log(`✅ Stage 1 extracted ${shadowProcessed.length} items.`);
       const exactServerDate = new Date().toLocaleString('en-US', { timeZone: 'Africa/Lagos' });
 
-      const enrichedProducts = shadowProcessed.map((product) => ({
+      const enrichedProducts = sanitizeForFirestore(shadowProcessed.map((product) => ({
         Category: product.taxonomy?.Category || 'Others',
         Brand: product.taxonomy?.Brand || 'Others',
         Series: product.taxonomy?.Series || 'Others',
@@ -1129,7 +1133,7 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
         DatePosted: exactServerDate,
         isGroupMessage: isMessageFromGroup || false,
         groupName: isMessageFromGroup ? groupName : 'Direct Message'
-      }));
+      })));
 
       const masterDocId = senderName.replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
 
@@ -1202,7 +1206,7 @@ const runOpenAIExtraction = async (rows = [], signal) => {
     temperature: 0,
   }, { signal });
 
-  const parsed = JSON.parse(aiResponse.choices?.[0]?.message?.content || '{}');
+  const parsed = sanitizeForFirestore(JSON.parse(aiResponse.choices?.[0]?.message?.content || '{}'));
   return Array.isArray(parsed.data) ? parsed.data : [];
 };
 

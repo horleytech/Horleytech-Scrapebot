@@ -1,30 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { doc, getDoc, updateDoc, increment } from 'firebase/firestore';
+import { doc, getDoc, updateDoc, increment, collection, addDoc, serverTimestamp } from 'firebase/firestore';
 import PropTypes from 'prop-types';
 import { db } from '../services/firebase/index.js';
-
-const MAX_LOG_ITEMS = 200;
 
 const HD_IMAGE_STYLE = {
   imageRendering: '-webkit-optimize-contrast',
   filter: 'contrast(1.1) brightness(1.03) saturate(1.05)',
-};
-
-// Helper to ensure log structure exists
-const normalizeLogs = (logs) => ({
-  admin: Array.isArray(logs?.admin) ? logs.admin : [],
-  vendor: Array.isArray(logs?.vendor) ? logs.vendor : [],
-  customer: Array.isArray(logs?.customer) ? logs.customer : [],
-});
-
-// Helper to push a rolling log
-const appendRollingLog = (logs, channel, entry) => {
-  const normalized = normalizeLogs(logs);
-  return {
-    ...normalized,
-    [channel]: [...normalized[channel], entry].slice(-MAX_LOG_ITEMS),
-  };
 };
 
 const toBoolean = (value, fallback = false) => {
@@ -149,26 +131,30 @@ const StoreFront = ({ storeType = '1' }) => {
 
   const handleWhatsAppClick = async (product) => {
     const vendorRef = doc(db, 'horleyTech_OfflineInventories', vendorId);
-    const previousLogs = normalizeLogs(vendorData?.logs);
+    const nowIso = new Date().toISOString();
     const logEntry = {
       action: `Customer clicked WhatsApp Order for ${product['Device Type'] || 'Unknown Device'}`,
-      date: new Date().toISOString(),
+      date: nowIso,
     };
 
     try {
-      const nextLogs = appendRollingLog(previousLogs, 'customer', logEntry);
       await updateDoc(vendorRef, {
         whatsappClicks: increment(1),
-        logs: nextLogs,
+        lastUpdated: nowIso,
+      });
+      await addDoc(collection(db, 'horleyTech_OfflineInventories', vendorId, 'activityLogs'), {
+        ...logEntry,
+        channel: 'customer',
+        actor: 'customer',
+        timestamp: serverTimestamp(),
       });
 
       setVendorData((prev) => ({
         ...prev,
         whatsappClicks: (prev?.whatsappClicks || 0) + 1,
-        logs: nextLogs,
       }));
     } catch (error) {
-      console.error('Failed to update WhatsApp clicks/logs:', error);
+      console.error('Failed to update WhatsApp clicks/activity log:', error);
     }
 
     const number = pickStaffNumber();
