@@ -12,7 +12,11 @@ const __dirname = path.dirname(__filename);
 const OFFLINE_COLLECTION = 'horleyTech_OfflineInventories';
 const SETTINGS_COLLECTION = 'horleyTech_Settings';
 const AI_BATCH_SIZE = 20;
+const NIGHTLY_MAX_CANDIDATES = 300;
+const NIGHTLY_MAX_AI_CHUNKS = 20;
+const NIGHTLY_AI_THROTTLE_MS = 750;
 let inMemoryGlobalProducts = [];
+const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const normalizeCacheCondition = (value = '') => {
   const normalized = String(value || '').trim().toLowerCase();
@@ -236,15 +240,19 @@ export const runNightlyUnknownSweeper = async () => {
     });
   });
 
-  const candidateRows = Array.from(unknownCandidates).map((raw) => ({ raw }));
+  const candidateRows = Array.from(unknownCandidates)
+    .slice(0, NIGHTLY_MAX_CANDIDATES)
+    .map((raw) => ({ raw }));
   if (!candidateRows.length) {
     return { success: true, judged: 0, updatedMappings: 0 };
   }
 
-  const chunks = chunkArray(candidateRows, AI_BATCH_SIZE);
+  const chunks = chunkArray(candidateRows, AI_BATCH_SIZE).slice(0, NIGHTLY_MAX_AI_CHUNKS);
   const newAiMappings = {};
+  let failedChunks = 0;
 
-  for (const chunk of chunks) {
+  for (let index = 0; index < chunks.length; index += 1) {
+    const chunk = chunks[index];
     try {
       const judgedRows = await runTwoLayerJudge(chunk);
       judgedRows.forEach((item) => {
@@ -264,8 +272,10 @@ export const runNightlyUnknownSweeper = async () => {
         };
       });
     } catch (error) {
+      failedChunks += 1;
       console.error('❌ Nightly sweeper AI chunk failed:', error.message);
     }
+    if (index < chunks.length - 1) await wait(NIGHTLY_AI_THROTTLE_MS);
   }
 
   // Categorical Sharding Checkpoint Save
@@ -288,7 +298,37 @@ export const runNightlyUnknownSweeper = async () => {
     success: true,
     judged: candidateRows.length,
     updatedMappings: Object.keys(newAiMappings).length,
+    totalChunks: chunks.length,
+    failedChunks,
   };
+};
+
+export const midnightDatabaseCleanup = async () => {
+  const firestore = getAdminFirestore();
+  const now = new Date();
+  const cutoff = new Date(now.getTime() - (30 * 24 * 60 * 60 * 1000)).toISOString();
+  const maxDeletesPerRun = 500;
+
+  try {
+    const snapshot = await firestore
+      .collection('horleyTech_AuditLogs')
+      .where('timestamp', '<', cutoff)
+      .limit(maxDeletesPerRun)
+      .get();
+
+    if (snapshot.empty) {
+      return { success: true, deleted: 0, cutoff };
+    }
+
+    const batch = firestore.batch();
+    snapshot.docs.forEach((docSnap) => batch.delete(docSnap.ref));
+    await batch.commit();
+
+    return { success: true, deleted: snapshot.size, cutoff };
+  } catch (error) {
+    console.error('❌ Midnight cleanup failed:', error.message);
+    return { success: false, deleted: 0, cutoff, error: error.message };
+  }
 };
 
 export const forceBuildGlobalCache = async () => {
@@ -393,17 +433,29 @@ export const runScheduledCacheBuildIfEnabled = async () => {
 export const initializeCronTasks = () => {
   cron.schedule('0 0 * * 0', async () => {
     console.log('🗂️ Running weekly automated backup...');
-    await runBackup();
+    try {
+      await runBackup();
+    } catch (error) {
+      console.error('❌ Weekly backup failed:', error.message);
+    }
   }, { timezone: 'Africa/Lagos' });
 
   cron.schedule('0 23 * * 6', async () => {
     console.log('🧹 Running scheduled retroactive system correction...');
-    await runRetroactiveSweep();
+    try {
+      await runRetroactiveSweep();
+    } catch (error) {
+      console.error('❌ Retroactive sweep failed:', error.message);
+    }
   }, { timezone: 'Africa/Lagos' });
 
   cron.schedule('0 0 1 * *', async () => {
     console.log('📦 Running monthly mapping JSONL export...');
-    await exportMappingsToJsonl();
+    try {
+      await exportMappingsToJsonl();
+    } catch (error) {
+      console.error('❌ Monthly mapping export failed:', error.message);
+    }
   }, { timezone: 'Africa/Lagos' });
 
   cron.schedule('0 2 * * *', async () => {
@@ -427,6 +479,16 @@ export const initializeCronTasks = () => {
       }
     } catch (error) {
       console.error('❌ Scheduled cache build failed:', error.message);
+    }
+  }, { timezone: 'Africa/Lagos' });
+
+  cron.schedule('30 2 * * *', async () => {
+    console.log('🧽 Running nightly audit-log cleanup...');
+    const result = await midnightDatabaseCleanup();
+    if (result.success) {
+      console.log('✅ Nightly cleanup result:', result);
+    } else {
+      console.error('❌ Nightly cleanup result:', result);
     }
   }, { timezone: 'Africa/Lagos' });
 

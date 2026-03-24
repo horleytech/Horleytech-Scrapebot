@@ -41,6 +41,7 @@ let messagesCacheUpdatedAt = 0;
 const MESSAGES_CACHE_TTL_MS = 15000;
 const MESSAGE_FETCH_TIMEOUT_MS = 8000;
 const processedMessageCache = new Map();
+const lineLevelExtractionCache = new Map();
 
 const withTimeout = async (promiseFactory, timeoutMs, timeoutMessage) => Promise.race([
   promiseFactory(),
@@ -992,8 +993,6 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
       `;
 
     let extractedProducts = [];
-    let retries = 3;
-    let success = false;
 
     // --- CROSS-LEARNED TOKEN FIX 1: THE CACHE ---
     // Hash the first 200 chars to identify repeat broadcasts quickly
@@ -1002,45 +1001,84 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
     if (processedMessageCache.has(msgHash)) {
       console.log('⚡ Using cached extraction for repeat broadcast. Saving tokens!');
       extractedProducts = processedMessageCache.get(msgHash);
-      success = true;
     } else {
-      // --- CROSS-LEARNED TOKEN FIX 2: TRUNCATION & LIMITS ---
-      // Cap massive broadcasts at 1200 characters before sending to AI
-      const MAX_INPUT_LENGTH = 1200;
-      const optimizedMessage = senderMessage.length > MAX_INPUT_LENGTH
-        ? `${senderMessage.substring(0, MAX_INPUT_LENGTH)}...`
-        : senderMessage;
+      const rawLines = String(senderMessage)
+        .split('\n')
+        .map((line) => line.trim())
+        .filter((line) => line.length > 10);
 
-      while (retries > 0 && !success) {
-        try {
-          const webhookAI = await resolveTextAIConfig({ background: false });
-          const aiResponse = await webhookAI.client.chat.completions.create({
-            model: webhookAI.model,
-            messages: [
-              { role: 'system', content: stageOnePrompt },
-              { role: 'user', content: optimizedMessage }
-            ],
-            temperature: 0,
-            max_tokens: 300,
-          });
+      let knownProducts = [];
+      let unknownLines = [];
 
-          const cleanJson = aiResponse.choices[0].message.content.replace(/```json/g, '').replace(/```/g, '').trim();
-          extractedProducts = JSON.parse(cleanJson);
-          success = true;
+      rawLines.forEach((line) => {
+        const lineHash = line.substring(0, 150);
+        if (lineLevelExtractionCache.has(lineHash)) {
+          const cachedProducts = lineLevelExtractionCache.get(lineHash);
+          if (Array.isArray(cachedProducts) && cachedProducts.length) {
+            knownProducts = knownProducts.concat(cachedProducts);
+          }
+        } else {
+          unknownLines.push(line);
+        }
+      });
 
-          // Save to cache (cap at 50 to prevent memory leaks)
-          if (processedMessageCache.size > 50) processedMessageCache.clear();
-          processedMessageCache.set(msgHash, extractedProducts);
-        } catch (err) {
-          retries -= 1;
-          if (retries > 0) {
-            console.log(`⚠️ OpenAI Webhook Hiccup. Retrying... (${retries} left)`);
-            await new Promise((resolve) => setTimeout(resolve, 2000));
-          } else {
-            throw new Error(`OpenAI failed after 3 retries: ${err.message}`);
+      console.log(`📊 Broadcast Analysis: ${knownProducts.length} known products, ${unknownLines.length} unknown lines.`);
+      extractedProducts = [...knownProducts];
+
+      const extractFromText = async (textForAI, maxTokens = 300) => {
+        let localRetries = 3;
+        while (localRetries > 0) {
+          try {
+            const webhookAI = await resolveTextAIConfig({ background: false });
+            const aiResponse = await webhookAI.client.chat.completions.create({
+              model: webhookAI.model,
+              messages: [
+                { role: 'system', content: stageOnePrompt },
+                { role: 'user', content: textForAI },
+              ],
+              temperature: 0,
+              max_tokens: maxTokens,
+            });
+            const rawContent = String(aiResponse?.choices?.[0]?.message?.content || '');
+            const cleanJson = rawContent.replace(/```json/g, '').replace(/```/g, '').trim();
+            const parsed = JSON.parse(cleanJson);
+            return Array.isArray(parsed) ? parsed : [];
+          } catch (err) {
+            localRetries -= 1;
+            if (localRetries > 0) {
+              console.log(`⚠️ OpenAI Webhook Hiccup. Retrying... (${localRetries} left)`);
+              await new Promise((resolve) => setTimeout(resolve, 2000));
+            } else {
+              throw new Error(`OpenAI failed after 3 retries: ${err.message}`);
+            }
           }
         }
+        return [];
+      };
+
+      if (unknownLines.length > 0) {
+        // Use true micro-dictionary mode for normal day-to-day deltas.
+        // For very large unknown lists, fallback to one batched AI call to keep response time stable.
+        if (unknownLines.length <= 25) {
+          for (const unknownLine of unknownLines) {
+            const lineText = unknownLine.substring(0, 320);
+            const lineHash = lineText.substring(0, 150);
+            const lineProducts = await extractFromText(lineText, 160);
+            extractedProducts = extractedProducts.concat(lineProducts);
+            if (lineLevelExtractionCache.size > 500) lineLevelExtractionCache.clear();
+            lineLevelExtractionCache.set(lineHash, lineProducts);
+          }
+        } else {
+          const MAX_INPUT_LENGTH = 1200;
+          const textForAI = unknownLines.join('\n').substring(0, MAX_INPUT_LENGTH);
+          const newProducts = await extractFromText(textForAI, 300);
+          extractedProducts = extractedProducts.concat(newProducts);
+        }
       }
+
+      // Save full-message cache (cap to prevent memory leaks)
+      if (processedMessageCache.size > 50) processedMessageCache.clear();
+      processedMessageCache.set(msgHash, extractedProducts);
     }
 
     const shadowProcessed = [];
@@ -1383,6 +1421,7 @@ app.delete('/api/admin/nuke-everything', async (_req, res) => {
     // Reset Scrapebot memory cache + webhook extraction cache
     resetGlobalMemoryCache();
     processedMessageCache.clear();
+    lineLevelExtractionCache.clear();
 
     return res.status(200).json({
       success: true,

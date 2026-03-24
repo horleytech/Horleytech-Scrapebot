@@ -577,6 +577,7 @@ const AdminDashboard = () => {
   const [uploadRestoreLoading, setUploadRestoreLoading] = useState(false);
   const [nukeEverythingConfirmText, setNukeEverythingConfirmText] = useState('');
   const [nukingEverything, setNukingEverything] = useState(false);
+  const [bulkTinbrSaving, setBulkTinbrSaving] = useState(false);
   const fetchInventory = async () => {
     setLoadingSearch(true);
     try {
@@ -600,6 +601,8 @@ const AdminDashboard = () => {
           vendorPassword: data.vendorPassword || '',
           storeWhatsappNumber: data.storeWhatsappNumber || '',
           advancedEnabled: Boolean(data.advancedEnabled),
+          tinbrLinksEnabled: data.tinbrLinksEnabled !== false,
+          showBothTinbrAndNormalLinks: data.showBothTinbrAndNormalLinks !== false,
           products: data.products || [],
           logs: normalizeLogs(data.logs),
           metaData: data.metaData || 'Electronics',
@@ -1652,6 +1655,72 @@ const AdminDashboard = () => {
     await nukeAndRebuildDictionary();
     alert('🛑 Global cache + product containers wiped. Cache automation is now OFF. Use "Force Build Product Cache" to turn it ON again.');
     await nukeLocalCache();
+  };
+
+  const applyTinbrControlsToAllVendors = async (enabled) => {
+    const actionWord = enabled ? 'set' : 'reset';
+    if (!window.confirm(`Are you sure you want to ${actionWord} Tinbr controls for ALL vendors?`)) return;
+
+    setBulkTinbrSaving(true);
+    try {
+      const snapshot = await getDocs(collection(db, COLLECTIONS.offline));
+      const docs = snapshot.docs || [];
+      if (!docs.length) {
+        alert('No vendor records found.');
+        return;
+      }
+
+      const CHUNK_SIZE = 400;
+      const now = new Date().toISOString();
+      const actionLabel = enabled
+        ? 'Enabled Tinbr Links + Enabled Both Tinbr + Normal Links View (Bulk)'
+        : 'Disabled Tinbr Links + Disabled Both Tinbr + Normal Links View (Bulk)';
+
+      for (let index = 0; index < docs.length; index += CHUNK_SIZE) {
+        const chunk = docs.slice(index, index + CHUNK_SIZE);
+        const batch = writeBatch(db);
+        chunk.forEach((vendorDoc) => {
+          const vendorPayload = vendorDoc.data() || {};
+          const logs = normalizeLogs(vendorPayload.logs);
+          const nextAdminLogs = [{ action: actionLabel, date: now }, ...(logs.admin || [])].slice(0, 200);
+
+          batch.update(vendorDoc.ref, {
+            tinbrLinksEnabled: enabled,
+            showBothTinbrAndNormalLinks: enabled,
+            logs: {
+              ...logs,
+              admin: nextAdminLogs,
+            },
+            lastUpdated: now,
+          });
+        });
+        await batch.commit();
+      }
+
+      setOfflineVendors((prev) =>
+        prev.map((vendor) => {
+          const logs = normalizeLogs(vendor.logs);
+          const nextAdminLogs = [{ action: actionLabel, date: now }, ...(logs.admin || [])].slice(0, 200);
+          return {
+            ...vendor,
+            tinbrLinksEnabled: enabled,
+            showBothTinbrAndNormalLinks: enabled,
+            lastUpdated: now,
+            logs: {
+              ...logs,
+              admin: nextAdminLogs,
+            },
+          };
+        })
+      );
+
+      alert(`✅ Tinbr controls ${enabled ? 'enabled' : 'disabled'} for ${docs.length} vendors.`);
+    } catch (error) {
+      console.error('Failed to bulk update Tinbr controls:', error);
+      alert(`❌ ${error.message}`);
+    } finally {
+      setBulkTinbrSaving(false);
+    }
   };
 
 
@@ -2794,6 +2863,28 @@ const AdminDashboard = () => {
                 </label>
                 <button onClick={runRetroactiveCleanup} className="bg-emerald-600 text-white px-4 py-2 rounded-lg font-bold text-sm hover:bg-emerald-700">🧹 Run Retroactive Cleanup</button>
                 <button onClick={forceBuildProductCache} className="bg-purple-600 text-white px-4 py-2 rounded-lg font-bold text-sm hover:bg-purple-700">🏗️ Force Build Product Cache</button>
+              </div>
+              <div className="mb-5 border border-indigo-200 rounded-2xl p-4 bg-indigo-50">
+                <h3 className="text-sm font-black uppercase tracking-wider text-indigo-700 mb-2">Tinbr Link Controls (All Vendors)</h3>
+                <p className="text-xs text-indigo-700 mb-3">
+                  Apply both controls globally: <span className="font-black">Use Tinbr Tiny links as primary</span> and <span className="font-black">Let vendor see both Tinbr + normal links</span>.
+                </p>
+                <div className="flex flex-wrap gap-3">
+                  <button
+                    onClick={() => applyTinbrControlsToAllVendors(true)}
+                    disabled={bulkTinbrSaving}
+                    className="px-4 py-2 rounded-lg text-xs font-black uppercase tracking-wider bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50"
+                  >
+                    {bulkTinbrSaving ? 'Saving...' : 'Set for All'}
+                  </button>
+                  <button
+                    onClick={() => applyTinbrControlsToAllVendors(false)}
+                    disabled={bulkTinbrSaving}
+                    className="px-4 py-2 rounded-lg text-xs font-black uppercase tracking-wider bg-gray-700 text-white hover:bg-gray-800 disabled:opacity-50"
+                  >
+                    {bulkTinbrSaving ? 'Saving...' : 'Reset for All'}
+                  </button>
+                </div>
               </div>
               <div className="mb-5 border border-red-200 rounded-2xl p-4 bg-red-50">
                 <h3 className="text-sm font-black uppercase tracking-wider text-red-700 mb-2">Danger Zone: Nuke All Live Data</h3>
