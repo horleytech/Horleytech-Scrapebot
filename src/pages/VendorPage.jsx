@@ -1438,7 +1438,6 @@ const VendorPage = () => {
               </div>
               <p className="text-xs text-indigo-800 mt-3">
                 Use the Copy TinyURL buttons in Share Links to generate and save Tiny links to Firebase. Vendors only see both normal + Tiny links when enabled above.<br />
-                These link settings are saved in the vendor record in Firebase and both storefronts read them live.<br />
                 Product images are saved with each product in Firebase using <span className="font-black">productImageBase64</span>, <span className="font-black">productImageStore1Base64</span>, and <span className="font-black">productImageStore2Base64</span> so Store 1 and Store 2 load the correct image automatically.
               </p>
               </div>

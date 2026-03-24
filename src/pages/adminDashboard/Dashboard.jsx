@@ -1710,9 +1710,7 @@ const AdminDashboard = () => {
 
       await setDoc(doc(db, 'horleyTech_Settings', 'adminPreferences'), {
         globalTinyLinksEnabled: nextTinbrLinksEnabled,
-        globalTinbrLinksEnabled: nextTinbrLinksEnabled,
         globalShowBothTinyAndNormalLinks: nextShowBothTinbrAndNormalLinks,
-        globalShowBothTinbrAndNormalLinks: nextShowBothTinbrAndNormalLinks,
         tinyLinkControlsUpdatedAt: now,
       }, { merge: true });
 
@@ -1722,8 +1720,8 @@ const AdminDashboard = () => {
           const nextAdminLogs = [{ action: actionLabel, date: now }, ...(logs.admin || [])].slice(0, 200);
           return {
             ...vendor,
-            tinbrLinksEnabled: nextTinbrLinksEnabled,
-            showBothTinbrAndNormalLinks: nextShowBothTinbrAndNormalLinks,
+            tinyLinksEnabled: nextTinbrLinksEnabled,
+            showBothTinyAndNormalLinks: nextShowBothTinbrAndNormalLinks,
             lastUpdated: now,
             logs: {
               ...logs,
@@ -2911,8 +2909,7 @@ const AdminDashboard = () => {
                   </label>
                 </div>
                 <p className="text-[11px] text-indigo-800 mt-3">
-                  These settings are saved directly in Firebase for each vendor and both storefronts read them live.<br />
-                  Fields updated per vendor: <span className="font-black">tinyLinksEnabled</span> + <span className="font-black">showBothTinyAndNormalLinks</span> (legacy <span className="font-black">tinbr*</span> fields are also kept in sync).
+                  Applies directly to all vendors immediately.
                 </p>
                 <div className="flex flex-wrap gap-3 mt-4">
                   <button
