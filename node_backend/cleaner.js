@@ -156,6 +156,9 @@ const EXCLUDED_PHRASE_CACHE_TTL_MS = 60000;
 let simDictionaryCache = [];
 let simDictionaryCacheAt = 0;
 const SIM_DICTIONARY_CACHE_TTL_MS = 60000;
+let productCatalogCache = [];
+let productCatalogCacheAt = 0;
+const PRODUCT_CATALOG_CACHE_TTL_MS = 60000;
 
 const normalizeSimLabel = (value = '') => {
   const text = String(value || '').toLowerCase().trim();
@@ -180,13 +183,56 @@ const toFetchableDictionaryUrl = (rawUrl = '') => {
   return `https://docs.google.com/spreadsheets/d/${match[1]}/export?format=csv&gid=${gid}`;
 };
 
-const parseDictionaryText = (rawText = '') => rawText
-  .split(/\r?\n/)
-  .map((line) => line.trim())
-  .filter(Boolean)
-  .map((line) => line.replace(/^"|"$/g, ''))
-  .map((line) => {
-    const parts = line.split(/[\t,]/).map((token) => token.trim()).filter(Boolean);
+const parseCsvRows = (rawText = '') => {
+  const rows = [];
+  let row = [];
+  let field = '';
+  let inQuotes = false;
+
+  for (let i = 0; i < rawText.length; i += 1) {
+    const char = rawText[i];
+    const next = rawText[i + 1];
+
+    if (char === '"') {
+      if (inQuotes && next === '"') {
+        field += '"';
+        i += 1;
+      } else {
+        inQuotes = !inQuotes;
+      }
+      continue;
+    }
+
+    if (char === ',' && !inQuotes) {
+      row.push(field.trim());
+      field = '';
+      continue;
+    }
+
+    if ((char === '\n' || char === '\r') && !inQuotes) {
+      if (char === '\r' && next === '\n') i += 1;
+      row.push(field.trim());
+      if (row.some((cell) => cell.length > 0)) rows.push(row);
+      row = [];
+      field = '';
+      continue;
+    }
+
+    field += char;
+  }
+
+  if (field.length > 0 || row.length > 0) {
+    row.push(field.trim());
+    if (row.some((cell) => cell.length > 0)) rows.push(row);
+  }
+
+  return rows;
+};
+
+const toComparableToken = (value = '') => String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+
+const parseDictionaryText = (rawText = '') => parseCsvRows(rawText)
+  .map((parts) => {
     if (parts.length < 2) return null;
     const key = String(parts[0] || '').toLowerCase();
     const value = normalizeSimLabel(parts[1]);
@@ -233,6 +279,78 @@ const loadSimDictionary = async () => {
   simDictionaryCache = entries.sort((a, b) => b.key.length - a.key.length);
   simDictionaryCacheAt = now;
   return simDictionaryCache;
+};
+
+const loadProductCatalogDictionary = async () => {
+  const now = Date.now();
+  if ((now - productCatalogCacheAt) < PRODUCT_CATALOG_CACHE_TTL_MS) return productCatalogCache;
+
+  const sourceUrlRaw = process.env.PRODUCT_DICTIONARY_URL || process.env.SIM_DICTIONARY_URL || process.env.ESIM_DICTIONARY_URL || '';
+  const sourceUrl = toFetchableDictionaryUrl(sourceUrlRaw);
+  if (!sourceUrl) return productCatalogCache;
+
+  try {
+    const response = await fetch(sourceUrl, { signal: AbortSignal.timeout(5000) });
+    if (!response.ok) return productCatalogCache;
+
+    const csvText = await response.text();
+    const rows = parseCsvRows(csvText);
+    if (rows.length < 2) return productCatalogCache;
+
+    const headers = rows[0].map((header) => String(header || '').toLowerCase());
+    const idx = {
+      category: headers.findIndex((h) => h.includes('category')),
+      brand: headers.findIndex((h) => h.includes('brand')),
+      series: headers.findIndex((h) => h.includes('series')),
+      deviceType: headers.findIndex((h) => h.includes('device type')),
+      storage: headers.findIndex((h) => h.includes('storage')),
+      spec: headers.findIndex((h) => h.includes('sim type') || h.includes('processor')),
+      condition: headers.findIndex((h) => h.includes('condition')),
+    };
+
+    if (idx.category < 0 || idx.brand < 0 || idx.series < 0 || idx.deviceType < 0) {
+      return productCatalogCache;
+    }
+
+    productCatalogCache = rows.slice(1).map((cells) => ({
+      category: String(cells[idx.category] || '').trim(),
+      brand: String(cells[idx.brand] || '').trim(),
+      series: String(cells[idx.series] || '').trim(),
+      deviceType: String(cells[idx.deviceType] || '').trim(),
+      storage: idx.storage >= 0 ? normalizeStorage(cells[idx.storage] || '') : 'UNKNOWN',
+      spec: idx.spec >= 0 ? normalizeSimLabel(cells[idx.spec] || '') : null,
+      condition: idx.condition >= 0 ? normalizeCondition(cells[idx.condition] || '') : 'Unknown',
+    })).filter((entry) => entry.category && entry.brand && entry.series && entry.deviceType);
+
+    productCatalogCacheAt = now;
+  } catch (error) {
+    console.warn('⚠️ Product catalog dictionary fetch skipped:', error.message);
+  }
+
+  return productCatalogCache;
+};
+
+const resolveCatalogEntry = async (rawText = '', parsedStorage = 'UNKNOWN') => {
+  const catalog = await loadProductCatalogDictionary();
+  if (!catalog.length) return null;
+
+  const haystack = toComparableToken(rawText);
+  const normalizedStorage = normalizeStorage(parsedStorage);
+
+  const candidates = catalog
+    .map((entry) => {
+      const deviceToken = toComparableToken(entry.deviceType);
+      const seriesToken = toComparableToken(entry.series);
+      const deviceHit = deviceToken && haystack.includes(deviceToken);
+      const seriesHit = seriesToken && haystack.includes(seriesToken);
+      const storageHit = normalizedStorage === 'UNKNOWN' || entry.storage === 'UNKNOWN' || entry.storage === normalizedStorage;
+      const score = (deviceHit ? 3 : 0) + (seriesHit ? 2 : 0) + (storageHit ? 1 : 0);
+      return { entry, score, tokenSize: Math.max(deviceToken.length, seriesToken.length) };
+    })
+    .filter((candidate) => candidate.score >= 3)
+    .sort((a, b) => (b.score - a.score) || (b.tokenSize - a.tokenSize));
+
+  return candidates[0]?.entry || null;
 };
 
 const resolveSimWithDictionary = async (rawText = '') => {
@@ -311,6 +429,18 @@ const inferTaxonomyFromRaw = (rawText = '') => {
   }
 
   return canonicalFallbackTaxonomy();
+};
+
+const sanitizeTaxonomyCandidate = (entry = canonicalFallbackTaxonomy()) => {
+  const invalidSeriesPattern = /(grade\s*a|brand\s*new|uk\s*used|unknown|physical\s*sim|esim|locked)/i;
+  const safeSeries = invalidSeriesPattern.test(String(entry.Series || '')) ? 'Others' : String(entry.Series || 'Others');
+  const safeBrand = invalidSeriesPattern.test(String(entry.Brand || '')) ? 'Others' : String(entry.Brand || 'Others');
+  const safeCategory = String(entry.Category || 'Others').trim() || 'Others';
+  return {
+    Category: safeCategory,
+    Brand: safeBrand,
+    Series: safeSeries,
+  };
 };
 
 const isTaxonomyEntryValid = (entry = {}) => {
@@ -514,7 +644,8 @@ export const processWithShadowTesting = async ({ rawProductString, price }) => {
   const alias = normalizeAlias(rawProductString);
   const parsedStorage = normalizeStorage(rawProductString);
   const parsedCondition = normalizeCondition(rawProductString);
-  const parsedSim = (await resolveSimWithDictionary(rawProductString)) || normalizeSim(rawProductString);
+  const catalogEntry = await resolveCatalogEntry(rawProductString, parsedStorage);
+  const parsedSim = catalogEntry?.spec || (await resolveSimWithDictionary(rawProductString)) || normalizeSim(rawProductString);
 
   const ignoredByPhrase = await shouldIgnoreRawString(rawProductString);
   if (ignoredByPhrase) {
@@ -563,15 +694,27 @@ export const processWithShadowTesting = async ({ rawProductString, price }) => {
   const regexPrediction = regexPredictTaxonomy(alias, rows);
   const aiTruth = await runTwoLayerJudge(alias, canonicalTaxonomy);
   const fallbackTaxonomy = inferTaxonomyFromRaw(rawProductString);
-  const finalTaxonomy = (aiTruth.Category === 'Others' && aiTruth.Brand === 'Others' && aiTruth.Series === 'Others')
-    ? fallbackTaxonomy
-    : aiTruth;
+  const catalogTaxonomy = catalogEntry
+    ? {
+      Category: catalogEntry.category,
+      Brand: catalogEntry.brand,
+      Series: catalogEntry.series,
+    }
+    : null;
+
+  const selectedTaxonomy = catalogTaxonomy
+    || ((aiTruth.Category === 'Others' && aiTruth.Brand === 'Others' && aiTruth.Series === 'Others')
+      ? fallbackTaxonomy
+      : aiTruth);
+  const finalTaxonomy = sanitizeTaxonomyCandidate(selectedTaxonomy);
 
   if (aiTruth.Category === 'Others' && aiTruth.Brand === 'Others' && aiTruth.Series === 'Others') {
     await incrementMetrics({ stage2OthersFallbacks: 1 });
   }
 
-  const resolvedCondition = inferConditionFromRaw(rawProductString, parsedCondition);
+  const resolvedCondition = parsedCondition === 'Unknown' && catalogEntry?.condition && catalogEntry.condition !== 'Unknown'
+    ? catalogEntry.condition
+    : inferConditionFromRaw(rawProductString, parsedCondition);
   const resolvedSpecification = resolveSpecification({
     rawProductString,
     category: finalTaxonomy.Category,
