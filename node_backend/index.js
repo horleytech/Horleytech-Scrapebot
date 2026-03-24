@@ -1114,6 +1114,76 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
       return colorOnly || specOnly || memoryOnly || storageOnly;
     };
 
+    const mergeFragmentedProducts = (products = []) => {
+      const merged = [];
+
+      products.forEach((item) => {
+        const raw = String(item?.rawProductString || '').trim();
+        if (!raw) return;
+
+        if (isLikelyFragment(raw)) {
+          const previous = merged[merged.length - 1];
+          if (previous) {
+            previous.rawProductString = `${previous.rawProductString} | ${raw}`;
+          }
+          return;
+        }
+
+        merged.push({
+          ...item,
+          rawProductString: raw,
+        });
+      });
+
+      return merged;
+    };
+
+    const parsePriceFromRaw = (raw = '') => {
+      const text = String(raw || '');
+      const candidates = [];
+
+      const groupedMatches = text.match(/\d{1,3}(?:[,\s]\d{3}){1,3}/g) || [];
+      groupedMatches.forEach((match) => {
+        const numeric = Number(match.replace(/[^0-9]/g, ''));
+        if (numeric > 0) candidates.push(numeric);
+      });
+
+      const plainMatches = text.match(/\b\d{4,7}\b/g) || [];
+      plainMatches.forEach((match) => {
+        const numeric = Number(match);
+        if (numeric > 0) candidates.push(numeric);
+      });
+
+      return candidates.length ? Math.max(...candidates) : 0;
+    };
+
+    const computeConfidence = ({ shadowResult, normalizedPrice, rawProductString }) => {
+      if (shadowResult?.ignored) {
+        return { score: 10, level: 'low' };
+      }
+
+      let score = 0;
+      const taxonomy = shadowResult?.taxonomy || {};
+      const category = String(taxonomy?.Category || '').toLowerCase();
+      const series = String(taxonomy?.Series || '').toLowerCase();
+      const deviceType = String(shadowResult?.deviceType || '').toLowerCase();
+      const condition = String(shadowResult?.condition || '').toLowerCase();
+      const spec = String(shadowResult?.sim || '').toLowerCase();
+      const storage = String(shadowResult?.storage || '').toUpperCase();
+
+      if (category && category !== 'others') score += 30;
+      if (series && series !== 'others') score += 15;
+      if (deviceType && !['others', 'unknown device'].includes(deviceType)) score += 15;
+      if (storage && storage !== 'UNKNOWN') score += 10;
+      if (spec && spec !== 'unknown') score += 10;
+      if (condition && condition !== 'unknown') score += 10;
+      if (normalizedPrice >= 10000 || /₦|naira|k\b/i.test(String(rawProductString || ''))) score += 10;
+
+      const bounded = Math.min(100, Math.max(0, score));
+      const level = bounded >= 75 ? 'high' : bounded >= 45 ? 'medium' : 'low';
+      return { score: bounded, level };
+    };
+
     const stageOnePrompt = `
         You are Stage 1 Extractor.
         Extract products from messy WhatsApp broadcasts.
@@ -1213,23 +1283,33 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
       processedMessageCache.set(msgHash, extractedProducts);
     }
 
+    const stitchedProducts = mergeFragmentedProducts(extractedProducts);
+
     const shadowProcessed = [];
-    for (const item of extractedProducts) {
+    for (const item of stitchedProducts) {
       const rawProductString = String(item?.rawProductString || '').trim();
       if (!rawProductString) continue;
-      if (isLikelyFragment(rawProductString)) continue;
-
       const parsedPrice = Number(String(item?.price || '').replace(/[^0-9.]/g, '')) || 0;
+      const rawPrice = parsePriceFromRaw(rawProductString);
+      const normalizedPrice = (parsedPrice > 0 && parsedPrice < 10000 && rawPrice >= 10000)
+        ? rawPrice
+        : (parsedPrice || rawPrice || 0);
 
       try {
-        const shadowResult = await processWithShadowTesting({ rawProductString, price: parsedPrice });
-        shadowProcessed.push(shadowResult);
+        const shadowResult = await processWithShadowTesting({ rawProductString, price: normalizedPrice });
+        const confidence = computeConfidence({ shadowResult, normalizedPrice, rawProductString });
+        shadowProcessed.push({
+          ...shadowResult,
+          confidenceScore: confidence.score,
+          confidenceLevel: confidence.level,
+        });
       } catch (error) {
         console.warn('⚠️ Shadow processing failed for one item. Falling back to Others:', error.message);
         shadowProcessed.push({
           rawProductString,
-          price: parsedPrice,
+          price: normalizedPrice,
           taxonomy: { Category: 'Others', Brand: 'Others', Series: 'Others' },
+          deviceType: 'Unknown Device',
           storage: 'UNKNOWN',
           condition: 'Unknown',
           sim: 'Unknown',
@@ -1237,6 +1317,8 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
           trustedFastLane: false,
           ignored: true,
           ignoreReason: 'shadow-failure',
+          confidenceScore: 5,
+          confidenceLevel: 'low',
         });
       }
     }
@@ -1259,6 +1341,8 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
         trustedFastLane: product.trustedFastLane,
         ignored: Boolean(product.ignored),
         ignoreReason: product.ignoreReason || '',
+        confidenceScore: Number(product.confidenceScore || 0),
+        confidenceLevel: product.confidenceLevel || 'low',
         DatePosted: exactServerDate,
         isGroupMessage: isMessageFromGroup || false,
         groupName: isMessageFromGroup ? groupName : 'Direct Message'
