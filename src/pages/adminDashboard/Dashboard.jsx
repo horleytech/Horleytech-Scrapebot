@@ -578,6 +578,8 @@ const AdminDashboard = () => {
   const [nukeEverythingConfirmText, setNukeEverythingConfirmText] = useState('');
   const [nukingEverything, setNukingEverything] = useState(false);
   const [bulkTinbrSaving, setBulkTinbrSaving] = useState(false);
+  const [bulkTinbrUseTinyChecked, setBulkTinbrUseTinyChecked] = useState(true);
+  const [bulkTinbrShowBothChecked, setBulkTinbrShowBothChecked] = useState(true);
   const fetchInventory = async () => {
     setLoadingSearch(true);
     try {
@@ -1625,8 +1627,16 @@ const AdminDashboard = () => {
       if (!response.ok) throw new Error(payload.error || 'Failed to wipe all collections');
 
       const deletedCount = Object.values(payload?.stats || {}).reduce((sum, count) => sum + (Number(count) || 0), 0);
+      const deletedBreakdown = Object.entries(payload?.stats || {})
+        .map(([collectionName, count]) => `• ${collectionName}: ${Number(count) || 0}`)
+        .join('\n');
+      const preservedBreakdown = Object.entries(payload?.preserved || {})
+        .map(([collectionName, info]) => `• ${collectionName}: ${Array.isArray(info) ? info.join(', ') : info}`)
+        .join('\n');
       setNukeEverythingConfirmText('');
-      alert(`✅ Total nuke complete. Deleted ${deletedCount} documents across all configured collections.`);
+      alert(
+        `✅ Total nuke complete. Deleted ${deletedCount} documents.\n\nDeleted collections:\n${deletedBreakdown || '• None'}\n\nPreserved:\n${preservedBreakdown || '• None'}`
+      );
       await fetchInventory();
       await fetchBackups();
       setAllMessages([]);
@@ -1657,9 +1667,13 @@ const AdminDashboard = () => {
     await nukeLocalCache();
   };
 
-  const applyTinbrControlsToAllVendors = async (enabled) => {
-    const actionWord = enabled ? 'set' : 'reset';
-    if (!window.confirm(`Are you sure you want to ${actionWord} Tinbr controls for ALL vendors?`)) return;
+  const applyTinbrControlsToAllVendors = async (nextTinbrLinksEnabled, nextShowBothTinbrAndNormalLinks) => {
+    const summaryText = [
+      `Use Tinbr Tiny links as primary: ${nextTinbrLinksEnabled ? 'ON' : 'OFF'}`,
+      `Let vendor see both Tinbr + normal links: ${nextShowBothTinbrAndNormalLinks ? 'ON' : 'OFF'}`,
+    ].join('\n');
+
+    if (!window.confirm(`Apply these Tinbr settings for ALL vendors?\n\n${summaryText}`)) return;
 
     setBulkTinbrSaving(true);
     try {
@@ -1672,9 +1686,7 @@ const AdminDashboard = () => {
 
       const CHUNK_SIZE = 400;
       const now = new Date().toISOString();
-      const actionLabel = enabled
-        ? 'Enabled Tinbr Links + Enabled Both Tinbr + Normal Links View (Bulk)'
-        : 'Disabled Tinbr Links + Disabled Both Tinbr + Normal Links View (Bulk)';
+      const actionLabel = `${nextTinbrLinksEnabled ? 'Enabled' : 'Disabled'} Tinbr Links + ${nextShowBothTinbrAndNormalLinks ? 'Enabled' : 'Disabled'} Both Tinbr + Normal Links View (Bulk)`;
 
       for (let index = 0; index < docs.length; index += CHUNK_SIZE) {
         const chunk = docs.slice(index, index + CHUNK_SIZE);
@@ -1685,8 +1697,8 @@ const AdminDashboard = () => {
           const nextAdminLogs = [{ action: actionLabel, date: now }, ...(logs.admin || [])].slice(0, 200);
 
           batch.update(vendorDoc.ref, {
-            tinbrLinksEnabled: enabled,
-            showBothTinbrAndNormalLinks: enabled,
+            tinbrLinksEnabled: nextTinbrLinksEnabled,
+            showBothTinbrAndNormalLinks: nextShowBothTinbrAndNormalLinks,
             logs: {
               ...logs,
               admin: nextAdminLogs,
@@ -1703,8 +1715,8 @@ const AdminDashboard = () => {
           const nextAdminLogs = [{ action: actionLabel, date: now }, ...(logs.admin || [])].slice(0, 200);
           return {
             ...vendor,
-            tinbrLinksEnabled: enabled,
-            showBothTinbrAndNormalLinks: enabled,
+            tinbrLinksEnabled: nextTinbrLinksEnabled,
+            showBothTinbrAndNormalLinks: nextShowBothTinbrAndNormalLinks,
             lastUpdated: now,
             logs: {
               ...logs,
@@ -1714,7 +1726,7 @@ const AdminDashboard = () => {
         })
       );
 
-      alert(`✅ Tinbr controls ${enabled ? 'enabled' : 'disabled'} for ${docs.length} vendors.`);
+      alert(`✅ Tinbr controls updated for ${docs.length} vendors.`);
     } catch (error) {
       console.error('Failed to bulk update Tinbr controls:', error);
       alert(`❌ ${error.message}`);
@@ -2869,28 +2881,63 @@ const AdminDashboard = () => {
                 <p className="text-xs text-indigo-700 mb-3">
                   Apply both controls globally: <span className="font-black">Use Tinbr Tiny links as primary</span> and <span className="font-black">Let vendor see both Tinbr + normal links</span>.
                 </p>
-                <div className="flex flex-wrap gap-3">
+                <div className="space-y-3">
+                  <label className="flex items-center gap-2 text-xs font-semibold text-indigo-900">
+                    <input
+                      type="checkbox"
+                      checked={bulkTinbrUseTinyChecked}
+                      onChange={(event) => setBulkTinbrUseTinyChecked(event.target.checked)}
+                      disabled={bulkTinbrSaving}
+                      className="h-4 w-4 rounded border-indigo-300 text-indigo-600 focus:ring-indigo-500"
+                    />
+                    Use Tinbr Tiny links as primary
+                  </label>
+                  <label className="flex items-center gap-2 text-xs font-semibold text-indigo-900">
+                    <input
+                      type="checkbox"
+                      checked={bulkTinbrShowBothChecked}
+                      onChange={(event) => setBulkTinbrShowBothChecked(event.target.checked)}
+                      disabled={bulkTinbrSaving}
+                      className="h-4 w-4 rounded border-indigo-300 text-indigo-600 focus:ring-indigo-500"
+                    />
+                    Let vendor see both Tinbr + normal links
+                  </label>
+                </div>
+                <p className="text-[11px] text-indigo-800 mt-3">
+                  Firebase save path: <span className="font-black">horleytech-2287c / horleyTech_OfflineInventories / {'{vendorDocId}'}</span><br />
+                  Fields updated for each vendor doc: <span className="font-black">tinbrLinksEnabled</span> and <span className="font-black">showBothTinbrAndNormalLinks</span>.
+                </p>
+                <div className="flex flex-wrap gap-3 mt-4">
                   <button
-                    onClick={() => applyTinbrControlsToAllVendors(true)}
+                    onClick={() => applyTinbrControlsToAllVendors(bulkTinbrUseTinyChecked, bulkTinbrShowBothChecked)}
                     disabled={bulkTinbrSaving}
                     className="px-4 py-2 rounded-lg text-xs font-black uppercase tracking-wider bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50"
                   >
-                    {bulkTinbrSaving ? 'Saving...' : 'Set for All'}
+                    {bulkTinbrSaving ? 'Saving...' : 'Apply to All Vendors'}
                   </button>
                   <button
-                    onClick={() => applyTinbrControlsToAllVendors(false)}
+                    onClick={() => {
+                      setBulkTinbrUseTinyChecked(false);
+                      setBulkTinbrShowBothChecked(false);
+                    }}
                     disabled={bulkTinbrSaving}
                     className="px-4 py-2 rounded-lg text-xs font-black uppercase tracking-wider bg-gray-700 text-white hover:bg-gray-800 disabled:opacity-50"
                   >
-                    {bulkTinbrSaving ? 'Saving...' : 'Reset for All'}
+                    Uncheck Both
                   </button>
                 </div>
               </div>
               <div className="mb-5 border border-red-200 rounded-2xl p-4 bg-red-50">
                 <h3 className="text-sm font-black uppercase tracking-wider text-red-700 mb-2">Danger Zone: Nuke All Live Data</h3>
                 <p className="text-xs text-red-700 mb-3">
-                  This permanently clears both Scrapebot and Auto Responder collections from Firebase. Type <span className="font-black">NUKE EVERYTHING</span> to enable the button.
+                  This permanently clears Scrapebot + Auto Responder operational collections from Firebase containers. Type <span className="font-black">NUKE EVERYTHING</span> to enable the button.
                 </p>
+                <div className="text-[11px] text-red-800 bg-white border border-red-200 rounded-lg p-3 mb-3 space-y-1">
+                  <p className="font-black uppercase tracking-wider">Collections deleted:</p>
+                  <p>ar_analytics, ar_customers, ar_raw_requests, horleyTech_AuditLogs, horleyTech_Backups, horleyTech_OfflineInventories, horleyTech_PlatformMessages, horleyTech_ProductAliasIndex, horleyTech_ProductContainers, and most horleyTech_Settings docs.</p>
+                  <p className="font-black uppercase tracking-wider pt-1">Collections preserved:</p>
+                  <p>ar_settings, horleyTech_PricingSessions, and horleyTech_Settings docs: adminPreferences + aiControl.</p>
+                </div>
                 <div className="flex flex-col md:flex-row gap-3">
                   <input
                     value={nukeEverythingConfirmText}
