@@ -40,28 +40,6 @@ const Ai = () => {
     'This may take some time...',
   ];
 
-  // FIREBASE...
-  // Add a group
-  const addGroup = async () => {
-    const docRef = await addDoc(collection(db, 'groups'), {
-      name: title.trim(),
-    });
-    console.log('Document written with ID: ', docRef.id);
-    return docRef;
-  };
-
-  const addPrices = async (pricesData) => {
-    const batch = writeBatch(db);
-    // pricesData = JSON.parse(pricesData);
-
-    pricesData.forEach((priceDatum) => {
-      const datumRef = doc(db, 'prices', generateRandomString(10));
-      batch.set(datumRef, { ...priceDatum, group: title });
-    });
-
-    await batch.commit();
-  };
-
   useEffect(() => {
     let interval;
     if (loading) {
@@ -70,7 +48,6 @@ const Ai = () => {
       }, 2000); // Change message every 2 seconds
     }
     return () => clearInterval(interval);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loading]);
 
   useEffect(() => {
