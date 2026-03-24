@@ -468,8 +468,6 @@ const StoreFront = ({ storeType = '1' }) => {
               )}
               <div className="flex flex-wrap justify-center md:justify-start gap-4 mt-4">
                 {vendorData.address && <span className="text-xs font-bold bg-black/20 px-3 py-1.5 rounded-full">📍 {vendorData.address}</span>}
-                <span className="text-xs font-bold bg-black/20 px-3 py-1.5 rounded-full">📦 {visibleProducts.length} items available</span>
-                <span className="text-xs font-bold bg-black/20 px-3 py-1.5 rounded-full">🏷️ {isStore2 ? 'Store 2 Pricing' : 'Store 1 Pricing'}</span>
               </div>
             </div>
           </div>

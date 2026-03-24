@@ -394,12 +394,10 @@ const VendorPage = () => {
     return normalizePriceInput(product['Regular price'] || '0');
   };
 
-  const hasStoreSpecificPrice = (value) => String(value || '').trim().length > 0;
-
   const inventoryRows = useMemo(() => displayData
     .filter(({ product }) => {
-      if (inventoryView === 'store1') return hasStoreSpecificPrice(product.priceStore1) || hasStoreSpecificPrice(product['Store 1 price']) || hasStoreSpecificPrice(product.storeOnePrice);
-      if (inventoryView === 'store2') return hasStoreSpecificPrice(product.priceStore2) || hasStoreSpecificPrice(product['Store 2 price']) || hasStoreSpecificPrice(product.storeTwoPrice);
+      if (inventoryView === 'store1') return resolveStore1Visibility(product);
+      if (inventoryView === 'store2') return resolveStore2Visibility(product);
       return true;
     })
     .map((entry) => ({
@@ -550,6 +548,31 @@ const VendorPage = () => {
     }
   };
 
+  const saveLinkPreference = async (patch, actionLabel) => {
+    if (!isAdmin) return;
+    const nextLogs = appendRollingLog(vendorData?.logs, 'admin', {
+      action: actionLabel,
+      date: new Date().toISOString(),
+    });
+
+    try {
+      await updateDoc(vendorRef, {
+        ...patch,
+        lastUpdated: new Date().toISOString(),
+        logs: nextLogs,
+      });
+      setVendorData((prev) => ({
+        ...prev,
+        ...patch,
+        lastUpdated: new Date().toISOString(),
+        logs: nextLogs,
+      }));
+    } catch (error) {
+      console.error('Failed to save link preference:', error);
+      alert('❌ Could not save link preference.');
+    }
+  };
+
   const toggleSelectAll = () => {
     if (allVisibleRowsSelected) {
       const visibleSet = new Set(inventoryRows.map(({ index }) => index));
@@ -572,27 +595,64 @@ const VendorPage = () => {
     );
   };
 
-  const compressImageToBase64 = (file, size = 150) =>
+  const compressImageToBase64 = (file, options = {}) =>
     new Promise((resolve, reject) => {
+      const {
+        square = false,
+        canvasSize = 150,
+        maxWidth = 1280,
+        maxHeight = 1280,
+        qualityStart = 0.84,
+        minQuality = 0.5,
+        targetKB = 140,
+        format = 'image/webp',
+      } = options;
+
       const reader = new FileReader();
       reader.onload = (event) => {
         const img = new Image();
         img.onload = () => {
           const canvas = document.createElement('canvas');
-          canvas.width = size;
-          canvas.height = size;
           const ctx = canvas.getContext('2d');
-          ctx.fillStyle = '#ffffff';
-          ctx.fillRect(0, 0, size, size);
+          if (!ctx) {
+            reject(new Error('Canvas rendering context unavailable'));
+            return;
+          }
 
-          const scale = Math.min(size / img.width, size / img.height);
-          const drawWidth = img.width * scale;
-          const drawHeight = img.height * scale;
-          const x = (size - drawWidth) / 2;
-          const y = (size - drawHeight) / 2;
-          ctx.drawImage(img, x, y, drawWidth, drawHeight);
+          let drawWidth;
+          let drawHeight;
+          if (square) {
+            canvas.width = canvasSize;
+            canvas.height = canvasSize;
+            drawWidth = canvasSize;
+            drawHeight = canvasSize;
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(0, 0, canvasSize, canvasSize);
+            const scale = Math.min(canvasSize / img.width, canvasSize / img.height);
+            const scaledWidth = img.width * scale;
+            const scaledHeight = img.height * scale;
+            const x = (canvasSize - scaledWidth) / 2;
+            const y = (canvasSize - scaledHeight) / 2;
+            ctx.drawImage(img, x, y, scaledWidth, scaledHeight);
+          } else {
+            const scale = Math.min(maxWidth / img.width, maxHeight / img.height, 1);
+            drawWidth = Math.max(1, Math.round(img.width * scale));
+            drawHeight = Math.max(1, Math.round(img.height * scale));
+            canvas.width = drawWidth;
+            canvas.height = drawHeight;
+            ctx.drawImage(img, 0, 0, drawWidth, drawHeight);
+          }
 
-          resolve(canvas.toDataURL('image/jpeg', 0.8));
+          let quality = qualityStart;
+          let result = canvas.toDataURL(format, quality);
+          const targetChars = targetKB * 1024 * 1.37; // base64 overhead approximation
+
+          while (result.length > targetChars && quality > minQuality) {
+            quality = Math.max(minQuality, quality - 0.06);
+            result = canvas.toDataURL(format, quality);
+          }
+
+          resolve(result);
         };
         img.onerror = reject;
         img.src = event.target.result;
@@ -606,7 +666,13 @@ const VendorPage = () => {
     if (!file) return;
 
     try {
-      const base64 = await compressImageToBase64(file, 150);
+      const base64 = await compressImageToBase64(file, {
+        square: true,
+        canvasSize: 150,
+        targetKB: 35,
+        format: 'image/webp',
+        qualityStart: 0.82,
+      });
       setLogoBase64(base64);
     } catch (error) {
       console.error('Logo compression failed:', error);
@@ -618,7 +684,13 @@ const VendorPage = () => {
     if (!file) return;
 
     try {
-      const thumbBase64 = await compressImageToBase64(file, 180);
+      const thumbBase64 = await compressImageToBase64(file, {
+        maxWidth: 1280,
+        maxHeight: 1280,
+        targetKB: 140,
+        format: 'image/webp',
+        qualityStart: 0.86,
+      });
       const nextProducts = products.map((product, pIndex) =>
         pIndex === index ? { ...product, productImageBase64: thumbBase64 } : product
       );
@@ -1205,11 +1277,32 @@ const VendorPage = () => {
               <label className="block text-sm font-bold text-indigo-900 mb-3">Tinbr / TinyURL (URL Shortener) Link Controls</label>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                 <label className="flex items-center gap-3 text-sm font-semibold text-indigo-900">
-                  <input type="checkbox" checked={tinbrLinksEnabled} onChange={(e) => setTinbrLinksEnabled(e.target.checked)} className="w-4 h-4" />
+                  <input
+                    type="checkbox"
+                    checked={tinbrLinksEnabled}
+                    onChange={(e) => {
+                      const checked = e.target.checked;
+                      setTinbrLinksEnabled(checked);
+                      saveLinkPreference({ tinbrLinksEnabled: checked }, checked ? 'Enabled Tinbr Links' : 'Disabled Tinbr Links');
+                    }}
+                    className="w-4 h-4"
+                  />
                   Use Tinbr short links as primary store links
                 </label>
                 <label className="flex items-center gap-3 text-sm font-semibold text-indigo-900">
-                  <input type="checkbox" checked={showBothTinbrAndNormalLinks} onChange={(e) => setShowBothTinbrAndNormalLinks(e.target.checked)} className="w-4 h-4" />
+                  <input
+                    type="checkbox"
+                    checked={showBothTinbrAndNormalLinks}
+                    onChange={(e) => {
+                      const checked = e.target.checked;
+                      setShowBothTinbrAndNormalLinks(checked);
+                      saveLinkPreference(
+                        { showBothTinbrAndNormalLinks: checked },
+                        checked ? 'Enabled Both Tinbr + Normal Links View' : 'Disabled Both Tinbr + Normal Links View'
+                      );
+                    }}
+                    className="w-4 h-4"
+                  />
                   Let vendor see both Tinbr and normal links
                 </label>
               </div>
