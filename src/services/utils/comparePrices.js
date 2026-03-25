@@ -51,7 +51,6 @@ export default class ComparePricesHandler {
             const filteredData = iphoneJUMIA.find(
               (device) => device.Pname === this.selectedDeviceName
             );
-            console.log({ filteredData });
             if (filteredData) {
               result.push({
                 type: i,
@@ -173,23 +172,6 @@ export default class ComparePricesHandler {
                 L3: filteredData.L3,
               });
             }
-          } else if (this.deviceType === 'laptop') {
-            const filteredData = laptopJUMIA.find(
-              (device) => device.Pname === this.selectedDeviceName
-            );
-            if (filteredData) {
-              result.push({
-                type: i,
-                productName: filteredData.Pname,
-                link: filteredData.Link,
-                H1: filteredData.H1,
-                H2: filteredData.H2,
-                H3: filteredData.H3,
-                L1: filteredData.L1,
-                L2: filteredData.L2,
-                L3: filteredData.L3,
-              });
-            }
           } else if (this.deviceType === 'samsung') {
             const filteredData = samsungOBIWEZY.find(
               (device) => device.Pname === this.selectedDeviceName
@@ -207,58 +189,7 @@ export default class ComparePricesHandler {
                 L3: filteredData.L3,
               });
             }
-          } else if (this.deviceType === 'smartwatch') {
-            const filteredData = smartwatchJUMIA.find(
-              (device) => device.Pname === this.selectedDeviceName
-            );
-            if (filteredData) {
-              result.push({
-                type: i,
-                productName: filteredData.Pname,
-                link: filteredData.Link,
-                H1: filteredData.H1,
-                H2: filteredData.H2,
-                H3: filteredData.H3,
-                L1: filteredData.L1,
-                L2: filteredData.L2,
-                L3: filteredData.L3,
-              });
-            }
-          } else if (this.deviceType === 'sound') {
-            const filteredData = soundJUMIA.find(
-              (device) => device.Pname === this.selectedDeviceName
-            );
-            if (filteredData) {
-              result.push({
-                type: i,
-                productName: filteredData.Pname,
-                link: filteredData.Link,
-                H1: filteredData.H1,
-                H2: filteredData.H2,
-                H3: filteredData.H3,
-                L1: filteredData.L1,
-                L2: filteredData.L2,
-                L3: filteredData.L3,
-              });
-            }
-          } else if (this.deviceType === 'tablet') {
-            const filteredData = tabletJUMIA.find(
-              (device) => device.Pname === this.selectedDeviceName
-            );
-            if (filteredData) {
-              result.push({
-                type: i,
-                productName: filteredData.Pname,
-                link: filteredData.Link,
-                H1: filteredData.H1,
-                H2: filteredData.H2,
-                H3: filteredData.H3,
-                L1: filteredData.L1,
-                L2: filteredData.L2,
-                L3: filteredData.L3,
-              });
-            }
-          } else {
+          } else if (!['laptop', 'smartwatch', 'sound', 'tablet'].includes(this.deviceType)) {
             return null;
           }
           break;
