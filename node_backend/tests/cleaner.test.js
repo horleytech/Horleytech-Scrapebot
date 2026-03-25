@@ -57,6 +57,22 @@ test('toAliasDocId encodes normalized alias', () => {
 });
 
 test('inferDeviceTypeFromRaw maps common phone variants', () => {
-  assert.equal(__testables.inferDeviceTypeFromRaw('iPhone 14 Pro Max 256GB'), 'iPhone 14 pro max');
+  assert.equal(__testables.inferDeviceTypeFromRaw('iPhone 14 Pro Max 256GB'), 'iPhone 14 Pro Max');
   assert.equal(__testables.inferDeviceTypeFromRaw('MACBOOK PRO 2019 13'), 'MacBook Pro');
+  assert.equal(__testables.inferDeviceTypeFromRaw('17 PM 512GB (P + eSim) Blue'), 'iPhone 17 Pro Max');
+  assert.equal(__testables.inferDeviceTypeFromRaw('17 Air 256GB (eSim) White'), 'iPhone 17 Air');
+  assert.equal(__testables.inferDeviceTypeFromRaw('17 256GB (P + eSim) Black'), 'iPhone 17');
+});
+
+test('inferTaxonomyFromRaw handles shorthand iphone and airpods lines', () => {
+  assert.deepEqual(__testables.inferTaxonomyFromRaw('17 PM 512GB (P + eSim) Blue'), {
+    Category: 'Smartphones',
+    Brand: 'Apple',
+    Series: 'iPhone 17 Series',
+  });
+  assert.deepEqual(__testables.inferTaxonomyFromRaw('📷 New Airpod 4 ANC'), {
+    Category: 'Sounds',
+    Brand: 'Apple',
+    Series: 'AirPods Series',
+  });
 });

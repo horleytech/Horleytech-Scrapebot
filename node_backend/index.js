@@ -1051,18 +1051,23 @@ app.post('/api/ai/fix-inventory', async (req, res) => {
   }
 });
 
-const normalizePriceToken = (token = '') => {
-  const raw = String(token || '').toLowerCase().replace(/[^0-9mk.,]/g, '').trim();
+const normalizePriceToken = (token = '', options = {}) => {
+  const rawToken = String(token || '').toLowerCase().trim();
+  const raw = rawToken.replace(/[^0-9mk.,]/g, '').trim();
   if (!raw) return 0;
 
   const hasMillionSuffix = raw.endsWith('m');
   const hasThousandSuffix = raw.endsWith('k');
+  const hasDecimal = raw.includes('.');
   const numericText = raw.replace(/[mk]/g, '').replace(/,/g, '');
   const numeric = Number(numericText);
   if (!Number.isFinite(numeric) || numeric <= 0) return 0;
 
-  if (hasMillionSuffix) return Math.round(numeric * 1000);
+  if (hasMillionSuffix) return Math.round(numeric * 1000000);
   if (hasThousandSuffix) return Math.round(numeric * 1000);
+  if (hasDecimal && numeric < 10 && options?.assumeMillionsForSmallDecimal) {
+    return Math.round(numeric * 1000000);
+  }
   return Math.round(numeric);
 };
 
@@ -1248,7 +1253,7 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
 
       const pricedMatch = cleaned.match(/^(.*?)(?:-|:)?\s*(₦?\s*[\d,]+(?:\.\d+)?\s*[mk]?)\s*$/i);
       if (pricedMatch?.[1] && pricedMatch?.[2]) {
-        const normalizedPrice = normalizePriceToken(pricedMatch[2]);
+        const normalizedPrice = normalizePriceToken(pricedMatch[2], { assumeMillionsForSmallDecimal: true });
         return {
           rawProductString: pricedMatch[1].trim(),
           price: normalizedPrice || 'Available',
@@ -1261,17 +1266,22 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
     const parsePriceFromRaw = (raw = '') => {
       const text = String(raw || '');
       const candidates = [];
+      const moneyLikeMatches = text.match(/(?:₦\s*)?\d[\d,]{2,}(?:\.\d+)?\s*[mk]?/gi) || [];
+      moneyLikeMatches.forEach((match) => {
+        const value = normalizePriceToken(match, { assumeMillionsForSmallDecimal: true });
+        if (value >= 10000) candidates.push(value);
+      });
 
       const groupedMatches = text.match(/\d{1,3}(?:[,\s]\d{3}){1,3}/g) || [];
       groupedMatches.forEach((match) => {
         const numeric = Number(match.replace(/[^0-9]/g, ''));
-        if (numeric > 0) candidates.push(numeric);
+        if (numeric >= 10000) candidates.push(numeric);
       });
 
       const plainMatches = text.match(/\b\d{4,7}\b/g) || [];
       plainMatches.forEach((match) => {
         const numeric = Number(match);
-        if (numeric > 0) candidates.push(numeric);
+        if (numeric >= 10000) candidates.push(numeric);
       });
 
       return candidates.length ? Math.max(...candidates) : 0;
@@ -1409,7 +1419,7 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
     for (const item of stitchedProducts) {
       const rawProductString = String(item?.rawProductString || '').trim();
       if (!rawProductString) continue;
-      const parsedPrice = Number(String(item?.price || '').replace(/[^0-9.]/g, '')) || 0;
+      const parsedPrice = normalizePriceToken(item?.price || '', { assumeMillionsForSmallDecimal: true });
       const rawPrice = parsePriceFromRaw(rawProductString);
       const normalizedPrice = (parsedPrice > 0 && parsedPrice < 10000 && rawPrice >= 10000)
         ? rawPrice

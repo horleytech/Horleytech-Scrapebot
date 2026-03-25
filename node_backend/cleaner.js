@@ -425,6 +425,10 @@ const shouldIgnoreRawString = async (rawText = '') => {
 const inferTaxonomyFromRaw = (rawText = '') => {
   const text = String(rawText || '').toLowerCase();
 
+  if (/\bairpods?\b|\bairpod\b/.test(text)) {
+    return { Category: 'Sounds', Brand: 'Apple', Series: 'AirPods Series' };
+  }
+
   const iphoneMatch = text.match(/iphone\s*(\d{1,2})/i);
   if (iphoneMatch?.[1]) {
     const model = iphoneMatch[1];
@@ -437,6 +441,11 @@ const inferTaxonomyFromRaw = (rawText = '') => {
     if (Number(model) >= 11 && Number(model) <= 17) {
       return { Category: 'Smartphones', Brand: 'Apple', Series: `iPhone ${model} Series` };
     }
+  }
+
+  const iphoneNumericLead = text.match(/^\s*(1[1-7])\b/);
+  if (iphoneNumericLead?.[1] && /\b(gb|tb|sim|esim|e-?sim|p\s*\+)\b/i.test(text)) {
+    return { Category: 'Smartphones', Brand: 'Apple', Series: `iPhone ${iphoneNumericLead[1]} Series` };
   }
 
   if (/xs\s*max|xsm\b|xsmax/.test(text)) {
@@ -469,20 +478,39 @@ const inferTaxonomyFromRaw = (rawText = '') => {
 
 const inferDeviceTypeFromRaw = (rawText = '', fallbackSeries = 'Unknown Device') => {
   const text = String(rawText || '').toLowerCase();
+  const normalizeIphoneSuffix = (value = '') => {
+    const token = String(value || '').toLowerCase().replace(/\s+/g, ' ').trim();
+    if (!token) return '';
+    if (token === 'pm') return 'Pro Max';
+    if (token === 'pro max') return 'Pro Max';
+    if (token === 'pro') return 'Pro';
+    if (token === 'max') return 'Max';
+    if (token === 'plus') return 'Plus';
+    if (token === 'air') return 'Air';
+    return token;
+  };
+
   const iphone = text.match(/iphone\s*(\d{1,2})(?:\s*(pro\s*max|pro|max|plus))?/i);
   if (iphone?.[1]) {
-    const suffix = iphone?.[2] ? ` ${iphone[2].replace(/\s+/g, ' ').trim()}` : '';
+    const normalizedSuffix = normalizeIphoneSuffix(iphone?.[2]);
+    const suffix = normalizedSuffix ? ` ${normalizedSuffix}` : '';
     return `iPhone ${iphone[1]}${suffix}`.trim();
   }
 
-  const compactIphone = text.match(/\b(1[1-7])\s*(pro\s*max|pro|max|plus)\b/i);
+  const compactIphone = text.match(/\b(1[1-7])\s*(pro\s*max|pro|max|plus|pm|air)\b/i);
   if (compactIphone?.[1]) {
-    return `iPhone ${compactIphone[1]} ${compactIphone[2].replace(/\s+/g, ' ').trim()}`.trim();
+    return `iPhone ${compactIphone[1]} ${normalizeIphoneSuffix(compactIphone[2])}`.trim();
+  }
+
+  const compactBaseIphone = text.match(/^\s*(1[1-7])\b/);
+  if (compactBaseIphone?.[1] && /\b(gb|tb|sim|esim|e-?sim|p\s*\+)\b/i.test(text)) {
+    return `iPhone ${compactBaseIphone[1]}`;
   }
 
   if (/macbook\s*pro/i.test(text)) return 'MacBook Pro';
   if (/macbook\s*air/i.test(text)) return 'MacBook Air';
   if (/macbook/i.test(text)) return 'MacBook';
+  if (/\bairpods?\b|\bairpod\b/i.test(text)) return 'AirPods';
   if (/thinkpad/i.test(text)) return 'Lenovo ThinkPad';
   if (/probook/i.test(text)) return 'HP ProBook';
 
@@ -855,6 +883,7 @@ export const __testables = {
   normalizeCondition,
   normalizeSim,
   inferConditionFromRaw,
+  inferTaxonomyFromRaw,
   inferDeviceTypeFromRaw,
   buildVariationId,
   canonicalFallbackTaxonomy,
