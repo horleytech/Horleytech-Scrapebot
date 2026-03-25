@@ -1855,6 +1855,14 @@ const AdminDashboard = () => {
 
     return groups;
   }, [pricingResults]);
+  const pricingRowKeys = useMemo(
+    () => pricingResults.map((row) => row?.rowKey).filter(Boolean),
+    [pricingResults]
+  );
+
+  const resolveBulkTargetKeys = () => (
+    selectedProducts.length > 0 ? selectedProducts : pricingRowKeys
+  );
 
   const toggleProductSelection = (rowKey) => {
     setSelectedProducts((prev) => (prev.includes(rowKey) ? prev.filter((item) => item !== rowKey) : [...prev, rowKey]));
@@ -1881,10 +1889,15 @@ const AdminDashboard = () => {
       alert('Please enter a valid margin value.');
       return;
     }
+    const targetKeys = resolveBulkTargetKeys();
+    if (!targetKeys.length) {
+      alert('No products available to update yet. Load a company CSV first.');
+      return;
+    }
 
     setPricingOverrides((prev) => {
       const next = { ...prev };
-      selectedProducts.forEach((rowKey) => {
+      targetKeys.forEach((rowKey) => {
         next[rowKey] = {
           ...(next[rowKey] || {}),
           marginType: customMarginType,
@@ -1895,7 +1908,8 @@ const AdminDashboard = () => {
     });
 
     setCustomMarginModalOpen(false);
-    alert(`✅ Applied custom margin to ${selectedProducts.length} selected products.`);
+    const scopeLabel = selectedProducts.length > 0 ? `${selectedProducts.length} selected products` : `all ${targetKeys.length} loaded products`;
+    alert(`✅ Applied custom margin to ${scopeLabel}.`);
   };
 
   const assignSelectedToVendor = () => {
@@ -1903,10 +1917,15 @@ const AdminDashboard = () => {
       alert('Please choose a vendor.');
       return;
     }
+    const targetKeys = resolveBulkTargetKeys();
+    if (!targetKeys.length) {
+      alert('No products available to assign yet. Load a company CSV first.');
+      return;
+    }
 
     setPricingOverrides((prev) => {
       const next = { ...prev };
-      selectedProducts.forEach((rowKey) => {
+      targetKeys.forEach((rowKey) => {
         next[rowKey] = {
           ...(next[rowKey] || {}),
           assignedVendor: assignVendorValue,
@@ -1916,7 +1935,8 @@ const AdminDashboard = () => {
     });
 
     setAssignVendorModalOpen(false);
-    alert(`✅ Assigned ${selectedProducts.length} selected products to ${assignVendorValue}.`);
+    const scopeLabel = selectedProducts.length > 0 ? `${selectedProducts.length} selected products` : `all ${targetKeys.length} loaded products`;
+    alert(`✅ Assigned ${scopeLabel} to ${assignVendorValue}.`);
   };
 
   const exportPricingTxt = () => {
@@ -2586,9 +2606,16 @@ const AdminDashboard = () => {
                 <button onClick={handleOpenSaveModal} className="px-4 py-3 rounded-2xl text-xs font-black uppercase tracking-wider border border-gray-100 bg-white/80 hover:bg-white">Save Session</button>
                 <button onClick={exportPricingTxt} className="px-4 py-3 rounded-2xl text-xs font-black uppercase tracking-wider border border-gray-100 bg-white/80 hover:bg-white">Export to TXT</button>
               </div>
-              {selectedProducts.length > 0 && (
-                <div className="sticky top-20 z-20 rounded-2xl border border-indigo-100 bg-white/90 backdrop-blur-xl shadow-lg px-4 py-3 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                  <p className="text-sm font-bold text-gray-800">{selectedProducts.length} Products Selected</p>
+              {pricingResults.length > 0 && (
+                <div className="sticky top-20 z-20 rounded-2xl border border-indigo-100 bg-white/95 backdrop-blur-xl shadow-lg px-4 py-3 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                  <div>
+                    <p className="text-sm font-bold text-gray-800">Quick Actions</p>
+                    <p className="text-xs text-gray-500 font-semibold">
+                      {selectedProducts.length > 0
+                        ? `${selectedProducts.length} selected product(s) will be updated.`
+                        : `No selection: actions apply to all ${pricingRowKeys.length} loaded products.`}
+                    </p>
+                  </div>
                   <div className="flex items-center gap-2">
                     <button type="button" onClick={() => setCustomMarginModalOpen(true)} className="px-3 py-2 rounded-lg text-xs font-black uppercase tracking-wide bg-indigo-600 text-white hover:bg-indigo-700">Apply Custom Margin</button>
                     <button type="button" onClick={() => setAssignVendorModalOpen(true)} className="px-3 py-2 rounded-lg text-xs font-black uppercase tracking-wide bg-emerald-600 text-white hover:bg-emerald-700">Assign to Vendor</button>
@@ -2687,7 +2714,7 @@ const AdminDashboard = () => {
               {customMarginModalOpen && (
                 <div className="fixed top-0 left-0 w-screen h-screen z-[99999] bg-black/60 flex items-center justify-center p-4 m-0" style={{ position: 'fixed' }}>
                   <div className="w-full max-w-md rounded-2xl bg-white shadow-2xl p-5 space-y-4 relative">
-                    <h3 className="text-lg font-black text-gray-900">Apply Custom Margin</h3>
+                    <h3 className="text-lg font-black text-gray-900">Apply Custom Margin {selectedProducts.length > 0 ? '(Selected)' : '(All Loaded)'}</h3>
                     <select value={customMarginType} onChange={(e) => setCustomMarginType(e.target.value)} className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm">
                       <option value="amount">Amount</option>
                       <option value="percentage">Percentage</option>
@@ -2716,7 +2743,7 @@ const AdminDashboard = () => {
               {assignVendorModalOpen && (
                 <div className="fixed top-0 left-0 w-screen h-screen z-[99999] bg-black/60 flex items-center justify-center p-4 m-0" style={{ position: 'fixed' }}>
                   <div className="w-full max-w-md rounded-2xl bg-white shadow-2xl p-5 space-y-4 relative">
-                    <h3 className="text-lg font-black text-gray-900">Assign Selected Products to Vendor</h3>
+                    <h3 className="text-lg font-black text-gray-900">Assign Products to Vendor {selectedProducts.length > 0 ? '(Selected)' : '(All Loaded)'}</h3>
                     <select value={assignVendorValue} onChange={(e) => setAssignVendorValue(e.target.value)} className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm">
                       <option value="">Select Vendor</option>
                       {offlineVendors.map((vendor) => (

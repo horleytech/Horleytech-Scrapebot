@@ -18,6 +18,8 @@ test('normalizeCondition maps slang and unknown', () => {
   assert.equal(__testables.normalizeCondition('new phone only'), 'Grade A UK Used');
   assert.equal(__testables.normalizeCondition('condition not stated'), 'Unknown');
   assert.equal(__testables.inferConditionFromRaw('iPhone 14 PM 89 BH', 'Unknown'), 'Grade A UK Used');
+  assert.equal(__testables.resolveConditionWithDefaultUsed('iphone 12 pro max 128gb', 'Unknown'), 'Grade A UK Used');
+  assert.equal(__testables.resolveConditionWithDefaultUsed('iphone 12 pro max brand new sealed', 'Unknown'), 'Brand New');
 });
 
 test('normalizeSim maps expected formats and unknown', () => {
@@ -57,6 +59,50 @@ test('toAliasDocId encodes normalized alias', () => {
 });
 
 test('inferDeviceTypeFromRaw maps common phone variants', () => {
-  assert.equal(__testables.inferDeviceTypeFromRaw('iPhone 14 Pro Max 256GB'), 'iPhone 14 pro max');
+  assert.equal(__testables.inferDeviceTypeFromRaw('iPhone 14 Pro Max 256GB'), 'iPhone 14 Pro Max');
   assert.equal(__testables.inferDeviceTypeFromRaw('MACBOOK PRO 2019 13'), 'MacBook Pro');
+  assert.equal(__testables.inferDeviceTypeFromRaw('17 PM 512GB (P + eSim) Blue'), 'iPhone 17 Pro Max');
+  assert.equal(__testables.inferDeviceTypeFromRaw('17 Air 256GB (eSim) White'), 'iPhone 17 Air');
+  assert.equal(__testables.inferDeviceTypeFromRaw('17 256GB (P + eSim) Black'), 'iPhone 17');
+});
+
+test('inferTaxonomyFromRaw handles shorthand iphone and airpods lines', () => {
+  assert.deepEqual(__testables.inferTaxonomyFromRaw('17 PM 512GB (P + eSim) Blue'), {
+    Category: 'Smartphones',
+    Brand: 'Apple',
+    Series: 'iPhone 17 Series',
+  });
+  assert.deepEqual(__testables.inferTaxonomyFromRaw('📷 New Airpod 4 ANC'), {
+    Category: 'Sounds',
+    Brand: 'Apple',
+    Series: 'AirPods Series',
+  });
+  assert.deepEqual(__testables.inferTaxonomyFromRaw('iPhone x || 256gb || 100bh || no face'), {
+    Category: 'Smartphones',
+    Brand: 'Apple',
+    Series: 'iPhone X Series',
+  });
+});
+
+test('inferSimByBrandContext applies iPhone and Samsung defaults', () => {
+  assert.equal(__testables.inferSimByBrandContext({
+    rawProductString: 'iPhone 11 pro max 64GB',
+    parsedSim: 'Unknown',
+    taxonomy: { Brand: 'Apple', Series: 'iPhone 11 Series' },
+    deviceType: 'iPhone 11 Pro Max',
+  }), 'Physical SIM');
+
+  assert.equal(__testables.inferSimByBrandContext({
+    rawProductString: 'Samsung S24 Ultra dual sim 256GB',
+    parsedSim: 'Unknown',
+    taxonomy: { Brand: 'Samsung', Series: 'S Series' },
+    deviceType: 'Samsung S24 Ultra',
+  }), 'Dual SIM');
+
+  assert.equal(__testables.inferSimByBrandContext({
+    rawProductString: 'Samsung S24 Ultra 256GB',
+    parsedSim: 'Unknown',
+    taxonomy: { Brand: 'Samsung', Series: 'S Series' },
+    deviceType: 'Samsung S24 Ultra',
+  }), 'Single SIM');
 });

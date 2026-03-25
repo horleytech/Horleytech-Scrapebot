@@ -72,6 +72,14 @@ const normalizeCondition = (value = '') => {
   return 'Unknown';
 };
 
+const resolveConditionWithDefaultUsed = (raw = '', current = 'Unknown') => {
+  const normalizedCurrent = String(current || 'Unknown').trim();
+  if (normalizedCurrent === 'Brand New' || normalizedCurrent === 'Grade A UK Used') return normalizedCurrent;
+  const rawDerived = normalizeCondition(raw);
+  if (rawDerived === 'Brand New') return 'Brand New';
+  return 'Grade A UK Used';
+};
+
 const normalizeSim = (value = '') => {
   const text = String(value || '').toLowerCase();
   const hasEsim = /esim|e-sim/.test(text);
@@ -89,6 +97,32 @@ const normalizeSim = (value = '') => {
   if (/\blocked\b/.test(text)) return 'Physical SIM';
   if (/\bfu\b|factory\s*unlocked|unlocked/.test(text)) return 'Physical SIM';
   return 'Unknown';
+};
+
+const inferSimByBrandContext = ({
+  rawProductString = '',
+  parsedSim = 'Unknown',
+  taxonomy = canonicalFallbackTaxonomy(),
+  deviceType = '',
+}) => {
+  if (parsedSim && parsedSim !== 'Unknown') return parsedSim;
+
+  const raw = String(rawProductString || '').toLowerCase();
+  const brand = String(taxonomy?.Brand || '').toLowerCase();
+  const series = String(taxonomy?.Series || '').toLowerCase();
+  const resolvedDeviceType = String(deviceType || '').toLowerCase();
+  const looksLikeIphone = brand === 'apple'
+    && (series.includes('iphone') || resolvedDeviceType.includes('iphone') || /\biphone\b/.test(raw));
+
+  if (looksLikeIphone) return 'Physical SIM';
+
+  const looksLikeSamsung = brand === 'samsung' || /\bsamsung\b|\bgalaxy\b/.test(raw);
+  if (looksLikeSamsung) {
+    if (/\bdual\b/.test(raw)) return 'Dual SIM';
+    return 'Single SIM';
+  }
+
+  return parsedSim || 'Unknown';
 };
 
 const normalizeProcessorSpec = (value = '') => {
@@ -425,6 +459,10 @@ const shouldIgnoreRawString = async (rawText = '') => {
 const inferTaxonomyFromRaw = (rawText = '') => {
   const text = String(rawText || '').toLowerCase();
 
+  if (/\bairpods?\b|\bairpod\b/.test(text)) {
+    return { Category: 'Sounds', Brand: 'Apple', Series: 'AirPods Series' };
+  }
+
   const iphoneMatch = text.match(/iphone\s*(\d{1,2})/i);
   if (iphoneMatch?.[1]) {
     const model = iphoneMatch[1];
@@ -439,7 +477,15 @@ const inferTaxonomyFromRaw = (rawText = '') => {
     }
   }
 
+  const iphoneNumericLead = text.match(/^\s*(1[1-7])\b/);
+  if (iphoneNumericLead?.[1] && /\b(gb|tb|sim|esim|e-?sim|p\s*\+)\b/i.test(text)) {
+    return { Category: 'Smartphones', Brand: 'Apple', Series: `iPhone ${iphoneNumericLead[1]} Series` };
+  }
+
   if (/xs\s*max|xsm\b|xsmax/.test(text)) {
+    return { Category: 'Smartphones', Brand: 'Apple', Series: 'iPhone X Series' };
+  }
+  if (/\biphone\s*x\b|\biphonex\b/.test(text)) {
     return { Category: 'Smartphones', Brand: 'Apple', Series: 'iPhone X Series' };
   }
 
@@ -469,20 +515,39 @@ const inferTaxonomyFromRaw = (rawText = '') => {
 
 const inferDeviceTypeFromRaw = (rawText = '', fallbackSeries = 'Unknown Device') => {
   const text = String(rawText || '').toLowerCase();
+  const normalizeIphoneSuffix = (value = '') => {
+    const token = String(value || '').toLowerCase().replace(/\s+/g, ' ').trim();
+    if (!token) return '';
+    if (token === 'pm') return 'Pro Max';
+    if (token === 'pro max') return 'Pro Max';
+    if (token === 'pro') return 'Pro';
+    if (token === 'max') return 'Max';
+    if (token === 'plus') return 'Plus';
+    if (token === 'air') return 'Air';
+    return token;
+  };
+
   const iphone = text.match(/iphone\s*(\d{1,2})(?:\s*(pro\s*max|pro|max|plus))?/i);
   if (iphone?.[1]) {
-    const suffix = iphone?.[2] ? ` ${iphone[2].replace(/\s+/g, ' ').trim()}` : '';
+    const normalizedSuffix = normalizeIphoneSuffix(iphone?.[2]);
+    const suffix = normalizedSuffix ? ` ${normalizedSuffix}` : '';
     return `iPhone ${iphone[1]}${suffix}`.trim();
   }
 
-  const compactIphone = text.match(/\b(1[1-7])\s*(pro\s*max|pro|max|plus)\b/i);
+  const compactIphone = text.match(/\b(1[1-7])\s*(pro\s*max|pro|max|plus|pm|air)\b/i);
   if (compactIphone?.[1]) {
-    return `iPhone ${compactIphone[1]} ${compactIphone[2].replace(/\s+/g, ' ').trim()}`.trim();
+    return `iPhone ${compactIphone[1]} ${normalizeIphoneSuffix(compactIphone[2])}`.trim();
+  }
+
+  const compactBaseIphone = text.match(/^\s*(1[1-7])\b/);
+  if (compactBaseIphone?.[1] && /\b(gb|tb|sim|esim|e-?sim|p\s*\+)\b/i.test(text)) {
+    return `iPhone ${compactBaseIphone[1]}`;
   }
 
   if (/macbook\s*pro/i.test(text)) return 'MacBook Pro';
   if (/macbook\s*air/i.test(text)) return 'MacBook Air';
   if (/macbook/i.test(text)) return 'MacBook';
+  if (/\bairpods?\b|\bairpod\b/i.test(text)) return 'AirPods';
   if (/thinkpad/i.test(text)) return 'Lenovo ThinkPad';
   if (/probook/i.test(text)) return 'HP ProBook';
 
@@ -775,9 +840,10 @@ export const processWithShadowTesting = async ({ rawProductString, price }) => {
     await incrementMetrics({ stage2OthersFallbacks: 1 });
   }
 
-  const resolvedCondition = parsedCondition === 'Unknown' && catalogEntry?.condition && catalogEntry.condition !== 'Unknown'
+  const baseCondition = parsedCondition === 'Unknown' && catalogEntry?.condition && catalogEntry.condition !== 'Unknown'
     ? catalogEntry.condition
     : inferredConditionBase;
+  const resolvedCondition = resolveConditionWithDefaultUsed(rawProductString, baseCondition);
   const resolvedDeviceType = catalogEntry?.deviceType
     || inferDeviceTypeFromRaw(rawProductString, finalTaxonomy.Series || 'Unknown Device');
   let resolvedSpecification = resolveSpecification({
@@ -791,6 +857,12 @@ export const processWithShadowTesting = async ({ rawProductString, price }) => {
   if (shouldUseAiForSim) {
     resolvedSpecification = await resolveSimWithLowCostAI(rawProductString);
   }
+  resolvedSpecification = inferSimByBrandContext({
+    rawProductString,
+    parsedSim: resolvedSpecification,
+    taxonomy: finalTaxonomy,
+    deviceType: resolvedDeviceType,
+  });
 
   const requiresStorage = ['smartphones', 'laptops', 'tablets', 'gaming'].includes(normalizedCategory);
   const hasUnknownVariantAttr = (requiresStorage && parsedStorage === 'UNKNOWN');
@@ -855,7 +927,10 @@ export const __testables = {
   normalizeCondition,
   normalizeSim,
   inferConditionFromRaw,
+  resolveConditionWithDefaultUsed,
+  inferTaxonomyFromRaw,
   inferDeviceTypeFromRaw,
+  inferSimByBrandContext,
   buildVariationId,
   canonicalFallbackTaxonomy,
   regexPredictTaxonomy,
