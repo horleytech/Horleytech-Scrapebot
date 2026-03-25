@@ -7,7 +7,6 @@ import morgan from 'morgan';
 import compression from 'compression';
 import cors from 'cors';
 import { fileURLToPath } from 'url';
-import { createRequire } from 'module';
 import admin from 'firebase-admin';
 import { processChatFile } from './fileProcessor.js';
 import { Worker } from 'worker_threads';
@@ -27,7 +26,6 @@ import {
 
 dotenv.config();
 
-const require = createRequire(import.meta.url);
 
 const PM2_LOG_PATH = '/root/.pm2/logs/scrapebot-backend-out.log';
 const OFFLINE_COLLECTION = 'horleyTech_OfflineInventories';
@@ -204,10 +202,6 @@ app.use(async (req, res, next) => {
   let targetDocId = null;
 
   try {
-    const pipelineMetrics = {
-      fragmentsMerged: 0,
-      fragmentsSkippedWithoutBase: 0,
-    };
     const firestore = getAdminFirestore();
     const candidateId = req.body?.vendorDocId || req.body?.vendorId;
 
@@ -1172,6 +1166,11 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
   res.status(200).json({ data: [{ message: '' }] });
 
   try {
+    const pipelineMetrics = {
+      fragmentsMerged: 0,
+      fragmentsSkippedWithoutBase: 0,
+    };
+
     const isLikelyFragment = (raw = '') => {
       const text = String(raw || '').trim();
       if (!text) return true;
@@ -1233,7 +1232,7 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
 
     const deterministicLineExtract = (line = '') => {
       const cleaned = String(line || '')
-        .replace(/^[\-*•]+\s*/, '')
+        .replace(/^[-*•]+\s*/, '')
         .replace(/\s+/g, ' ')
         .trim();
       if (!cleaned) return null;
