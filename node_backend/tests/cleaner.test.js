@@ -65,6 +65,8 @@ test('inferDeviceTypeFromRaw maps common phone variants', () => {
   assert.equal(__testables.inferDeviceTypeFromRaw('MACBOOK PRO 2019 13'), 'MacBook Pro');
   assert.equal(__testables.inferDeviceTypeFromRaw('17 PM 512GB (P + eSim) Blue'), 'iPhone 17 Pro Max');
   assert.equal(__testables.inferDeviceTypeFromRaw('🇺🇸15 Plus 128 eSim Unlocked'), 'iPhone 15 Plus');
+  assert.equal(__testables.inferDeviceTypeFromRaw('14 PROMAX PHYSICAL SIM 256GB MINT'), 'iPhone 14 Pro Max');
+  assert.equal(__testables.inferDeviceTypeFromRaw('Brand New Non Active iPhone Air 256GB'), 'iPhone 17 Air');
   assert.equal(__testables.inferDeviceTypeFromRaw('17 Air 256GB (eSim) White'), 'iPhone 17 Air');
   assert.equal(__testables.inferDeviceTypeFromRaw('17 256GB (P + eSim) Black'), 'iPhone 17');
   assert.equal(__testables.inferDeviceTypeFromRaw('Brand new iWatch ultra 3 BLACK non-active'), 'Apple Watch Ultra 3');
@@ -90,6 +92,11 @@ test('inferTaxonomyFromRaw handles shorthand iphone and airpods lines', () => {
     Category: 'Smartphones',
     Brand: 'Apple',
     Series: 'iPhone 15 Series',
+  });
+  assert.deepEqual(__testables.inferTaxonomyFromRaw('Brand New Non Active iPhone Air 256GB'), {
+    Category: 'Smartphones',
+    Brand: 'Apple',
+    Series: 'iPhone 17 Series',
   });
   assert.deepEqual(__testables.inferTaxonomyFromRaw('Brand new iWatch ultra 3 BLACK non-active'), {
     Category: 'Smartwatches',

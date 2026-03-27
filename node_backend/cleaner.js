@@ -477,12 +477,16 @@ const inferTaxonomyFromRaw = (rawText = '') => {
     return { Category: 'Smartphones', Brand: 'Apple', Series: `iPhone ${model} Series` };
   }
 
-  const iphoneCompactMatch = text.match(/\b(\d{2})\s*pro\b|\b(\d{2})pro\b|\b(\d{2})\s*pm\b/i);
+  const iphoneCompactMatch = text.match(/\b(\d{2})\s*pro\s*max\b|\b(\d{2})\s*promax\b|\b(\d{2})\s*pro\b|\b(\d{2})pro\b|\b(\d{2})\s*pm\b/i);
   if (iphoneCompactMatch) {
-    const model = iphoneCompactMatch[1] || iphoneCompactMatch[2] || iphoneCompactMatch[3];
+    const model = iphoneCompactMatch[1] || iphoneCompactMatch[2] || iphoneCompactMatch[3] || iphoneCompactMatch[4] || iphoneCompactMatch[5];
     if (Number(model) >= 11 && Number(model) <= 17) {
       return { Category: 'Smartphones', Brand: 'Apple', Series: `iPhone ${model} Series` };
     }
+  }
+
+  if (/\biphone\s*air\b/.test(text)) {
+    return { Category: 'Smartphones', Brand: 'Apple', Series: 'iPhone 17 Series' };
   }
 
   const iphoneNumericAny = text.match(/\b(1[1-7])\b/);
@@ -541,6 +545,7 @@ const inferDeviceTypeFromRaw = (rawText = '', fallbackSeries = 'Unknown Device')
     if (!token) return '';
     if (token === 'pm') return 'Pro Max';
     if (token === 'pro max') return 'Pro Max';
+    if (token === 'promax') return 'Pro Max';
     if (token === 'pro') return 'Pro';
     if (token === 'max') return 'Max';
     if (token === 'plus') return 'Plus';
@@ -555,10 +560,12 @@ const inferDeviceTypeFromRaw = (rawText = '', fallbackSeries = 'Unknown Device')
     return `iPhone ${iphone[1]}${suffix}`.trim();
   }
 
-  const compactIphone = text.match(/\b(1[1-7])\s*(pro\s*max|pro|max|plus|pm|air)\b/i);
+  const compactIphone = text.match(/\b(1[1-7])\s*(pro\s*max|promax|pro|max|plus|pm|air)\b/i);
   if (compactIphone?.[1]) {
     return `iPhone ${compactIphone[1]} ${normalizeIphoneSuffix(compactIphone[2])}`.trim();
   }
+
+  if (/\biphone\s*air\b/i.test(text)) return 'iPhone 17 Air';
 
   const compactBaseIphone = text.match(/\b(1[1-7])\b/);
   const hasCompetingDeviceFamily = /\b(macbook|thinkpad|probook|ipad|watch|iwatch)\b/i.test(text);

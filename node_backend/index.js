@@ -197,6 +197,26 @@ app.use(async (req, res, next) => {
     return next();
   }
 
+  const AUDIT_NOISY_PATH_PREFIXES = [
+    '/api/webhook/whatsapp',
+    '/process',
+    '/api/messages/send',
+    '/api/ai/fix-inventory',
+  ];
+  const AUDIT_TRACKED_PATH_PREFIXES = [
+    '/api/admin/',
+    '/api/inventory/bulk-edit',
+    '/api/backup/restore',
+    '/api/backup/drive-restore',
+    '/api/backup/upload-restore',
+  ];
+  const requestPath = String(req.path || '');
+  const isNoisyPath = AUDIT_NOISY_PATH_PREFIXES.some((prefix) => requestPath.startsWith(prefix));
+  const isTrackedPath = AUDIT_TRACKED_PATH_PREFIXES.some((prefix) => requestPath.startsWith(prefix));
+  if (isNoisyPath || !isTrackedPath) {
+    return next();
+  }
+
   const userRole = resolveUserRole(req);
   let oldData = null;
   let targetDocId = null;
@@ -1237,6 +1257,7 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
 
     const deterministicLineExtract = (line = '') => {
       const cleaned = String(line || '')
+        .replace(/\*(₦?\s*[\d,]+(?:\.\d+)?\s*[mk]?)\*/gi, '$1')
         .replace(/^[-*•]+\s*/, '')
         .replace(/\s+/g, ' ')
         .trim();
