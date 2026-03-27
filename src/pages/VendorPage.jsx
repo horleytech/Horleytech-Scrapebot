@@ -297,6 +297,18 @@ const VendorPage = () => {
   const [editVisStore2, setEditVisStore2] = useState(false);
   const [savingEdit, setSavingEdit] = useState(false);
   const [inventoryView, setInventoryView] = useState('all');
+  const [addingManualProduct, setAddingManualProduct] = useState(false);
+  const [manualProductForm, setManualProductForm] = useState({
+    category: 'Smartphones',
+    brand: 'Others',
+    deviceType: '',
+    condition: 'Brand New',
+    specification: 'Unknown',
+    storage: 'UNKNOWN',
+    priceStore1: '',
+    priceStore2: '',
+    groupName: 'Manual Entry',
+  });
 
   const vendorRef = useMemo(() => doc(db, 'horleyTech_OfflineInventories', vendorId), [vendorId]);
 
@@ -1001,6 +1013,72 @@ const VendorPage = () => {
     }
   };
 
+  const handleManualProductChange = (field, value) => {
+    setManualProductForm((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const handleAddManualProduct = async () => {
+    const deviceType = String(manualProductForm.deviceType || '').trim();
+    if (!deviceType) {
+      alert('Please enter a device name before adding.');
+      return;
+    }
+
+    const nowIso = new Date().toISOString();
+    const priceStore1 = normalizePriceInput(manualProductForm.priceStore1 || '0');
+    const priceStore2 = normalizePriceInput(manualProductForm.priceStore2 || priceStore1 || '0');
+    const nextProduct = {
+      Category: String(manualProductForm.category || 'Others').trim() || 'Others',
+      Brand: String(manualProductForm.brand || 'Others').trim() || 'Others',
+      'Device Type': deviceType,
+      Condition: String(manualProductForm.condition || 'Unknown').trim() || 'Unknown',
+      'SIM Type/Model/Processor': String(manualProductForm.specification || 'Unknown').trim() || 'Unknown',
+      'Storage Capacity/Configuration': String(manualProductForm.storage || 'UNKNOWN').trim() || 'UNKNOWN',
+      'Regular price': priceStore1,
+      priceStore1,
+      priceStore2,
+      'Store 1 price': priceStore1,
+      'Store 2 price': priceStore2,
+      visibleInStore1: true,
+      visibleInStore2: false,
+      isVisible: true,
+      DatePosted: nowIso,
+      dateAdded: nowIso,
+      groupName: String(manualProductForm.groupName || 'Manual Entry').trim() || 'Manual Entry',
+      source: 'manual',
+      rawString: deviceType,
+    };
+
+    const nextProducts = [...products, nextProduct];
+
+    try {
+      setAddingManualProduct(true);
+      await updateDoc(vendorRef, {
+        products: nextProducts,
+        lastUpdated: nowIso,
+      });
+      await saveAuditLog(`Added product manually: ${deviceType}`, logChannel);
+      await syncVendorFromFirebase();
+      setManualProductForm({
+        category: manualProductForm.category || 'Smartphones',
+        brand: manualProductForm.brand || 'Others',
+        deviceType: '',
+        condition: manualProductForm.condition || 'Brand New',
+        specification: manualProductForm.specification || 'Unknown',
+        storage: manualProductForm.storage || 'UNKNOWN',
+        priceStore1: '',
+        priceStore2: '',
+        groupName: manualProductForm.groupName || 'Manual Entry',
+      });
+      alert('✅ Product added successfully.');
+    } catch (error) {
+      console.error('Manual product add failed:', error);
+      alert('❌ Could not add product manually.');
+    } finally {
+      setAddingManualProduct(false);
+    }
+  };
+
   const buildDeepComparisonActions = (previousVendorData, nextState) => {
     const actions = [];
     if ((previousVendorData.vendorName || '') !== nextState.vendorName) actions.push(`Changed Store Name to '${nextState.vendorName}'`);
@@ -1571,6 +1649,30 @@ const VendorPage = () => {
                 <button onClick={() => { const blob = new Blob([exportLines.join('\n')], { type: 'text/plain' }); const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `${vendorData.vendorName || 'vendor'}-pricelist.txt`; a.click(); }} className="bg-blue-600 text-white px-3 py-2 rounded-lg text-xs font-black uppercase">Download TXT</button>
                 <button onClick={() => downloadCsv(`${vendorData.vendorName || 'vendor'}-pricelist.csv`, storefrontProducts.map((product) => ({ Export: `${product.Category || 'Others'} -> ${product.Brand || 'Others'} -> ${product['Device Type'] || ''} -> Store 1: ${normalizePriceInput(product.priceStore1 || product['Regular price'])} | Store 2: ${normalizePriceInput(product.priceStore2 || product['Regular price'])}` })))} className="bg-emerald-600 text-white px-3 py-2 rounded-lg text-xs font-black uppercase">Download CSV</button>
               </div>
+            </div>
+          </div>
+
+          <div className="mb-6 bg-white border border-emerald-100 rounded-2xl p-4 shadow-sm">
+            <h3 className="text-sm font-black uppercase tracking-wider text-emerald-700 mb-3">Add Product Manually</h3>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <input value={manualProductForm.deviceType} onChange={(e) => handleManualProductChange('deviceType', e.target.value)} className="p-3 border rounded-lg md:col-span-2" placeholder="Device name (required)" />
+              <select value={manualProductForm.category} onChange={(e) => handleManualProductChange('category', e.target.value)} className="p-3 border rounded-lg bg-white">
+                {['Smartphones', 'Smartwatches', 'Laptops', 'Sounds', 'Accessories', 'Tablets', 'Gaming', 'Others'].map((cat) => (
+                  <option key={`manual-cat-${cat}`} value={cat}>{cat}</option>
+                ))}
+              </select>
+              <input value={manualProductForm.brand} onChange={(e) => handleManualProductChange('brand', e.target.value)} className="p-3 border rounded-lg" placeholder="Brand" />
+              <input value={manualProductForm.condition} onChange={(e) => handleManualProductChange('condition', e.target.value)} className="p-3 border rounded-lg" placeholder="Condition" />
+              <input value={manualProductForm.specification} onChange={(e) => handleManualProductChange('specification', e.target.value)} className="p-3 border rounded-lg" placeholder="SIM / Processor / Spec" />
+              <input value={manualProductForm.storage} onChange={(e) => handleManualProductChange('storage', e.target.value)} className="p-3 border rounded-lg" placeholder="Storage (e.g. 256GB)" />
+              <input value={manualProductForm.priceStore1} onChange={(e) => handleManualProductChange('priceStore1', e.target.value)} className="p-3 border rounded-lg" placeholder="Store 1 Price" />
+              <input value={manualProductForm.priceStore2} onChange={(e) => handleManualProductChange('priceStore2', e.target.value)} className="p-3 border rounded-lg" placeholder="Store 2 Price (optional)" />
+              <input value={manualProductForm.groupName} onChange={(e) => handleManualProductChange('groupName', e.target.value)} className="p-3 border rounded-lg" placeholder="Source Group Label" />
+            </div>
+            <div className="mt-3">
+              <button onClick={handleAddManualProduct} disabled={addingManualProduct} className="bg-emerald-600 text-white px-4 py-2 rounded-lg text-sm font-black uppercase tracking-wide disabled:opacity-50 hover:bg-emerald-700">
+                {addingManualProduct ? 'Adding...' : 'Add Product'}
+              </button>
             </div>
           </div>
 
