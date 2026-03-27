@@ -1626,7 +1626,7 @@ const _fetchUnknownVendorsList = async () => {
 };
 
 const _runOpenAIExtraction = async (rows = [], signal) => {
-  const systemPrompt = `You are a strict Two-Layer AI Judge. Given an array of objects with a "raw" string, extract details. You MUST return a JSON object with a single root key called "data" containing an array of objects. Each object must strictly have: - "raw": The exact original string - "category", "brand", "series": Standard classifications - "deviceType": The standard clean device name - "condition": STRICTLY evaluate to "Brand New", "Grade A UK Used", or "Unknown" - "sim": STRICTLY evaluate to "Physical SIM", "ESIM", "Physical SIM + ESIM", or "Unknown" - "isOthers": true if unknown/obscure, else false;`;
+  const systemPrompt = `You are a strict Two-Layer AI Judge. Given an array of objects with a "raw" string, extract details. You MUST return a JSON object with a single root key called "data" containing an array of objects. Each object must strictly have: - "raw": The exact original string - "category", "brand", "series": Standard classifications - "deviceType": The standard clean device name - "condition": STRICTLY evaluate to "Brand New", "Grade A UK Used", or "Unknown" - "sim": STRICTLY evaluate to "Physical SIM", "ESIM", "Physical SIM + ESIM", "Locked/Wi-Fi Only (ESIM)", or "Unknown" - "isOthers": true if unknown/obscure, else false;`;
 
   const backgroundAI = await resolveTextAIConfig({ background: true });
   const aiResponse = await backgroundAI.client.chat.completions.create({

@@ -90,6 +90,7 @@ const resolveConditionWithDefaultUsed = (raw = '', current = 'Unknown') => {
 
 const normalizeSim = (value = '') => {
   const text = String(value || '').toLowerCase();
+  if (/\blocked\b|wi-?fi\s*only|wifi\s*only/.test(text)) return 'Locked/Wi-Fi Only (ESIM)';
   const hasEsim = /esim|e-sim/.test(text);
   const hasPhysical = /physical|single/.test(text);
   const hasIdm = /\bidm\b/.test(text);
@@ -102,7 +103,6 @@ const normalizeSim = (value = '') => {
   if (/dual/.test(text)) return 'Physical SIM';
   if (hasEsim) return 'eSIM';
   if (hasPhysical) return 'Physical SIM';
-  if (/\blocked\b/.test(text)) return 'Physical SIM';
   if (/\bfu\b|factory\s*unlocked|unlocked/.test(text)) return 'Physical SIM';
   return 'Unknown';
 };
@@ -171,7 +171,7 @@ const resolveSimWithLowCostAI = async (rawProductString = '') => {
     const response = await textAI.client.chat.completions.create({
       model: textAI.model,
       messages: [
-        { role: 'system', content: 'Classify SIM as exactly one label: Physical SIM, eSIM, Physical SIM + ESIM, Unknown. Return one label only.' },
+        { role: 'system', content: 'Classify SIM as exactly one label: Physical SIM, eSIM, Physical SIM + ESIM, Locked/Wi-Fi Only (ESIM), Unknown. Return one label only.' },
         { role: 'user', content: raw.slice(0, 220) },
       ],
       temperature: 0,
@@ -241,7 +241,7 @@ const PRODUCT_CATALOG_CACHE_TTL_MS = 60000;
 const normalizeSimLabel = (value = '') => {
   const text = String(value || '').toLowerCase().trim();
   if (!text) return null;
-  if (text.includes('locked')) return 'Physical SIM';
+  if (text.includes('locked') || text.includes('wifi only') || text.includes('wi-fi only')) return 'Locked/Wi-Fi Only (ESIM)';
   if (text.includes('physical') && text.includes('esim')) return 'Physical SIM + ESIM';
   if (text.includes('dual')) return 'Physical SIM';
   if (text.includes('esim')) return 'eSIM';

@@ -34,7 +34,9 @@ test('normalizeSim maps expected formats and unknown', () => {
   assert.equal(__testables.normalizeSim('IDM with eSIM'), 'eSIM');
   assert.equal(__testables.normalizeSim('IDM physical dual'), 'Physical SIM');
   assert.equal(__testables.normalizeSim('IDM physical + eSIM'), 'Physical SIM + ESIM');
-  assert.equal(__testables.normalizeSim('locked 16pro'), 'Physical SIM');
+  assert.equal(__testables.normalizeSim('locked 16pro'), 'Locked/Wi-Fi Only (ESIM)');
+  assert.equal(__testables.normalizeSim('wifi only model'), 'Locked/Wi-Fi Only (ESIM)');
+  assert.equal(__testables.normalizeSim('wi-fi only esim'), 'Locked/Wi-Fi Only (ESIM)');
   assert.equal(__testables.normalizeSim('single sim physical'), 'Physical SIM');
   assert.equal(__testables.normalizeSim('sim unknown'), 'Unknown');
 });
