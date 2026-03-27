@@ -9,7 +9,6 @@ import AutoListen from './pages/adminDashboardPages/AutoListen';
 import StoreFront from './pages/StoreFront';
 import AppHub from './pages/AppHub';
 import TeamManagement from './pages/adminDashboardPages/TeamManagement';
-import Ai from './pages/adminDashboardPages/ai';
 
 const ProtectedRoute = ({ children }) => {
   const isAuthenticated = useSelector((state) => state.auth.isAuthenticated);
@@ -67,7 +66,6 @@ function App() {
       >
         <Route path="upload" element={<UploadData />} />
         <Route path="autolisten" element={<AutoListen />} />
-        <Route path="ai" element={<Ai />} />
       </Route>
 
       <Route
