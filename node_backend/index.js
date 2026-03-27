@@ -33,6 +33,7 @@ const _BACKUP_COLLECTION = 'horleyTech_Backups';
 const MESSAGE_COLLECTION = 'horleyTech_PlatformMessages';
 const AUDIT_COLLECTION = 'horleyTech_AuditLogs';
 const SETTINGS_COLLECTION = 'horleyTech_Settings';
+const MAPPING_CATEGORIES = ['Smartphones', 'Smartwatches', 'Laptops', 'Sounds', 'Accessories', 'Tablets', 'Gaming', 'Others'];
 
 let messagesCache = [];
 let messagesCacheUpdatedAt = 0;
@@ -694,6 +695,99 @@ app.post('/api/admin/settings/:category', async (req, res) => {
     return res.json({ success: true, message: `${category} settings saved.` });
   } catch (error) {
     console.error('❌ Save global settings error:', error);
+    return res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Mapping Dictionary Endpoints (Firebase-backed)
+app.get('/api/admin/mappings', async (req, res) => {
+  if (!isAdminRequest(req)) {
+    return res.status(403).json({ success: false, error: 'Admin access required.' });
+  }
+
+  const categoryFilter = String(req.query?.category || '').trim();
+  const targetCategories = categoryFilter && MAPPING_CATEGORIES.includes(categoryFilter)
+    ? [categoryFilter]
+    : MAPPING_CATEGORIES;
+
+  try {
+    const firestore = getAdminFirestore();
+    const docs = await Promise.all(
+      targetCategories.map((category) => firestore.collection(SETTINGS_COLLECTION).doc(`mappings_${category}`).get()),
+    );
+
+    const payload = {};
+    docs.forEach((docSnap, index) => {
+      const category = targetCategories[index];
+      const data = docSnap.exists ? (docSnap.data() || {}) : {};
+      const mappings = data?.mappings || {};
+      payload[category] = {
+        lastUpdated: data?.lastUpdated || null,
+        items: Object.entries(mappings).map(([key, mapping]) => ({
+          key,
+          raw: mapping?.raw || key,
+          category: mapping?.category || category,
+          brand: mapping?.brand || 'Others',
+          series: mapping?.series || 'Others',
+          deviceType: mapping?.deviceType || mapping?.standardName || 'Unknown Device',
+          condition: mapping?.condition || 'Unknown',
+          specification: mapping?.specification || 'Unknown',
+          isOthers: Boolean(mapping?.isOthers),
+          updatedAt: mapping?.updatedAt || null,
+          source: mapping?.source || 'auto',
+        })),
+      };
+    });
+
+    return res.json({ success: true, categories: targetCategories, data: payload });
+  } catch (error) {
+    console.error('❌ Fetch mappings error:', error);
+    return res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+app.post('/api/admin/mappings/upsert', async (req, res) => {
+  if (!isAdminRequest(req)) {
+    return res.status(403).json({ success: false, error: 'Admin access required.' });
+  }
+
+  const payload = req.body && typeof req.body === 'object' ? req.body : {};
+  const raw = String(payload.raw || '').trim();
+  const category = String(payload.category || '').trim();
+  if (!raw) {
+    return res.status(400).json({ success: false, error: 'raw is required.' });
+  }
+
+  const safeCategory = MAPPING_CATEGORIES.includes(category) ? category : 'Others';
+  const key = raw.toLowerCase().replace(/[^a-z0-9]/g, '');
+  if (!key) {
+    return res.status(400).json({ success: false, error: 'raw must contain alphanumeric characters.' });
+  }
+
+  const mapping = {
+    raw,
+    category: safeCategory,
+    brand: String(payload.brand || 'Others').trim() || 'Others',
+    series: String(payload.series || 'Others').trim() || 'Others',
+    deviceType: String(payload.deviceType || 'Unknown Device').trim() || 'Unknown Device',
+    standardName: String(payload.deviceType || 'Unknown Device').trim() || 'Unknown Device',
+    condition: String(payload.condition || 'Unknown').trim() || 'Unknown',
+    specification: String(payload.specification || 'Unknown').trim() || 'Unknown',
+    isOthers: Boolean(payload.isOthers),
+    source: String(payload.source || 'manual').trim() || 'manual',
+    updatedAt: new Date().toISOString(),
+  };
+
+  try {
+    const firestore = getAdminFirestore();
+    await firestore.collection(SETTINGS_COLLECTION).doc(`mappings_${safeCategory}`).set({
+      mappings: { [key]: mapping },
+      lastUpdated: new Date().toISOString(),
+    }, { merge: true });
+
+    return res.json({ success: true, category: safeCategory, key, mapping });
+  } catch (error) {
+    console.error('❌ Upsert mapping error:', error);
     return res.status(500).json({ success: false, error: error.message });
   }
 });
