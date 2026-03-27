@@ -1989,7 +1989,7 @@ const VendorPage = () => {
           <div className="mb-4 p-4 border border-amber-100 bg-amber-50 rounded-xl">
             <h3 className="text-sm font-black text-amber-800 uppercase tracking-wider mb-2">Pro Tips</h3>
             <p className="text-sm text-amber-900 font-medium">Best formatting style for the AI scraper: <span className="font-black">Product | Specs | Condition | Price</span>.</p>
-            <p className="text-xs text-amber-800 mt-2">Using the pipe-separated format (<span className="font-black">|</span>) guarantees 100% scraper accuracy for property mapping.</p>
+            <p className="text-xs text-amber-800 mt-2">Using the pipe-separated format (<span className="font-black">|</span>) gives the highest extraction accuracy for product mapping.</p>
           </div>
 
           <div className="mb-4 p-4 border border-blue-100 bg-blue-50 rounded-xl">
