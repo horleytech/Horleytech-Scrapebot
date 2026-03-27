@@ -583,6 +583,15 @@ const AdminDashboard = () => {
   const [bulkTinbrSaving, setBulkTinbrSaving] = useState(false);
   const [bulkTinbrUseTinyChecked, setBulkTinbrUseTinyChecked] = useState(true);
   const [bulkTinbrShowBothChecked, setBulkTinbrShowBothChecked] = useState(true);
+  const priceReferenceModeLabelMap = {
+    selected_primary: 'Primary Vendor only',
+    selected_highest: 'Selected Vendors • Highest',
+    selected_lowest: 'Selected Vendors • Lowest',
+    selected_average: 'Selected Vendors • Average',
+    global_highest: 'Global Inventory • Highest',
+    global_lowest: 'Global Inventory • Lowest',
+    global_average: 'Global Inventory • Average',
+  };
   const selectedCompareVendors = useMemo(() => {
     const normalized = [pricingVendor, pricingVendorExtraOne, pricingVendorExtraTwo]
       .map((name) => String(name || '').trim())
@@ -1772,7 +1781,7 @@ const AdminDashboard = () => {
       return Math.max(...prices);
     };
 
-    const resolveReferenceFromMode = (selectedPrices = [], globalPrices = []) => {
+    const resolveReferenceFromMode = ({ selectedPrices = [], globalPrices = [], primaryVendorPrice = 0 }) => {
       switch (priceReferenceMode) {
         case 'selected_highest':
           return aggregatePrice(selectedPrices, 'highest');
@@ -1788,7 +1797,7 @@ const AdminDashboard = () => {
           return aggregatePrice(globalPrices, 'average');
         case 'selected_primary':
         default:
-          return selectedPrices[0] || 0;
+          return primaryVendorPrice || 0;
       }
     };
 
@@ -1827,9 +1836,12 @@ const AdminDashboard = () => {
           priceValue: Number(match?.priceValue || 0),
         };
       });
+      const primaryVendorPrice = pricingVendor && pricingVendor !== 'All'
+        ? Number(getLatestMatchForVendor(pricingVendor)?.priceValue || 0)
+        : 0;
       const selectedVendorPrices = comparePriceEntries.map((entry) => entry.priceValue).filter((value) => value > 0);
       const globalPrices = normalizedProductRows.filter(isRowMatch).map((item) => Number(item?.priceValue || 0)).filter((value) => value > 0);
-      const referencePrice = resolveReferenceFromMode(selectedVendorPrices, globalPrices);
+      const referencePrice = resolveReferenceFromMode({ selectedPrices: selectedVendorPrices, globalPrices, primaryVendorPrice });
       const hasVendorMatch = referencePrice > 0;
       const shouldCalculate = hasVendorMatch;
       const vendorPrice = shouldCalculate ? referencePrice : 0;
@@ -2675,6 +2687,19 @@ const AdminDashboard = () => {
                 <button onClick={handleOpenSaveModal} className="px-4 py-3 rounded-2xl text-xs font-black uppercase tracking-wider border border-gray-100 bg-white/80 hover:bg-white">Save Session</button>
                 <button onClick={exportPricingTxt} className="px-4 py-3 rounded-2xl text-xs font-black uppercase tracking-wider border border-gray-100 bg-white/80 hover:bg-white">Export to TXT</button>
               </div>
+              <div className="rounded-2xl border border-gray-100 bg-white/70 px-4 py-3 text-xs text-gray-600 space-y-2">
+                <p className="font-black text-gray-800 uppercase tracking-wider">Reference Mode Guide</p>
+                <p>
+                  Active mode: <span className="font-bold">{priceReferenceModeLabelMap[priceReferenceMode] || 'Primary Vendor only'}</span>.
+                  {' '}Primary Vendor affects <span className="font-bold">Selected Vendors • Primary Vendor Price</span> only.
+                </p>
+                <p>
+                  Compare Vendors (max 3):{' '}
+                  <span className="font-semibold">
+                    {selectedCompareVendors.length ? selectedCompareVendors.join(', ') : 'None selected'}
+                  </span>
+                </p>
+              </div>
               {pricingResults.length > 0 && (
                 <div className="sticky top-20 z-20 rounded-2xl border border-indigo-100 bg-white/95 backdrop-blur-xl shadow-lg px-4 py-3 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                   <div>
@@ -2853,7 +2878,7 @@ const AdminDashboard = () => {
                           <p className="text-xs font-bold text-gray-500 mt-0.5">
                             {(session.selectedCompareVendors?.length ? session.selectedCompareVendors.join(', ') : (session.pricingVendor || 'All Vendors'))}
                             {' • '}
-                            {session.priceReferenceMode || 'selected_primary'}
+                            {priceReferenceModeLabelMap[session.priceReferenceMode || 'selected_primary'] || 'Primary Vendor only'}
                             {' • '}
                             {session.marginType} {session.marginValue}
                             {' • '}
