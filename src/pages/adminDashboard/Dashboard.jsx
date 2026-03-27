@@ -1954,6 +1954,18 @@ const AdminDashboard = () => {
     setSelectedProducts((prev) => (prev.includes(rowKey) ? prev.filter((item) => item !== rowKey) : [...prev, rowKey]));
   };
 
+  const openSingleProductMarginEditor = (row) => {
+    const override = pricingOverrides[row.rowKey];
+    setSelectedProducts([row.rowKey]);
+    setCustomMarginType(override?.marginType || marginType || 'amount');
+    setCustomMarginValue(
+      override?.marginValue !== undefined
+        ? String(override.marginValue)
+        : String(marginValue || '0')
+    );
+    setCustomMarginModalOpen(true);
+  };
+
   const togglePricingGroup = (groupName) => {
     setExpandedPricingGroups((prev) => (
       prev.includes(groupName) ? prev.filter((name) => name !== groupName) : [...prev, groupName]
@@ -2808,6 +2820,7 @@ const AdminDashboard = () => {
                                           <th className="px-3 py-3">Vendor Price(s)</th>
                                           <th className="px-3 py-3">Target Price</th>
                                           <th className="px-3 py-3">Adjustment</th>
+                                          <th className="px-3 py-3">Edit</th>
                                         </tr>
                                       </thead>
                                       <tbody>
@@ -2848,6 +2861,15 @@ const AdminDashboard = () => {
                                                   {row.adjustment > 0 ? '+' : ''}{formatNaira(row.adjustment)}
                                                 </span>
                                               ) : 'N/A'}
+                                            </td>
+                                            <td className="px-3 py-2">
+                                              <button
+                                                type="button"
+                                                onClick={() => openSingleProductMarginEditor(row)}
+                                                className="px-2 py-1 rounded-md text-[10px] font-black uppercase tracking-wide bg-indigo-50 text-indigo-700 border border-indigo-200 hover:bg-indigo-100"
+                                              >
+                                                Edit
+                                              </button>
                                             </td>
                                           </tr>
                                         ))}
