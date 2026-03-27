@@ -537,6 +537,10 @@ const AdminDashboard = () => {
   const [sessionNameInput, setSessionNameInput] = useState('');
   const [assignVendorModalOpen, setAssignVendorModalOpen] = useState(false);
   const [assignVendorValue, setAssignVendorValue] = useState('');
+  const [pricingHeaderStickyEnabled, setPricingHeaderStickyEnabled] = useState(true);
+  const [quickActionsStickyEnabled, setQuickActionsStickyEnabled] = useState(true);
+  const [quickActionsExpanded, setQuickActionsExpanded] = useState(false);
+  const [pricingTableHeaderStickyEnabled, setPricingTableHeaderStickyEnabled] = useState(true);
   const [startDate, setStartDate] = useState(currentMonthRange.firstDay);
   const [endDate, setEndDate] = useState(currentMonthRange.lastDay);
   const [expandedProductGroups, setExpandedProductGroups] = useState([]);
@@ -1755,8 +1759,7 @@ const AdminDashboard = () => {
   }, [pricingVendor, pricingVendorExtraOne, pricingVendorExtraTwo, priceReferenceMode, marginType, marginValue, companyCsvRows.length]);
 
   const pricingResults = useMemo(() => {
-  const margin = Number(marginValue) || 0;
-  const hasGlobalMargin = margin !== 0;
+    const margin = Number(marginValue) || 0;
     const aggregatePrice = (prices = [], mode = 'highest') => {
       if (!prices.length) return 0;
       if (mode === 'lowest') return Math.min(...prices);
@@ -1785,14 +1788,15 @@ const AdminDashboard = () => {
     };
 
     return companyCsvRows.map((row, index) => {
-     // FIX: Ensure original name is captured perfectly
       const companyDevice = String(getCsvValueByAliases(row, ['Device Type', 'device type', 'Device', 'device', 'Device Name']) || row['Device Type'] || row['device type'] || '');
       const companyCondition = getCsvValueByAliases(row, ['Condition']) || 'Unknown';
       const companySpec = getCsvValueByAliases(row, ['SIM Type/Model/Processor', 'sim type', 'model', 'processor']);
       const companyRawDescriptor = `${companyDevice} ${companyCondition} ${companySpec}`.trim();
       const mappedResult = smartMapDevice(companyRawDescriptor, officialTargets, masterDictionary);
       const mappedDevice = mappedResult.standardName;
-      const condition = mappedResult.condition;
+      const condition = mappedResult.condition && mappedResult.condition !== 'Unknown'
+        ? mappedResult.condition
+        : companyCondition;
       const storage = getCsvValueByAliases(row, ['Storage Capacity/Configuration', 'storage', 'configuration']);
       const mappedSpec = mappedResult.specification;
       const companyPriceRaw = getCsvValueByAliases(row, ['Regular price', 'Company Price', 'price']);
@@ -1849,48 +1853,53 @@ const AdminDashboard = () => {
       const hasVendorMatch = referencePrice > 0;
       const shouldCalculate = hasVendorMatch;
       const vendorPrice = shouldCalculate ? referencePrice : 0;
-  const baseTarget = shouldCalculate
-    ? (marginType === 'percentage' ? Math.round(vendorPrice * (1 + (margin / 100))) : vendorPrice + margin)
-    : 0;
-  const rowKey = getPricingRowKey({ ...row, mappedDevice, companyPrice }, index);
-  const override = pricingOverrides[rowKey] || null;
-  const overrideMarginValue = Number(override?.marginValue) || 0;
-  const hasOverrideMargin = overrideMarginValue !== 0;
-  const hasActiveMargin = hasOverrideMargin || hasGlobalMargin;
-  
-  // FIX 2: Apply custom margin against Company Price, override vendor rules
-  let target = baseTarget;
-  let adjustment = shouldCalculate ? (target - companyPrice) : 0;
-  let adjustmentPercent = shouldCalculate && companyPrice > 0 ? Math.round((adjustment / companyPrice) * 100) : 0;
-  if (override) {
-    if (override.marginType === 'percentage') {
-      target = Math.round(companyPrice * (1 + (overrideMarginValue / 100)));
-    } else {
-      target = companyPrice + overrideMarginValue;
-    }
-    adjustment = target - companyPrice;
-    adjustmentPercent = companyPrice > 0 ? Math.round((adjustment / companyPrice) * 100) : 0;
-  }
-  return {
-    ...row,
-    rowKey,
-    companyDevice,
-    mappedDevice,
-    companyPrice,
-    vendorPrice,
-    comparePriceEntries,
-    selectedVendorPrices,
-    globalPriceCandidates: globalPrices,
-    target,
-    adjustment,
-    adjustmentPercent,
-    hasActiveMargin,
-    hasVendorMatch,
-    assignedVendor: override?.assignedVendor || pricingVendor || selectedCompareVendors[0] || 'All',
-    isOverridden: Boolean(override),
-  };
-});
-}, [companyCsvRows, pricingVendor, selectedCompareVendors, priceReferenceMode, marginType, marginValue, normalizedProductRows, officialTargets, masterDictionary, pricingOverrides]);
+      const hasDefaultMarginConfigured = Number(margin) !== 0;
+      const baseTarget = (shouldCalculate && hasDefaultMarginConfigured)
+        ? (marginType === 'percentage' ? Math.round(vendorPrice * (1 + (margin / 100))) : vendorPrice + margin)
+        : 0;
+      const rowKey = getPricingRowKey({ ...row, mappedDevice, companyPrice }, index);
+      const override = pricingOverrides[rowKey] || null;
+      const overrideMarginValue = Number(override?.marginValue);
+      const hasOverrideMarginConfigured = Boolean(
+        override
+        && Number.isFinite(overrideMarginValue)
+        && overrideMarginValue !== 0
+      );
+
+      let target = baseTarget;
+      let adjustment = (shouldCalculate && hasDefaultMarginConfigured) ? (target - companyPrice) : 0;
+      let adjustmentPercent = (shouldCalculate && hasDefaultMarginConfigured && companyPrice > 0) ? Math.round((adjustment / companyPrice) * 100) : 0;
+      if (hasOverrideMarginConfigured) {
+        if (override.marginType === 'percentage') {
+          target = Math.round(companyPrice * (1 + (overrideMarginValue / 100)));
+        } else {
+          target = companyPrice + overrideMarginValue;
+        }
+        adjustment = target - companyPrice;
+        adjustmentPercent = companyPrice > 0 ? Math.round((adjustment / companyPrice) * 100) : 0;
+      }
+
+      return {
+        ...row,
+        rowKey,
+        companyDevice,
+        mappedDevice,
+        companyPrice,
+        vendorPrice,
+        comparePriceEntries,
+        selectedVendorPrices,
+        globalPriceCandidates: globalPrices,
+        target,
+        adjustment,
+        adjustmentPercent,
+        hasDefaultMarginConfigured,
+        hasOverrideMarginConfigured,
+        hasVendorMatch,
+        assignedVendor: override?.assignedVendor || pricingVendor || selectedCompareVendors[0] || 'All',
+        isOverridden: Boolean(override),
+      };
+    });
+  }, [companyCsvRows, pricingVendor, selectedCompareVendors, priceReferenceMode, marginType, marginValue, normalizedProductRows, officialTargets, masterDictionary, pricingOverrides]);
 
   const groupedPricingResults = useMemo(() => {
     const groups = [];
@@ -2012,8 +2021,7 @@ const AdminDashboard = () => {
   const exportPricingTxt = () => {
     const validItems = pricingResults.filter((item) => Number.isFinite(item.companyPrice)
       && item.companyPrice > 0
-      && item.hasActiveMargin
-      && (item.hasVendorMatch || item.isOverridden));
+      && (((item.hasVendorMatch && item.hasDefaultMarginConfigured) || item.hasOverrideMarginConfigured)));
     if (!validItems.length) return alert('No valid pricing adjustments to export.');
     
     const pairs = validItems.map((item) => {
@@ -2670,7 +2678,7 @@ const AdminDashboard = () => {
             </div>
                     ) : activeTab === 'pricing' ? (
             <div className="bg-white/70 backdrop-blur-xl border border-gray-100 rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] p-6 space-y-5">
-              <div>
+              <div className={pricingHeaderStickyEnabled ? 'sticky top-20 z-20 rounded-2xl bg-white/95 backdrop-blur-xl border border-gray-100 px-4 py-3' : ''}>
                 <h2 className="text-2xl font-black tracking-tight text-gray-900">WordPress Pricing Session Manager</h2>
                 <p className="text-sm text-gray-500">Mirror global rows, compare up to 3 vendors, use selected/global highest-lowest-average price references, apply margin logic, save sessions, and export strict TXT adjustments.</p>
               </div>
@@ -2709,21 +2717,42 @@ const AdminDashboard = () => {
                     {selectedCompareVendors.length ? selectedCompareVendors.join(', ') : 'None selected'}
                   </span>
                 </p>
+                <div className="flex flex-wrap items-center gap-3 pt-1">
+                  <label className="inline-flex items-center gap-2">
+                    <input type="checkbox" checked={pricingHeaderStickyEnabled} onChange={(e) => setPricingHeaderStickyEnabled(e.target.checked)} />
+                    <span>Sticky header card</span>
+                  </label>
+                  <label className="inline-flex items-center gap-2">
+                    <input type="checkbox" checked={quickActionsStickyEnabled} onChange={(e) => setQuickActionsStickyEnabled(e.target.checked)} />
+                    <span>Sticky quick actions</span>
+                  </label>
+                  <label className="inline-flex items-center gap-2">
+                    <input type="checkbox" checked={pricingTableHeaderStickyEnabled} onChange={(e) => setPricingTableHeaderStickyEnabled(e.target.checked)} />
+                    <span>Sticky table heading</span>
+                  </label>
+                </div>
               </div>
               {pricingResults.length > 0 && (
-                <div className="sticky top-20 z-20 rounded-2xl border border-indigo-100 bg-white/95 backdrop-blur-xl shadow-lg px-4 py-3 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                  <div>
-                    <p className="text-sm font-bold text-gray-800">Quick Actions</p>
-                    <p className="text-xs text-gray-500 font-semibold">
-                      {selectedProducts.length > 0
-                        ? `${selectedProducts.length} selected product(s) will be updated.`
-                        : `No selection: actions apply to all ${pricingRowKeys.length} loaded products.`}
-                    </p>
+                <div className={`${quickActionsStickyEnabled ? 'sticky top-36 z-20' : ''} rounded-2xl border border-indigo-100 bg-white/95 backdrop-blur-xl shadow-lg px-4 py-3`}>
+                  <div className="flex items-center justify-between gap-2">
+                    <div>
+                      <p className="text-sm font-bold text-gray-800">Quick Actions</p>
+                      <p className="text-xs text-gray-500 font-semibold">
+                        {selectedProducts.length > 0
+                          ? `${selectedProducts.length} selected product(s) will be updated.`
+                          : `No selection: actions apply to all ${pricingRowKeys.length} loaded products.`}
+                      </p>
+                    </div>
+                    <button type="button" onClick={() => setQuickActionsExpanded((prev) => !prev)} className="px-3 py-2 rounded-lg text-xs font-black uppercase tracking-wide border border-indigo-200 text-indigo-700 bg-indigo-50">
+                      {quickActionsExpanded ? 'Minimize' : 'Expand'}
+                    </button>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <button type="button" onClick={handleOpenCustomMarginModal} className="px-3 py-2 rounded-lg text-xs font-black uppercase tracking-wide bg-indigo-600 text-white hover:bg-indigo-700">Apply Custom Margin</button>
-                    <button type="button" onClick={() => setAssignVendorModalOpen(true)} className="px-3 py-2 rounded-lg text-xs font-black uppercase tracking-wide bg-emerald-600 text-white hover:bg-emerald-700">Assign to Vendor</button>
-                  </div>
+                  {quickActionsExpanded && (
+                    <div className="flex items-center gap-2 pt-3">
+                      <button type="button" onClick={() => setCustomMarginModalOpen(true)} className="px-3 py-2 rounded-lg text-xs font-black uppercase tracking-wide bg-indigo-600 text-white hover:bg-indigo-700">Apply Custom Margin</button>
+                      <button type="button" onClick={() => setAssignVendorModalOpen(true)} className="px-3 py-2 rounded-lg text-xs font-black uppercase tracking-wide bg-emerald-600 text-white hover:bg-emerald-700">Assign to Vendor</button>
+                    </div>
+                  )}
                 </div>
               )}
               <div className="space-y-4">
@@ -2760,7 +2789,7 @@ const AdminDashboard = () => {
                                 {subCatExpanded && subCat.items.length > 0 && (
                                   <div className="overflow-x-auto">
                                     <table className="w-full text-left min-w-[1200px]">
-                                      <thead className="bg-gray-50/80 text-[10px] uppercase text-gray-500 font-black border-b border-gray-100">
+                                      <thead className={`${pricingTableHeaderStickyEnabled ? 'sticky top-[190px] z-10' : ''} bg-gray-50/80 text-[10px] uppercase text-gray-500 font-black border-b border-gray-100`}>
                                         <tr>
                                           <th className="px-4 py-3">Select</th>
                                           <th className="px-3 py-3">Device</th>
@@ -2805,9 +2834,9 @@ const AdminDashboard = () => {
                                                 </div>
                                               ) : (row.hasVendorMatch ? formatNaira(row.vendorPrice) : 'N/A')}
                                             </td>
-                                            <td className="px-3 py-2 font-bold text-indigo-600">{(row.hasActiveMargin && (row.hasVendorMatch || row.isOverridden)) ? formatNaira(row.target) : 'N/A'}</td>
+                                            <td className="px-3 py-2 font-bold text-indigo-600">{((row.hasVendorMatch && row.hasDefaultMarginConfigured) || row.hasOverrideMarginConfigured) ? formatNaira(row.target) : 'N/A'}</td>
                                             <td className="px-3 py-2">
-                                              {(row.hasActiveMargin && (row.hasVendorMatch || row.isOverridden)) ? (
+                                              {((row.hasVendorMatch && row.hasDefaultMarginConfigured) || row.hasOverrideMarginConfigured) ? (
                                                 <span className={`px-2 py-1 rounded text-xs font-bold ${row.adjustment > 0 ? 'bg-green-100 text-green-700' : row.adjustment < 0 ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-600'}`}>
                                                   {row.adjustment > 0 ? '+' : ''}{formatNaira(row.adjustment)}
                                                 </span>
@@ -2828,7 +2857,9 @@ const AdminDashboard = () => {
                   );
                 })}
                 {!pricingResults.length && (
-                  <div className="border border-gray-100 rounded-2xl bg-white/60 px-4 py-4 text-sm text-gray-500">No matched rows. Load CSV and choose up to 3 vendors for comparison.</div>
+                  <div className="border border-gray-100 rounded-2xl bg-white/60 px-4 py-4 text-sm text-gray-500">
+                    Active Map is empty. Load Company CSV to populate this view.
+                  </div>
                 )}
               </div>
               {customMarginModalOpen && (
