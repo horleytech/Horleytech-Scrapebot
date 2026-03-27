@@ -128,8 +128,8 @@ app.use((req, res, next) => {
   return next();
 });
 app.use(compression());
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: '2mb' }));
+app.use(express.urlencoded({ extended: true, limit: '2mb' }));
 app.use(morgan('dev'));
 
 const PORT = process.env.PORT || 8000;
@@ -1353,8 +1353,9 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
     let extractedProducts = [];
 
     // --- CROSS-LEARNED TOKEN FIX 1: THE CACHE ---
-    // Hash the first 200 chars to identify repeat broadcasts quickly
-    const msgHash = String(senderMessage).trim().substring(0, 200);
+    // Fingerprint both the start and end so long messages with similar headers don't collide.
+    const normalizedIncoming = String(senderMessage || '').trim();
+    const msgHash = `${normalizedIncoming.slice(0, 500)}::${normalizedIncoming.slice(-500)}::len-${normalizedIncoming.length}`;
 
     if (processedMessageCache.has(msgHash)) {
       console.log('⚡ Using cached extraction for repeat broadcast. Saving tokens!');
@@ -1418,7 +1419,7 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
 
         // Pass 1: deterministic extraction per line (works best for structured pricelist broadcasts).
         for (const unknownLine of unknownLines) {
-          const lineText = unknownLine.substring(0, 320);
+          const lineText = unknownLine.substring(0, 500);
           const lineHash = lineText.substring(0, 150);
           const deterministicProduct = deterministicLineExtract(lineText);
 
@@ -1447,7 +1448,7 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
             const CHUNK_SIZE = 20;
             for (let index = 0; index < unresolvedLines.length; index += CHUNK_SIZE) {
               const chunkLines = unresolvedLines.slice(index, index + CHUNK_SIZE);
-              const textForAI = chunkLines.join('\n').substring(0, 1200);
+              const textForAI = chunkLines.join('\n').substring(0, 4000);
               const chunkProducts = await extractFromText(textForAI, 300);
               extractedProducts = extractedProducts.concat(chunkProducts);
             }
