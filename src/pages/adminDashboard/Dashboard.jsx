@@ -2769,7 +2769,7 @@ const AdminDashboard = () => {
                   </div>
                   {quickActionsExpanded && (
                     <div className="flex items-center gap-2 pt-3">
-                      <button type="button" onClick={() => setCustomMarginModalOpen(true)} className="px-3 py-2 rounded-lg text-xs font-black uppercase tracking-wide bg-indigo-600 text-white hover:bg-indigo-700">Apply Custom Margin</button>
+                      <button type="button" onClick={handleOpenCustomMarginModal} className="px-3 py-2 rounded-lg text-xs font-black uppercase tracking-wide bg-indigo-600 text-white hover:bg-indigo-700">Apply Custom Margin</button>
                       <button type="button" onClick={() => setAssignVendorModalOpen(true)} className="px-3 py-2 rounded-lg text-xs font-black uppercase tracking-wide bg-emerald-600 text-white hover:bg-emerald-700">Assign to Vendor</button>
                     </div>
                   )}

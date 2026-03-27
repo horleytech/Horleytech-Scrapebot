@@ -1259,7 +1259,7 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
       const cleaned = String(line || '')
         .replace(/\*(₦?\s*[\d,]+(?:\.\d+)?\s*[mk]?)\*/gi, '$1')
         .replace(/^[-*•]+\s*/, '')
-        .replace(/^\d+\s*[🅰🅱🅾a-z]*[\s.)-]*/i, '')
+        .replace(/^\d+\s*[🅰🅱🅾a-z]*[\s.)-]*/iu, '')
         .replace(/@\s*n/gi, ' ₦')
         .replace(/\bn(?=\d)/gi, '₦')
         .replace(/\s+/g, ' ')
