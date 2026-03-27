@@ -2026,6 +2026,12 @@ const AdminDashboard = () => {
     alert(`✅ Assigned ${scopeLabel} to ${assignVendorValue}.`);
   };
 
+  const openCustomMarginModal = () => {
+    setCustomMarginType(marginType || 'amount');
+    setCustomMarginValue(String(marginValue ?? '0'));
+    setCustomMarginModalOpen(true);
+  };
+
   const exportPricingTxt = () => {
     const validItems = pricingResults.filter((item) => Number.isFinite(item.companyPrice) && item.companyPrice > 0 && item.hasActiveAdjustment);
     if (!validItems.length) return alert('No valid pricing adjustments to export.');
@@ -2735,7 +2741,7 @@ const AdminDashboard = () => {
                     </p>
                   </div>
                   <div className="flex items-center gap-2">
-                    <button type="button" onClick={() => setCustomMarginModalOpen(true)} className="px-3 py-2 rounded-lg text-xs font-black uppercase tracking-wide bg-indigo-600 text-white hover:bg-indigo-700">Apply Custom Margin</button>
+                    <button type="button" onClick={openCustomMarginModal} className="px-3 py-2 rounded-lg text-xs font-black uppercase tracking-wide bg-indigo-600 text-white hover:bg-indigo-700 cursor-pointer">Apply Custom Margin</button>
                     <button type="button" onClick={() => setAssignVendorModalOpen(true)} className="px-3 py-2 rounded-lg text-xs font-black uppercase tracking-wide bg-emerald-600 text-white hover:bg-emerald-700">Assign to Vendor</button>
                   </div>
                 </div>
@@ -2849,14 +2855,14 @@ const AdminDashboard = () => {
                 <div className="fixed top-0 left-0 w-screen h-screen z-[99999] bg-black/60 flex items-center justify-center p-4 m-0" style={{ position: 'fixed' }}>
                   <div className="w-full max-w-md rounded-2xl bg-white shadow-2xl p-5 space-y-4 relative">
                     <h3 className="text-lg font-black text-gray-900">Apply Custom Margin {selectedProducts.length > 0 ? '(Selected)' : '(All Loaded)'}</h3>
-                    <select value={customMarginType} onChange={(e) => setCustomMarginType(e.target.value)} className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm">
+                    <select value={customMarginType} onChange={(e) => setCustomMarginType(e.target.value)} className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm cursor-pointer">
                       <option value="amount">Amount</option>
                       <option value="percentage">Percentage</option>
                     </select>
-                    <input value={customMarginValue} onChange={(e) => setCustomMarginValue(e.target.value)} placeholder="Enter margin value" className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm" />
+                    <input value={customMarginValue} onChange={(e) => setCustomMarginValue(e.target.value)} placeholder="Enter margin value" className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm cursor-text" />
                     <div className="flex justify-end gap-2">
-                      <button type="button" onClick={() => setCustomMarginModalOpen(false)} className="px-3 py-2 rounded-lg border border-gray-200 text-sm">Cancel</button>
-                      <button type="button" onClick={applyCustomMarginToSelected} className="px-3 py-2 rounded-lg bg-indigo-600 text-white text-sm font-semibold">Apply</button>
+                      <button type="button" onClick={() => setCustomMarginModalOpen(false)} className="px-3 py-2 rounded-lg border border-gray-200 text-sm cursor-pointer">Cancel</button>
+                      <button type="button" onClick={applyCustomMarginToSelected} className="px-3 py-2 rounded-lg bg-indigo-600 text-white text-sm font-semibold cursor-pointer">Apply</button>
                     </div>
                   </div>
                 </div>
