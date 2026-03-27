@@ -90,6 +90,7 @@ const resolveConditionWithDefaultUsed = (raw = '', current = 'Unknown') => {
 
 const normalizeSim = (value = '') => {
   const text = String(value || '').toLowerCase();
+  if (/\blocked\b|wi-?fi\s*only|wifi\s*only/.test(text)) return 'Locked/Wi-Fi Only (ESIM)';
   const hasEsim = /esim|e-sim/.test(text);
   const hasPhysical = /physical|single/.test(text);
   const hasIdm = /\bidm\b/.test(text);
@@ -102,7 +103,6 @@ const normalizeSim = (value = '') => {
   if (/dual/.test(text)) return 'Physical SIM';
   if (hasEsim) return 'eSIM';
   if (hasPhysical) return 'Physical SIM';
-  if (/\blocked\b/.test(text)) return 'Physical SIM';
   if (/\bfu\b|factory\s*unlocked|unlocked/.test(text)) return 'Physical SIM';
   return 'Unknown';
 };
@@ -171,7 +171,7 @@ const resolveSimWithLowCostAI = async (rawProductString = '') => {
     const response = await textAI.client.chat.completions.create({
       model: textAI.model,
       messages: [
-        { role: 'system', content: 'Classify SIM as exactly one label: Physical SIM, eSIM, Physical SIM + ESIM, Unknown. Return one label only.' },
+        { role: 'system', content: 'Classify SIM as exactly one label: Physical SIM, eSIM, Physical SIM + ESIM, Locked/Wi-Fi Only (ESIM), Unknown. Return one label only.' },
         { role: 'user', content: raw.slice(0, 220) },
       ],
       temperature: 0,
@@ -241,7 +241,7 @@ const PRODUCT_CATALOG_CACHE_TTL_MS = 60000;
 const normalizeSimLabel = (value = '') => {
   const text = String(value || '').toLowerCase().trim();
   if (!text) return null;
-  if (text.includes('locked')) return 'Physical SIM';
+  if (text.includes('locked') || text.includes('wifi only') || text.includes('wi-fi only')) return 'Locked/Wi-Fi Only (ESIM)';
   if (text.includes('physical') && text.includes('esim')) return 'Physical SIM + ESIM';
   if (text.includes('dual')) return 'Physical SIM';
   if (text.includes('esim')) return 'eSIM';
@@ -466,6 +466,7 @@ const shouldIgnoreRawString = async (rawText = '') => {
 
 const inferTaxonomyFromRaw = (rawText = '') => {
   const text = String(rawText || '').toLowerCase();
+  const compact = text.replace(/[^a-z0-9]/g, '');
 
   if (/\bairpods?\b|\bairpod\b/.test(text)) {
     return { Category: 'Sounds', Brand: 'Apple', Series: 'AirPods Series' };
@@ -530,9 +531,60 @@ const inferTaxonomyFromRaw = (rawText = '') => {
     return { Category: 'Smartphones', Brand: 'Tecno', Series: 'Spark Series' };
   }
 
+  // Samsung shorthand lists often omit the brand:
+  // e.g. "S21 ultra 256gb", "Note 20", "Flip5", "Fold 4".
+  if (/\b(?:s\d{1,2}|note\s*\d{1,2}|flip\s*\d{1,2}|fold\s*\d{1,2})\b/i.test(text)
+    || /^(s\d{1,2}(plus|ultra)?|note\d{1,2}(plus|ultra)?|flip\d{1,2}|fold\d{1,2})\b/i.test(compact)) {
+    if (/\bfold\s*\d{1,2}\b/.test(text) || /\bfold\d{1,2}\b/.test(compact)) {
+      return { Category: 'Smartphones', Brand: 'Samsung', Series: 'Fold Series' };
+    }
+    if (/\bflip\s*\d{1,2}\b/.test(text) || /\bflip\d{1,2}\b/.test(compact)) {
+      return { Category: 'Smartphones', Brand: 'Samsung', Series: 'Flip Series' };
+    }
+    if (/\bnote\s*\d{1,2}\b/.test(text) || /\bnote\d{1,2}\b/.test(compact)) {
+      return { Category: 'Smartphones', Brand: 'Samsung', Series: 'Note Series' };
+    }
+    return { Category: 'Smartphones', Brand: 'Samsung', Series: 'S Series' };
+  }
+
   const samsungGalaxy = text.match(/(galaxy\s*[a-z0-9+]+)/i);
   if (samsungGalaxy?.[1]) {
     return { Category: 'Smartphones', Brand: 'Samsung', Series: samsungGalaxy[1].replace(/\s+/g, ' ').trim() };
+  }
+
+  if (/\bsamsung\b|\bgalaxy\b/.test(text)) {
+    if (/\b(z\s*)?fold\s*\d{1,2}\b|\bfold\s*\d{1,2}\b/.test(text)) {
+      return { Category: 'Smartphones', Brand: 'Samsung', Series: 'Fold Series' };
+    }
+    if (/\b(z\s*)?flip\s*\d{1,2}\b|\bflip\s*\d{1,2}\b/.test(text)) {
+      return { Category: 'Smartphones', Brand: 'Samsung', Series: 'Flip Series' };
+    }
+    if (/\bs\s*\d{1,2}\b|\bultra\b/.test(text)) {
+      return { Category: 'Smartphones', Brand: 'Samsung', Series: 'S Series' };
+    }
+    if (/\bnote\s*\d{1,2}\b/.test(text)) {
+      return { Category: 'Smartphones', Brand: 'Samsung', Series: 'Note Series' };
+    }
+    if (/\ba\s*\d{1,2}\b/.test(text)) {
+      return { Category: 'Smartphones', Brand: 'Samsung', Series: 'A Series' };
+    }
+    return { Category: 'Smartphones', Brand: 'Samsung', Series: 'Samsung Series' };
+  }
+
+  if (/\b(monitor|inch\s+full\s+hd|display)\b/.test(text)) {
+    return { Category: 'Accessories', Brand: 'Others', Series: 'Monitor Series' };
+  }
+  if (/\b(printer|laserjet|neverstop)\b/.test(text)) {
+    return { Category: 'Accessories', Brand: 'Others', Series: 'Printers Series' };
+  }
+  if (/\b(ups|bluegate)\b/.test(text)) {
+    return { Category: 'Accessories', Brand: 'Others', Series: 'UPS Series' };
+  }
+  if (/\b(tv|television|qled|uhd|crystal\s+uhd)\b/.test(text)) {
+    return { Category: 'Accessories', Brand: 'Others', Series: 'TV Series' };
+  }
+  if (/\b(hp|lenovo|dell|asus|acer|thinkpad|ideapad|yoga|spectre|pavilion|omnibook|xps|alienware|vostro|latitude|inspiron|zenbook|vivobook|aspire)\b/.test(text)) {
+    return { Category: 'Laptops', Brand: 'Others', Series: 'Laptop Series' };
   }
 
   return canonicalFallbackTaxonomy();
@@ -576,6 +628,27 @@ const inferDeviceTypeFromRaw = (rawText = '', fallbackSeries = 'Unknown Device')
   if (/macbook\s*pro/i.test(text)) return 'MacBook Pro';
   if (/macbook\s*air/i.test(text)) return 'MacBook Air';
   if (/macbook/i.test(text)) return 'MacBook';
+  const samsungFold = text.match(/\b(?:samsung|galaxy)?\s*(?:z\s*)?fold\s*(\d{1,2})\b/i);
+  if (samsungFold?.[1]) return `Samsung Z Fold${samsungFold[1]}`;
+  const samsungFlip = text.match(/\b(?:samsung|galaxy)?\s*(?:z\s*)?flip\s*(\d{1,2})\b/i);
+  if (samsungFlip?.[1]) return `Samsung Z Flip${samsungFlip[1]}`;
+  const samsungS = text.match(/\b(?:samsung|galaxy)\s*s\s*(\d{1,2})(?:\s*(ultra|plus))?(?=\d|\b)/i);
+  if (samsungS?.[1]) {
+    const tierToken = String(samsungS?.[2] || '').toLowerCase();
+    const tier = tierToken === 'ultra' ? ' Ultra' : (tierToken === 'plus' ? ' Plus' : '');
+    return `Samsung S${samsungS[1]}${tier}`;
+  }
+  const samsungCompactS = text.match(/\bs\s*(\d{1,2})(?:\s*(ultra|plus))?(?=\d|\b)/i);
+  if (samsungCompactS?.[1] && !/\biphone\b/i.test(text)) {
+    const tierToken = String(samsungCompactS?.[2] || '').toLowerCase();
+    const tier = tierToken === 'ultra' ? ' Ultra' : (tierToken === 'plus' ? ' Plus' : '');
+    return `Samsung S${samsungCompactS[1]}${tier}`;
+  }
+  const samsungNote = text.match(/\bnote\s*(\d{1,2})(?:\s*ultra|\s*plus)?\b/i);
+  if (samsungNote?.[1]) {
+    const tier = /\bultra\b/i.test(text) ? ' Ultra' : (/\bplus\b/i.test(text) ? ' Plus' : '');
+    return `Samsung Note ${samsungNote[1]}${tier}`;
+  }
   const appleWatch = text.match(/\b(iwatch|apple\s*watch|watch\s*ultra)\s*(ultra\s*\d+|series\s*\d+|se)?/i);
   if (appleWatch?.[2]) {
     const watchSuffix = appleWatch[2]
