@@ -1253,7 +1253,12 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
 
       const pricedMatch = cleaned.match(/^(.*?)(?:-|:)?\s*(₦?\s*[\d,]+(?:\.\d+)?\s*[mk]?)\s*$/i);
       if (pricedMatch?.[1] && pricedMatch?.[2]) {
-        const normalizedPrice = normalizePriceToken(pricedMatch[2], { assumeMillionsForSmallDecimal: true });
+        const rawPriceToken = String(pricedMatch[2] || '').trim();
+        const hasPriceHint = /[₦mk]|,/.test(rawPriceToken);
+        const numericToken = Number(rawPriceToken.replace(/[^0-9.]/g, ''));
+        if (!hasPriceHint && (!Number.isFinite(numericToken) || numericToken < 10000)) return null;
+
+        const normalizedPrice = normalizePriceToken(rawPriceToken, { assumeMillionsForSmallDecimal: true });
         return {
           rawProductString: pricedMatch[1].trim(),
           price: normalizedPrice || 'Available',

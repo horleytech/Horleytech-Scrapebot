@@ -5,6 +5,8 @@ import { __testables } from '../cleaner.js';
 test('normalizeStorage standardizes units and unknown', () => {
   assert.equal(__testables.normalizeStorage('iphone 256 gb sealed'), '256GB');
   assert.equal(__testables.normalizeStorage('macbook 1tb'), '1TB');
+  assert.equal(__testables.normalizeStorage('15 Plus 128 eSim Unlocked'), '128GB');
+  assert.equal(__testables.normalizeStorage('M5 16/512 Space Black'), '512GB');
   assert.equal(__testables.normalizeStorage('no storage text'), 'UNKNOWN');
   assert.equal(__testables.normalizeStorage('iphone 15 13128gb'), 'UNKNOWN');
   assert.equal(__testables.normalizeStorage('core i5 8GB RAM 512GB SSD'), '512GB');
@@ -62,8 +64,10 @@ test('inferDeviceTypeFromRaw maps common phone variants', () => {
   assert.equal(__testables.inferDeviceTypeFromRaw('iPhone 14 Pro Max 256GB'), 'iPhone 14 Pro Max');
   assert.equal(__testables.inferDeviceTypeFromRaw('MACBOOK PRO 2019 13'), 'MacBook Pro');
   assert.equal(__testables.inferDeviceTypeFromRaw('17 PM 512GB (P + eSim) Blue'), 'iPhone 17 Pro Max');
+  assert.equal(__testables.inferDeviceTypeFromRaw('🇺🇸15 Plus 128 eSim Unlocked'), 'iPhone 15 Plus');
   assert.equal(__testables.inferDeviceTypeFromRaw('17 Air 256GB (eSim) White'), 'iPhone 17 Air');
   assert.equal(__testables.inferDeviceTypeFromRaw('17 256GB (P + eSim) Black'), 'iPhone 17');
+  assert.equal(__testables.inferDeviceTypeFromRaw('Brand new iWatch ultra 3 BLACK non-active'), 'Apple Watch Ultra 3');
 });
 
 test('inferTaxonomyFromRaw handles shorthand iphone and airpods lines', () => {
@@ -81,6 +85,16 @@ test('inferTaxonomyFromRaw handles shorthand iphone and airpods lines', () => {
     Category: 'Smartphones',
     Brand: 'Apple',
     Series: 'iPhone X Series',
+  });
+  assert.deepEqual(__testables.inferTaxonomyFromRaw('🇺🇸15 Plus 128 eSim Unlocked'), {
+    Category: 'Smartphones',
+    Brand: 'Apple',
+    Series: 'iPhone 15 Series',
+  });
+  assert.deepEqual(__testables.inferTaxonomyFromRaw('Brand new iWatch ultra 3 BLACK non-active'), {
+    Category: 'Smartwatches',
+    Brand: 'Apple',
+    Series: 'Apple Watch Series',
   });
 });
 

@@ -38,7 +38,15 @@ const NEW_QUALIFIERS = /(brand new|new sealed|sealed|^new$)/i;
 const normalizeStorage = (value = '') => {
   const raw = String(value || '').toUpperCase();
   const matches = [...raw.matchAll(/\b(\d{1,4})\s*(GB|TB)\b/g)];
-  if (!matches.length) return 'UNKNOWN';
+  if (!matches.length) {
+    const slashConfig = raw.match(/\b\d{1,3}\s*\/\s*(64|128|256|512|1024)\b/);
+    if (slashConfig?.[1]) return `${slashConfig[1]}GB`;
+
+    const bareStorage = raw.match(/\b(64|128|256|512|1024)\b/);
+    if (bareStorage?.[1]) return `${bareStorage[1]}GB`;
+
+    return 'UNKNOWN';
+  }
 
   const normalized = matches
     .map((match) => ({ amount: Number(match[1]), unit: String(match[2] || '').toUpperCase() }))
@@ -477,9 +485,10 @@ const inferTaxonomyFromRaw = (rawText = '') => {
     }
   }
 
-  const iphoneNumericLead = text.match(/^\s*(1[1-7])\b/);
-  if (iphoneNumericLead?.[1] && /\b(gb|tb|sim|esim|e-?sim|p\s*\+)\b/i.test(text)) {
-    return { Category: 'Smartphones', Brand: 'Apple', Series: `iPhone ${iphoneNumericLead[1]} Series` };
+  const iphoneNumericAny = text.match(/\b(1[1-7])\b/);
+  const hasCompetingFamily = /\b(macbook|thinkpad|probook|ipad|watch|iwatch)\b/i.test(text);
+  if (!hasCompetingFamily && iphoneNumericAny?.[1] && /\b(gb|tb|sim|esim|e-?sim|p\s*\+|pro|max|plus|air|unlocked)\b/i.test(text)) {
+    return { Category: 'Smartphones', Brand: 'Apple', Series: `iPhone ${iphoneNumericAny[1]} Series` };
   }
 
   if (/xs\s*max|xsm\b|xsmax/.test(text)) {
@@ -491,6 +500,18 @@ const inferTaxonomyFromRaw = (rawText = '') => {
 
   if (/macbook/.test(text)) {
     return { Category: 'Laptops', Brand: 'Apple', Series: 'MacBook Series' };
+  }
+
+  if (/\b(iwatch|apple\s*watch|watch\s*ultra)\b/.test(text)) {
+    return { Category: 'Smartwatches', Brand: 'Apple', Series: 'Apple Watch Series' };
+  }
+
+  if (/\bipad\b/.test(text)) {
+    return { Category: 'Tablets', Brand: 'Apple', Series: 'iPad Series' };
+  }
+
+  if (/\bmagic\s*keyboard\b/.test(text)) {
+    return { Category: 'Accessories', Brand: 'Apple', Series: 'Magic Keyboard' };
   }
 
   if (/thinkpad/.test(text)) {
@@ -539,14 +560,30 @@ const inferDeviceTypeFromRaw = (rawText = '', fallbackSeries = 'Unknown Device')
     return `iPhone ${compactIphone[1]} ${normalizeIphoneSuffix(compactIphone[2])}`.trim();
   }
 
-  const compactBaseIphone = text.match(/^\s*(1[1-7])\b/);
-  if (compactBaseIphone?.[1] && /\b(gb|tb|sim|esim|e-?sim|p\s*\+)\b/i.test(text)) {
+  const compactBaseIphone = text.match(/\b(1[1-7])\b/);
+  const hasCompetingDeviceFamily = /\b(macbook|thinkpad|probook|ipad|watch|iwatch)\b/i.test(text);
+  if (!hasCompetingDeviceFamily && compactBaseIphone?.[1] && /\b(gb|tb|sim|esim|e-?sim|p\s*\+|pro|max|plus|air|unlocked)\b/i.test(text)) {
     return `iPhone ${compactBaseIphone[1]}`;
   }
 
   if (/macbook\s*pro/i.test(text)) return 'MacBook Pro';
   if (/macbook\s*air/i.test(text)) return 'MacBook Air';
   if (/macbook/i.test(text)) return 'MacBook';
+  const appleWatch = text.match(/\b(iwatch|apple\s*watch|watch\s*ultra)\s*(ultra\s*\d+|series\s*\d+|se)?/i);
+  if (appleWatch?.[2]) {
+    const watchSuffix = appleWatch[2]
+      .replace(/\s+/g, ' ')
+      .trim()
+      .replace(/^ultra/i, 'Ultra')
+      .replace(/^series/i, 'Series')
+      .replace(/^se$/i, 'SE');
+    return `Apple Watch ${watchSuffix}`;
+  }
+  if (appleWatch?.[1]) return 'Apple Watch';
+  if (/\bipad\s*air\b/i.test(text)) return 'iPad Air';
+  if (/\bipad\s*pro\b/i.test(text)) return 'iPad Pro';
+  if (/\bipad\b/i.test(text)) return 'iPad';
+  if (/\bmagic\s*keyboard\b/i.test(text)) return 'Magic Keyboard';
   if (/\bairpods?\b|\bairpod\b/i.test(text)) return 'AirPods';
   if (/thinkpad/i.test(text)) return 'Lenovo ThinkPad';
   if (/probook/i.test(text)) return 'HP ProBook';
