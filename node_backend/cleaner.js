@@ -535,6 +535,25 @@ const inferTaxonomyFromRaw = (rawText = '') => {
     return { Category: 'Smartphones', Brand: 'Samsung', Series: samsungGalaxy[1].replace(/\s+/g, ' ').trim() };
   }
 
+  if (/\bsamsung\b|\bgalaxy\b/.test(text)) {
+    if (/\b(z\s*)?fold\s*\d{1,2}\b|\bfold\s*\d{1,2}\b/.test(text)) {
+      return { Category: 'Smartphones', Brand: 'Samsung', Series: 'Fold Series' };
+    }
+    if (/\b(z\s*)?flip\s*\d{1,2}\b|\bflip\s*\d{1,2}\b/.test(text)) {
+      return { Category: 'Smartphones', Brand: 'Samsung', Series: 'Flip Series' };
+    }
+    if (/\bs\s*\d{1,2}\b|\bultra\b/.test(text)) {
+      return { Category: 'Smartphones', Brand: 'Samsung', Series: 'S Series' };
+    }
+    if (/\bnote\s*\d{1,2}\b/.test(text)) {
+      return { Category: 'Smartphones', Brand: 'Samsung', Series: 'Note Series' };
+    }
+    if (/\ba\s*\d{1,2}\b/.test(text)) {
+      return { Category: 'Smartphones', Brand: 'Samsung', Series: 'A Series' };
+    }
+    return { Category: 'Smartphones', Brand: 'Samsung', Series: 'Samsung Series' };
+  }
+
   return canonicalFallbackTaxonomy();
 };
 
@@ -576,6 +595,15 @@ const inferDeviceTypeFromRaw = (rawText = '', fallbackSeries = 'Unknown Device')
   if (/macbook\s*pro/i.test(text)) return 'MacBook Pro';
   if (/macbook\s*air/i.test(text)) return 'MacBook Air';
   if (/macbook/i.test(text)) return 'MacBook';
+  const samsungFold = text.match(/\b(?:samsung|galaxy)?\s*(?:z\s*)?fold\s*(\d{1,2})\b/i);
+  if (samsungFold?.[1]) return `Samsung Z Fold${samsungFold[1]}`;
+  const samsungFlip = text.match(/\b(?:samsung|galaxy)?\s*(?:z\s*)?flip\s*(\d{1,2})\b/i);
+  if (samsungFlip?.[1]) return `Samsung Z Flip${samsungFlip[1]}`;
+  const samsungS = text.match(/\b(?:samsung|galaxy)\s*s\s*(\d{1,2})(?:\s*ultra|\s*plus)?\b/i);
+  if (samsungS?.[1]) {
+    const tier = /\bultra\b/i.test(text) ? ' Ultra' : (/\bplus\b/i.test(text) ? ' Plus' : '');
+    return `Samsung S${samsungS[1]}${tier}`;
+  }
   const appleWatch = text.match(/\b(iwatch|apple\s*watch|watch\s*ultra)\s*(ultra\s*\d+|series\s*\d+|se)?/i);
   if (appleWatch?.[2]) {
     const watchSuffix = appleWatch[2]

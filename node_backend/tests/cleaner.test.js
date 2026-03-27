@@ -103,6 +103,16 @@ test('inferTaxonomyFromRaw handles shorthand iphone and airpods lines', () => {
     Brand: 'Apple',
     Series: 'Apple Watch Series',
   });
+  assert.deepEqual(__testables.inferTaxonomyFromRaw('Uk Used || Samsung Fold 6 || 512gb || Factory Unlocked ||'), {
+    Category: 'Smartphones',
+    Brand: 'Samsung',
+    Series: 'Fold Series',
+  });
+  assert.deepEqual(__testables.inferTaxonomyFromRaw('Samsung Z flip6 256GB unlocked'), {
+    Category: 'Smartphones',
+    Brand: 'Samsung',
+    Series: 'Flip Series',
+  });
 });
 
 test('inferSimByBrandContext applies iPhone and Samsung defaults', () => {
@@ -126,4 +136,11 @@ test('inferSimByBrandContext applies iPhone and Samsung defaults', () => {
     taxonomy: { Brand: 'Samsung', Series: 'S Series' },
     deviceType: 'Samsung S24 Ultra',
   }), 'Single SIM');
+});
+
+test('inferDeviceTypeFromRaw resolves Samsung flagship variants', () => {
+  assert.equal(__testables.inferDeviceTypeFromRaw('Samsung Z fold6 256GB UNLOCK'), 'Samsung Z Fold6');
+  assert.equal(__testables.inferDeviceTypeFromRaw('Uk Used || Samsung Fold 6 || 512gb || Factory Unlocked ||'), 'Samsung Z Fold6');
+  assert.equal(__testables.inferDeviceTypeFromRaw('Samsung Z flip6 256GB unlocked'), 'Samsung Z Flip6');
+  assert.equal(__testables.inferDeviceTypeFromRaw('Uk Samsung S25 ultra 512GB UNLOCK'), 'Samsung S25 Ultra');
 });
