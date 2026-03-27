@@ -1259,20 +1259,46 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
       const cleaned = String(line || '')
         .replace(/\*(₦?\s*[\d,]+(?:\.\d+)?\s*[mk]?)\*/gi, '$1')
         .replace(/^[-*•]+\s*/, '')
+        .replace(/^\d+\s*[🅰🅱🅾a-z]*[\s.)-]*/i, '')
+        .replace(/@\s*n/gi, ' ₦')
+        .replace(/\bn(?=\d)/gi, '₦')
         .replace(/\s+/g, ' ')
         .trim();
       if (!cleaned) return null;
       if (isLikelyFragment(cleaned)) return null;
 
-      const hasProductSignal = /(iphone|ipad|macbook|airpod|watch|pixel|samsung|fold|flip|ultra|pro|max|gb|tb|wifi|cell|sim)/i.test(cleaned);
+      const compactLine = cleaned.toLowerCase().replace(/[^a-z0-9]/g, '');
+      const startsWithSamsungShorthand = /^(s\d{1,2}(plus|ultra)?|note\d{1,2}(plus|ultra)?|flip\d{1,2}|fold\d{1,2})\b/.test(compactLine);
+      const workingLine = startsWithSamsungShorthand && !/\bsamsung\b|\bgalaxy\b|\biphone\b/i.test(cleaned)
+        ? `Samsung ${cleaned}`
+        : cleaned;
+
+      const isNonProductLine = /(updated price list|enquiries|orders|please reconfirm|subject to change|confirm availability|follow us|instagram|street|lagos|stores ltd|call to confirm|monitor series|series\s*\*?$)/i.test(workingLine);
+      if (isNonProductLine && !/\d[\d,.\s]*(m|k)?$/i.test(workingLine)) return null;
+
+      const pipeParts = workingLine.split('||').map((part) => part.trim()).filter(Boolean);
+      if (pipeParts.length >= 2) {
+        const rawProduct = pipeParts.slice(0, -1).join(' | ');
+        const priceToken = pipeParts[pipeParts.length - 1];
+        const parsedPrice = normalizePriceToken(priceToken, { assumeMillionsForSmallDecimal: true });
+        if (rawProduct && (parsedPrice >= 10000 || /available|active|act/i.test(priceToken))) {
+          return {
+            rawProductString: rawProduct,
+            price: parsedPrice >= 10000 ? parsedPrice : 'Available',
+          };
+        }
+      }
+
+      const hasProductSignal = /(iphone|ipad|macbook|airpod|watch|pixel|samsung|galaxy|fold|flip|ultra|pro|max|hp|lenovo|dell|asus|acer|thinkpad|ideapad|yoga|omnibook|pavilion|xps|alienware|printer|monitor|ups|tv|television|ssd|ram|gb|tb|wifi|cell|sim|core\s*i[3579])/i.test(workingLine)
+        || startsWithSamsungShorthand;
       if (!hasProductSignal) return null;
 
-      const availableMatch = cleaned.match(/^(.*?)(?:-|:)?\s*(available|act|active)\s*$/i);
+      const availableMatch = workingLine.match(/^(.*?)(?:-|:)?\s*(available|act|active)\s*$/i);
       if (availableMatch?.[1]) {
         return { rawProductString: availableMatch[1].trim(), price: 'Available' };
       }
 
-      const pricedMatch = cleaned.match(/^(.*?)(?:-|:)?\s*(₦?\s*[\d,]+(?:\.\d+)?\s*[mk]?)\s*$/i);
+      const pricedMatch = workingLine.match(/^(.*?)(?:-|:|=|@)?\s*(₦?\s*[\d,]+(?:\.\d+)?\s*[mk]?)\s*$/i);
       if (pricedMatch?.[1] && pricedMatch?.[2]) {
         const rawPriceToken = String(pricedMatch[2] || '').trim();
         const hasPriceHint = /[₦mk]|,/.test(rawPriceToken);
@@ -1600,7 +1626,7 @@ const _fetchUnknownVendorsList = async () => {
 };
 
 const _runOpenAIExtraction = async (rows = [], signal) => {
-  const systemPrompt = `You are a strict Two-Layer AI Judge. Given an array of objects with a "raw" string, extract details. You MUST return a JSON object with a single root key called "data" containing an array of objects. Each object must strictly have: - "raw": The exact original string - "category", "brand", "series": Standard classifications - "deviceType": The standard clean device name - "condition": STRICTLY evaluate to "Brand New", "Grade A UK Used", or "Unknown" - "sim": STRICTLY evaluate to "Physical SIM", "ESIM", "Physical SIM + ESIM", or "Unknown" - "isOthers": true if unknown/obscure, else false;`;
+  const systemPrompt = `You are a strict Two-Layer AI Judge. Given an array of objects with a "raw" string, extract details. You MUST return a JSON object with a single root key called "data" containing an array of objects. Each object must strictly have: - "raw": The exact original string - "category", "brand", "series": Standard classifications - "deviceType": The standard clean device name - "condition": STRICTLY evaluate to "Brand New", "Grade A UK Used", or "Unknown" - "sim": STRICTLY evaluate to "Physical SIM", "ESIM", "Physical SIM + ESIM", "Locked/Wi-Fi Only (ESIM)", or "Unknown" - "isOthers": true if unknown/obscure, else false;`;
 
   const backgroundAI = await resolveTextAIConfig({ background: true });
   const aiResponse = await backgroundAI.client.chat.completions.create({

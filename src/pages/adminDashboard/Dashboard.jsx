@@ -522,6 +522,9 @@ const AdminDashboard = () => {
   const [companyCsvRows, setCompanyCsvRows] = useState([]);
   const [savedPricingSessions, setSavedPricingSessions] = useState([]);
   const [pricingVendor, setPricingVendor] = useState('All');
+  const [pricingVendorExtraOne, setPricingVendorExtraOne] = useState('');
+  const [pricingVendorExtraTwo, setPricingVendorExtraTwo] = useState('');
+  const [priceReferenceMode, setPriceReferenceMode] = useState('selected_primary');
   const [marginType, setMarginType] = useState('amount');
   const [marginValue, setMarginValue] = useState('0');
   const [selectedProducts, setSelectedProducts] = useState([]);
@@ -580,6 +583,21 @@ const AdminDashboard = () => {
   const [bulkTinbrSaving, setBulkTinbrSaving] = useState(false);
   const [bulkTinbrUseTinyChecked, setBulkTinbrUseTinyChecked] = useState(true);
   const [bulkTinbrShowBothChecked, setBulkTinbrShowBothChecked] = useState(true);
+  const priceReferenceModeLabelMap = {
+    selected_primary: 'Primary Vendor only',
+    selected_highest: 'Selected Vendors • Highest',
+    selected_lowest: 'Selected Vendors • Lowest',
+    selected_average: 'Selected Vendors • Average',
+    global_highest: 'Global Inventory • Highest',
+    global_lowest: 'Global Inventory • Lowest',
+    global_average: 'Global Inventory • Average',
+  };
+  const selectedCompareVendors = useMemo(() => {
+    const normalized = [pricingVendor, pricingVendorExtraOne, pricingVendorExtraTwo]
+      .map((name) => String(name || '').trim())
+      .filter((name) => name && name !== 'All');
+    return Array.from(new Set(normalized)).slice(0, 3);
+  }, [pricingVendor, pricingVendorExtraOne, pricingVendorExtraTwo]);
   const fetchInventory = async () => {
     setLoadingSearch(true);
     try {
@@ -1752,11 +1770,37 @@ const AdminDashboard = () => {
 
   useEffect(() => {
     setSelectedProducts([]);
-  }, [pricingVendor, marginType, marginValue, companyCsvRows.length]);
+  }, [pricingVendor, pricingVendorExtraOne, pricingVendorExtraTwo, priceReferenceMode, marginType, marginValue, companyCsvRows.length]);
 
   const pricingResults = useMemo(() => {
     const margin = Number(marginValue) || 0;
-    const vendorRows = normalizedProductRows.filter((row) => row.vendorName === pricingVendor);
+    const aggregatePrice = (prices = [], mode = 'highest') => {
+      if (!prices.length) return 0;
+      if (mode === 'lowest') return Math.min(...prices);
+      if (mode === 'average') return Math.round(prices.reduce((sum, value) => sum + value, 0) / prices.length);
+      return Math.max(...prices);
+    };
+
+    const resolveReferenceFromMode = ({ selectedPrices = [], globalPrices = [], primaryVendorPrice = 0 }) => {
+      switch (priceReferenceMode) {
+        case 'selected_highest':
+          return aggregatePrice(selectedPrices, 'highest');
+        case 'selected_lowest':
+          return aggregatePrice(selectedPrices, 'lowest');
+        case 'selected_average':
+          return aggregatePrice(selectedPrices, 'average');
+        case 'global_highest':
+          return aggregatePrice(globalPrices, 'highest');
+        case 'global_lowest':
+          return aggregatePrice(globalPrices, 'lowest');
+        case 'global_average':
+          return aggregatePrice(globalPrices, 'average');
+        case 'selected_primary':
+        default:
+          return primaryVendorPrice || 0;
+      }
+    };
+
     return companyCsvRows.map((row, index) => {
      // FIX: Ensure original name is captured perfectly
       const companyDevice = String(getCsvValueByAliases(row, ['Device Type', 'device type', 'Device', 'device', 'Device Name']) || row['Device Type'] || row['device type'] || '');
@@ -1772,19 +1816,35 @@ const AdminDashboard = () => {
       const companyPrice = parseNairaValue(companyPriceRaw);
       const requiresConditionMatch = condition !== 'Unknown';
       const requiresSpecMatch = mappedSpec !== 'Unknown';
-      const allVendorMatches = vendorRows
-        .filter((item) => item.deviceType === mappedDevice)
-        .filter((item) => (!storage || item.storage === storage)
-          && (!requiresSpecMatch || (item.specification || item.simType) === mappedSpec)
-          && (!requiresConditionMatch || item.condition === condition));
-  const vendorMatch = allVendorMatches.sort((a, b) => {
-    const timeA = new Date(a.date).getTime() || 0;
-    const timeB = new Date(b.date).getTime() || 0;
-    return timeB - timeA;
-  })[0];
-  const hasVendorMatch = Boolean(vendorMatch);
-  const shouldCalculate = pricingVendor !== 'All' && hasVendorMatch;
-  const vendorPrice = shouldCalculate ? vendorMatch.priceValue : 0;
+      const isRowMatch = (item) => item.deviceType === mappedDevice
+        && (!storage || item.storage === storage)
+        && (!requiresSpecMatch || (item.specification || item.simType) === mappedSpec)
+        && (!requiresConditionMatch || item.condition === condition);
+      const getLatestMatchForVendor = (vendorName) => normalizedProductRows
+        .filter((item) => item.vendorName === vendorName)
+        .filter(isRowMatch)
+        .sort((a, b) => {
+          const timeA = new Date(a.date).getTime() || 0;
+          const timeB = new Date(b.date).getTime() || 0;
+          return timeB - timeA;
+        })[0] || null;
+
+      const comparePriceEntries = selectedCompareVendors.map((vendorName) => {
+        const match = getLatestMatchForVendor(vendorName);
+        return {
+          vendorName,
+          priceValue: Number(match?.priceValue || 0),
+        };
+      });
+      const primaryVendorPrice = pricingVendor && pricingVendor !== 'All'
+        ? Number(getLatestMatchForVendor(pricingVendor)?.priceValue || 0)
+        : 0;
+      const selectedVendorPrices = comparePriceEntries.map((entry) => entry.priceValue).filter((value) => value > 0);
+      const globalPrices = normalizedProductRows.filter(isRowMatch).map((item) => Number(item?.priceValue || 0)).filter((value) => value > 0);
+      const referencePrice = resolveReferenceFromMode({ selectedPrices: selectedVendorPrices, globalPrices, primaryVendorPrice });
+      const hasVendorMatch = referencePrice > 0;
+      const shouldCalculate = hasVendorMatch;
+      const vendorPrice = shouldCalculate ? referencePrice : 0;
   const baseTarget = shouldCalculate
     ? (marginType === 'percentage' ? Math.round(vendorPrice * (1 + (margin / 100))) : vendorPrice + margin)
     : 0;
@@ -1812,15 +1872,18 @@ const AdminDashboard = () => {
     mappedDevice,
     companyPrice,
     vendorPrice,
+    comparePriceEntries,
+    selectedVendorPrices,
+    globalPriceCandidates: globalPrices,
     target,
     adjustment,
     adjustmentPercent,
     hasVendorMatch,
-    assignedVendor: override?.assignedVendor || pricingVendor,
+    assignedVendor: override?.assignedVendor || pricingVendor || selectedCompareVendors[0] || 'All',
     isOverridden: Boolean(override),
   };
 });
-}, [companyCsvRows, pricingVendor, marginType, marginValue, normalizedProductRows, officialTargets, masterDictionary, pricingOverrides]);
+}, [companyCsvRows, pricingVendor, selectedCompareVendors, priceReferenceMode, marginType, marginValue, normalizedProductRows, officialTargets, masterDictionary, pricingOverrides]);
 
   const groupedPricingResults = useMemo(() => {
     const groups = [];
@@ -1974,6 +2037,10 @@ const AdminDashboard = () => {
       name: sessionNameInput.trim(),
       createdAt: new Date().toISOString(),
       pricingVendor,
+      pricingVendorExtraOne,
+      pricingVendorExtraTwo,
+      selectedCompareVendors,
+      priceReferenceMode,
       marginType,
       marginValue,
       companyCsvUrl,
@@ -1997,7 +2064,10 @@ const AdminDashboard = () => {
     if (!window.confirm(`Load session "${session.name}"? This will overwrite your current progress.`)) return;
 
     setCompanyCsvUrl(session.companyCsvUrl || '');
-    setPricingVendor(session.pricingVendor || 'All');
+    setPricingVendor(session.pricingVendor || session.selectedCompareVendors?.[0] || 'All');
+    setPricingVendorExtraOne(session.pricingVendorExtraOne || session.selectedCompareVendors?.[1] || '');
+    setPricingVendorExtraTwo(session.pricingVendorExtraTwo || session.selectedCompareVendors?.[2] || '');
+    setPriceReferenceMode(session.priceReferenceMode || 'selected_primary');
     setMarginType(session.marginType || 'amount');
     setMarginValue(session.marginValue || '0');
     setPricingOverrides(session.overrides || {});
@@ -2592,12 +2662,23 @@ const AdminDashboard = () => {
             <div className="bg-white/70 backdrop-blur-xl border border-gray-100 rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] p-6 space-y-5">
               <div>
                 <h2 className="text-2xl font-black tracking-tight text-gray-900">WordPress Pricing Session Manager</h2>
-                <p className="text-sm text-gray-500">Mirror global rows, apply margin logic, save sessions, and export strict TXT adjustments.</p>
+                <p className="text-sm text-gray-500">Mirror global rows, compare up to 3 vendors, use selected/global highest-lowest-average price references, apply margin logic, save sessions, and export strict TXT adjustments.</p>
               </div>
               <div className="grid grid-cols-1 lg:grid-cols-4 gap-3">
                 <input value={companyCsvUrl} onChange={(e) => setCompanyCsvUrl(e.target.value)} placeholder="Company CSV URL" className="lg:col-span-2 px-4 py-3 rounded-2xl border border-gray-100 bg-white/80 text-sm outline-none focus:ring-2 focus:ring-gray-300 cursor-text select-text" />
-                <input type="text" list="vendor-search-list" value={pricingVendor} onChange={(e) => setPricingVendor(e.target.value)} placeholder="Vendor" className="px-4 py-3 rounded-2xl border border-gray-100 bg-white/80 text-sm outline-none focus:ring-2 focus:ring-gray-300 cursor-text select-text" />
+                <input type="text" list="vendor-search-list" value={pricingVendor} onChange={(e) => setPricingVendor(e.target.value)} placeholder="Primary Vendor (1/3)" className="px-4 py-3 rounded-2xl border border-gray-100 bg-white/80 text-sm outline-none focus:ring-2 focus:ring-gray-300 cursor-text select-text" />
+                <input type="text" list="vendor-search-list" value={pricingVendorExtraOne} onChange={(e) => setPricingVendorExtraOne(e.target.value)} placeholder="Vendor (2/3)" className="px-4 py-3 rounded-2xl border border-gray-100 bg-white/80 text-sm outline-none focus:ring-2 focus:ring-gray-300 cursor-text select-text" />
+                <input type="text" list="vendor-search-list" value={pricingVendorExtraTwo} onChange={(e) => setPricingVendorExtraTwo(e.target.value)} placeholder="Vendor (3/3)" className="px-4 py-3 rounded-2xl border border-gray-100 bg-white/80 text-sm outline-none focus:ring-2 focus:ring-gray-300 cursor-text select-text" />
                 <button onClick={loadCompanyCsv} disabled={loadingCompanyCsv} className="px-4 py-3 rounded-2xl text-xs font-black uppercase tracking-wider border border-gray-100 bg-white/80 hover:bg-white disabled:opacity-50">{loadingCompanyCsv ? 'Loading...' : 'Load Company CSV'}</button>
+                <select value={priceReferenceMode} onChange={(e) => setPriceReferenceMode(e.target.value)} className="px-4 py-3 rounded-2xl border border-gray-100 bg-white/80 text-sm outline-none focus:ring-2 focus:ring-gray-300 cursor-text select-text">
+                  <option value="selected_primary">Selected Vendors • Primary Vendor Price</option>
+                  <option value="selected_highest">Selected Vendors • Highest Price</option>
+                  <option value="selected_lowest">Selected Vendors • Lowest Price</option>
+                  <option value="selected_average">Selected Vendors • Average Price</option>
+                  <option value="global_highest">Global Inventory • Highest Price</option>
+                  <option value="global_lowest">Global Inventory • Lowest Price</option>
+                  <option value="global_average">Global Inventory • Average Price</option>
+                </select>
                 <select value={marginType} onChange={(e) => setMarginType(e.target.value)} className="px-4 py-3 rounded-2xl border border-gray-100 bg-white/80 text-sm outline-none focus:ring-2 focus:ring-gray-300 cursor-text select-text">
                   <option value="amount">Amount</option>
                   <option value="percentage">Percentage</option>
@@ -2605,6 +2686,19 @@ const AdminDashboard = () => {
                 <input value={marginValue} onChange={(e) => setMarginValue(e.target.value)} placeholder="Margin value" className="px-4 py-3 rounded-2xl border border-gray-100 bg-white/80 text-sm outline-none focus:ring-2 focus:ring-gray-300 cursor-text select-text" />
                 <button onClick={handleOpenSaveModal} className="px-4 py-3 rounded-2xl text-xs font-black uppercase tracking-wider border border-gray-100 bg-white/80 hover:bg-white">Save Session</button>
                 <button onClick={exportPricingTxt} className="px-4 py-3 rounded-2xl text-xs font-black uppercase tracking-wider border border-gray-100 bg-white/80 hover:bg-white">Export to TXT</button>
+              </div>
+              <div className="rounded-2xl border border-gray-100 bg-white/70 px-4 py-3 text-xs text-gray-600 space-y-2">
+                <p className="font-black text-gray-800 uppercase tracking-wider">Reference Mode Guide</p>
+                <p>
+                  Active mode: <span className="font-bold">{priceReferenceModeLabelMap[priceReferenceMode] || 'Primary Vendor only'}</span>.
+                  {' '}Primary Vendor affects <span className="font-bold">Selected Vendors • Primary Vendor Price</span> only.
+                </p>
+                <p>
+                  Compare Vendors (max 3):{' '}
+                  <span className="font-semibold">
+                    {selectedCompareVendors.length ? selectedCompareVendors.join(', ') : 'None selected'}
+                  </span>
+                </p>
               </div>
               {pricingResults.length > 0 && (
                 <div className="sticky top-20 z-20 rounded-2xl border border-indigo-100 bg-white/95 backdrop-blur-xl shadow-lg px-4 py-3 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
@@ -2665,7 +2759,7 @@ const AdminDashboard = () => {
                                           <th className="px-3 py-3">Storage</th>
                                           <th className="px-3 py-3">Assigned Vendor</th>
                                           <th className="px-3 py-3">Company Price</th>
-                                          <th className="px-3 py-3">Vendor Price</th>
+                                          <th className="px-3 py-3">Vendor Price(s)</th>
                                           <th className="px-3 py-3">Target Price</th>
                                           <th className="px-3 py-3">Adjustment</th>
                                         </tr>
@@ -2684,7 +2778,23 @@ const AdminDashboard = () => {
                                               <span className="inline-flex items-center rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 px-2 py-0.5 text-[10px] font-black uppercase tracking-widest">{row.assignedVendor || 'Unassigned'}</span>
                                             </td>
                                             <td className="px-3 py-2 font-bold">{formatNaira(row.companyPrice)}</td>
-                                            <td className="px-3 py-2 text-gray-500">{row.hasVendorMatch ? formatNaira(row.vendorPrice) : 'N/A'}</td>
+                                            <td className="px-3 py-2 text-gray-500">
+                                              {row.comparePriceEntries?.length ? (
+                                                <div className="flex flex-col gap-1">
+                                                  {row.comparePriceEntries.map((entry) => (
+                                                    <span key={`${row.rowKey}-${entry.vendorName}`} className="inline-flex items-center gap-1 text-[10px] font-bold">
+                                                      <span className="text-gray-700">{entry.vendorName}:</span>
+                                                      <span className={entry.priceValue > 0 ? 'text-indigo-600' : 'text-gray-400'}>
+                                                        {entry.priceValue > 0 ? formatNaira(entry.priceValue) : 'N/A'}
+                                                      </span>
+                                                    </span>
+                                                  ))}
+                                                  <span className="text-[10px] font-black text-emerald-600">
+                                                    Base: {row.hasVendorMatch ? formatNaira(row.vendorPrice) : 'N/A'}
+                                                  </span>
+                                                </div>
+                                              ) : (row.hasVendorMatch ? formatNaira(row.vendorPrice) : 'N/A')}
+                                            </td>
                                             <td className="px-3 py-2 font-bold text-indigo-600">{(row.hasVendorMatch || row.isOverridden) ? formatNaira(row.target) : 'N/A'}</td>
                                             <td className="px-3 py-2">
                                               {(row.hasVendorMatch || row.isOverridden) ? (
@@ -2708,7 +2818,7 @@ const AdminDashboard = () => {
                   );
                 })}
                 {!pricingResults.length && (
-                  <div className="border border-gray-100 rounded-2xl bg-white/60 px-4 py-4 text-sm text-gray-500">No matched rows. Load CSV and choose a valid vendor.</div>
+                  <div className="border border-gray-100 rounded-2xl bg-white/60 px-4 py-4 text-sm text-gray-500">No matched rows. Load CSV and choose up to 3 vendors for comparison.</div>
                 )}
               </div>
               {customMarginModalOpen && (
@@ -2765,7 +2875,15 @@ const AdminDashboard = () => {
                       <div key={session.id} className="flex items-center justify-between border border-gray-100 rounded-xl px-4 py-3 bg-white/80 hover:bg-white shadow-sm transition-all">
                         <div>
                           <p className="text-sm font-black text-gray-900">{session.name}</p>
-                          <p className="text-xs font-bold text-gray-500 mt-0.5">{session.pricingVendor || 'All Vendors'} • {session.marginType} {session.marginValue} • {new Date(session.createdAt).toLocaleDateString()}</p>
+                          <p className="text-xs font-bold text-gray-500 mt-0.5">
+                            {(session.selectedCompareVendors?.length ? session.selectedCompareVendors.join(', ') : (session.pricingVendor || 'All Vendors'))}
+                            {' • '}
+                            {priceReferenceModeLabelMap[session.priceReferenceMode || 'selected_primary'] || 'Primary Vendor only'}
+                            {' • '}
+                            {session.marginType} {session.marginValue}
+                            {' • '}
+                            {new Date(session.createdAt).toLocaleDateString()}
+                          </p>
                         </div>
                         <div className="flex items-center gap-2">
                           <button type="button" onClick={() => loadPricingSession(session)} className="text-xs font-black uppercase tracking-wider px-3 py-2 rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-100">Load</button>
