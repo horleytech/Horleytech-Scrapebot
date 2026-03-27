@@ -128,8 +128,8 @@ app.use((req, res, next) => {
   return next();
 });
 app.use(compression());
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: '2mb' }));
+app.use(express.urlencoded({ extended: true, limit: '2mb' }));
 app.use(morgan('dev'));
 
 const PORT = process.env.PORT || 8000;
@@ -194,6 +194,26 @@ const sanitizeAuditPayload = (value, depth = 0) => {
 app.use(async (req, res, next) => {
   const method = req.method.toUpperCase();
   if (!['POST', 'PUT', 'DELETE'].includes(method)) {
+    return next();
+  }
+
+  const AUDIT_NOISY_PATH_PREFIXES = [
+    '/api/webhook/whatsapp',
+    '/process',
+    '/api/messages/send',
+    '/api/ai/fix-inventory',
+  ];
+  const AUDIT_TRACKED_PATH_PREFIXES = [
+    '/api/admin/',
+    '/api/inventory/bulk-edit',
+    '/api/backup/restore',
+    '/api/backup/drive-restore',
+    '/api/backup/upload-restore',
+  ];
+  const requestPath = String(req.path || '');
+  const isNoisyPath = AUDIT_NOISY_PATH_PREFIXES.some((prefix) => requestPath.startsWith(prefix));
+  const isTrackedPath = AUDIT_TRACKED_PATH_PREFIXES.some((prefix) => requestPath.startsWith(prefix));
+  if (isNoisyPath || !isTrackedPath) {
     return next();
   }
 
@@ -1237,6 +1257,7 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
 
     const deterministicLineExtract = (line = '') => {
       const cleaned = String(line || '')
+        .replace(/\*(₦?\s*[\d,]+(?:\.\d+)?\s*[mk]?)\*/gi, '$1')
         .replace(/^[-*•]+\s*/, '')
         .replace(/\s+/g, ' ')
         .trim();
@@ -1253,7 +1274,12 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
 
       const pricedMatch = cleaned.match(/^(.*?)(?:-|:)?\s*(₦?\s*[\d,]+(?:\.\d+)?\s*[mk]?)\s*$/i);
       if (pricedMatch?.[1] && pricedMatch?.[2]) {
-        const normalizedPrice = normalizePriceToken(pricedMatch[2], { assumeMillionsForSmallDecimal: true });
+        const rawPriceToken = String(pricedMatch[2] || '').trim();
+        const hasPriceHint = /[₦mk]|,/.test(rawPriceToken);
+        const numericToken = Number(rawPriceToken.replace(/[^0-9.]/g, ''));
+        if (!hasPriceHint && (!Number.isFinite(numericToken) || numericToken < 10000)) return null;
+
+        const normalizedPrice = normalizePriceToken(rawPriceToken, { assumeMillionsForSmallDecimal: true });
         return {
           rawProductString: pricedMatch[1].trim(),
           price: normalizedPrice || 'Available',
@@ -1327,8 +1353,9 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
     let extractedProducts = [];
 
     // --- CROSS-LEARNED TOKEN FIX 1: THE CACHE ---
-    // Hash the first 200 chars to identify repeat broadcasts quickly
-    const msgHash = String(senderMessage).trim().substring(0, 200);
+    // Fingerprint both the start and end so long messages with similar headers don't collide.
+    const normalizedIncoming = String(senderMessage || '').trim();
+    const msgHash = `${normalizedIncoming.slice(0, 500)}::${normalizedIncoming.slice(-500)}::len-${normalizedIncoming.length}`;
 
     if (processedMessageCache.has(msgHash)) {
       console.log('⚡ Using cached extraction for repeat broadcast. Saving tokens!');
@@ -1388,23 +1415,44 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
       };
 
       if (unknownLines.length > 0) {
-        // Use true micro-dictionary mode for normal day-to-day deltas.
-        // For very large unknown lists, fallback to one batched AI call to keep response time stable.
-        if (unknownLines.length <= 25) {
-          for (const unknownLine of unknownLines) {
-            const lineText = unknownLine.substring(0, 320);
-            const lineHash = lineText.substring(0, 150);
-            const deterministicProduct = deterministicLineExtract(lineText);
-            const lineProducts = deterministicProduct ? [deterministicProduct] : await extractFromText(lineText, 160);
+        const unresolvedLines = [];
+
+        // Pass 1: deterministic extraction per line (works best for structured pricelist broadcasts).
+        for (const unknownLine of unknownLines) {
+          const lineText = unknownLine.substring(0, 500);
+          const lineHash = lineText.substring(0, 150);
+          const deterministicProduct = deterministicLineExtract(lineText);
+
+          if (deterministicProduct) {
+            const lineProducts = [deterministicProduct];
             extractedProducts = extractedProducts.concat(lineProducts);
             if (lineLevelExtractionCache.size > 500) lineLevelExtractionCache.clear();
             lineLevelExtractionCache.set(lineHash, lineProducts);
+            continue;
           }
-        } else {
-          const MAX_INPUT_LENGTH = 1200;
-          const textForAI = unknownLines.join('\n').substring(0, MAX_INPUT_LENGTH);
-          const newProducts = await extractFromText(textForAI, 300);
-          extractedProducts = extractedProducts.concat(newProducts);
+
+          unresolvedLines.push(lineText);
+        }
+
+        // Pass 2: AI only for truly unresolved lines.
+        if (unresolvedLines.length > 0) {
+          if (unresolvedLines.length <= 25) {
+            for (const unresolvedLine of unresolvedLines) {
+              const lineHash = unresolvedLine.substring(0, 150);
+              const lineProducts = await extractFromText(unresolvedLine, 160);
+              extractedProducts = extractedProducts.concat(lineProducts);
+              if (lineLevelExtractionCache.size > 500) lineLevelExtractionCache.clear();
+              lineLevelExtractionCache.set(lineHash, lineProducts);
+            }
+          } else {
+            const CHUNK_SIZE = 20;
+            for (let index = 0; index < unresolvedLines.length; index += CHUNK_SIZE) {
+              const chunkLines = unresolvedLines.slice(index, index + CHUNK_SIZE);
+              const textForAI = chunkLines.join('\n').substring(0, 4000);
+              const chunkProducts = await extractFromText(textForAI, 300);
+              extractedProducts = extractedProducts.concat(chunkProducts);
+            }
+          }
         }
       }
 
