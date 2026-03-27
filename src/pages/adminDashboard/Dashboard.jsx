@@ -1774,6 +1774,7 @@ const AdminDashboard = () => {
 
   const pricingResults = useMemo(() => {
     const margin = Number(marginValue) || 0;
+    const hasGlobalMargin = margin !== 0;
     const aggregatePrice = (prices = [], mode = 'highest') => {
       if (!prices.length) return 0;
       if (mode === 'lowest') return Math.min(...prices);
@@ -1866,18 +1867,19 @@ const AdminDashboard = () => {
       const hasVendorMatch = referencePrice > 0;
       const shouldCalculate = hasVendorMatch;
       const vendorPrice = shouldCalculate ? referencePrice : 0;
-  const baseTarget = shouldCalculate
-    ? (marginType === 'percentage' ? Math.round(vendorPrice * (1 + (margin / 100))) : vendorPrice + margin)
-    : 0;
+      const baseTarget = shouldCalculate && hasGlobalMargin
+        ? (marginType === 'percentage' ? Math.round(vendorPrice * (1 + (margin / 100))) : vendorPrice + margin)
+        : 0;
   const rowKey = getPricingRowKey({ ...row, mappedDevice, companyPrice }, index);
   const override = pricingOverrides[rowKey] || null;
   const overrideMarginValue = Number(override?.marginValue) || 0;
+  const hasOverrideMargin = Boolean(override) && overrideMarginValue !== 0;
   
-  // FIX 2: Apply custom margin against Company Price, override vendor rules
+  // Apply adjustment only when a global/custom margin is actually set.
   let target = baseTarget;
-  let adjustment = shouldCalculate ? (target - companyPrice) : 0;
-  let adjustmentPercent = shouldCalculate && companyPrice > 0 ? Math.round((adjustment / companyPrice) * 100) : 0;
-  if (override) {
+  let adjustment = shouldCalculate && hasGlobalMargin ? (target - companyPrice) : 0;
+  let adjustmentPercent = shouldCalculate && hasGlobalMargin && companyPrice > 0 ? Math.round((adjustment / companyPrice) * 100) : 0;
+  if (override && hasOverrideMargin) {
     if (override.marginType === 'percentage') {
       target = Math.round(companyPrice * (1 + (overrideMarginValue / 100)));
     } else {
@@ -1900,6 +1902,7 @@ const AdminDashboard = () => {
     adjustment,
     adjustmentPercent,
     hasVendorMatch,
+    hasActiveAdjustment: (shouldCalculate && hasGlobalMargin) || hasOverrideMargin,
     assignedVendor: override?.assignedVendor || pricingVendor || selectedCompareVendors[0] || 'All',
     isOverridden: Boolean(override),
   };
@@ -2024,7 +2027,7 @@ const AdminDashboard = () => {
   };
 
   const exportPricingTxt = () => {
-    const validItems = pricingResults.filter((item) => Number.isFinite(item.companyPrice) && item.companyPrice > 0 && (item.hasVendorMatch || item.isOverridden));
+    const validItems = pricingResults.filter((item) => Number.isFinite(item.companyPrice) && item.companyPrice > 0 && item.hasActiveAdjustment);
     if (!validItems.length) return alert('No valid pricing adjustments to export.');
     
     const pairs = validItems.map((item) => {
@@ -2816,9 +2819,9 @@ const AdminDashboard = () => {
                                                 </div>
                                               ) : (row.hasVendorMatch ? formatNaira(row.vendorPrice) : 'N/A')}
                                             </td>
-                                            <td className="px-3 py-2 font-bold text-indigo-600">{(row.hasVendorMatch || row.isOverridden) ? formatNaira(row.target) : 'N/A'}</td>
+                                            <td className="px-3 py-2 font-bold text-indigo-600">{row.hasActiveAdjustment ? formatNaira(row.target) : 'N/A'}</td>
                                             <td className="px-3 py-2">
-                                              {(row.hasVendorMatch || row.isOverridden) ? (
+                                              {row.hasActiveAdjustment ? (
                                                 <span className={`px-2 py-1 rounded text-xs font-bold ${row.adjustment > 0 ? 'bg-green-100 text-green-700' : row.adjustment < 0 ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-600'}`}>
                                                   {row.adjustment > 0 ? '+' : ''}{formatNaira(row.adjustment)}
                                                 </span>

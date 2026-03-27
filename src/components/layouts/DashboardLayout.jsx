@@ -7,13 +7,14 @@ import { Bars3Icon, XMarkIcon } from '@heroicons/react/24/outline';
 import { TbLogin2 } from 'react-icons/tb';
 import { IoMdNotifications } from 'react-icons/io';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { FaGlobe, FaFileUpload, FaRobot } from 'react-icons/fa';
+import { FaGlobe, FaFileUpload, FaRobot, FaBookOpen } from 'react-icons/fa';
 import { useDispatch } from 'react-redux';
 import { logout } from '../../services/reducers/auth/loginReducer';
 
 const navigation = [
   { name: 'Global Inventory', href: '', icon: FaGlobe },
   { name: 'TXT Analyzer', href: 'upload', icon: FaFileUpload },
+  { name: 'AI Dictionary', href: 'ai', icon: FaBookOpen },
   { name: 'Live AI Logs', href: 'autolisten', icon: FaRobot },
 ];
 
