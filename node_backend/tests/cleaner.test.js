@@ -34,7 +34,9 @@ test('normalizeSim maps expected formats and unknown', () => {
   assert.equal(__testables.normalizeSim('IDM with eSIM'), 'eSIM');
   assert.equal(__testables.normalizeSim('IDM physical dual'), 'Physical SIM');
   assert.equal(__testables.normalizeSim('IDM physical + eSIM'), 'Physical SIM + ESIM');
-  assert.equal(__testables.normalizeSim('locked 16pro'), 'Physical SIM');
+  assert.equal(__testables.normalizeSim('locked 16pro'), 'Locked/Wi-Fi Only (ESIM)');
+  assert.equal(__testables.normalizeSim('wifi only model'), 'Locked/Wi-Fi Only (ESIM)');
+  assert.equal(__testables.normalizeSim('wi-fi only esim'), 'Locked/Wi-Fi Only (ESIM)');
   assert.equal(__testables.normalizeSim('single sim physical'), 'Physical SIM');
   assert.equal(__testables.normalizeSim('sim unknown'), 'Unknown');
 });
@@ -103,6 +105,36 @@ test('inferTaxonomyFromRaw handles shorthand iphone and airpods lines', () => {
     Brand: 'Apple',
     Series: 'Apple Watch Series',
   });
+  assert.deepEqual(__testables.inferTaxonomyFromRaw('Uk Used || Samsung Fold 6 || 512gb || Factory Unlocked ||'), {
+    Category: 'Smartphones',
+    Brand: 'Samsung',
+    Series: 'Fold Series',
+  });
+  assert.deepEqual(__testables.inferTaxonomyFromRaw('Samsung Z flip6 256GB unlocked'), {
+    Category: 'Smartphones',
+    Brand: 'Samsung',
+    Series: 'Flip Series',
+  });
+  assert.deepEqual(__testables.inferTaxonomyFromRaw('S21 ultra256gb'), {
+    Category: 'Smartphones',
+    Brand: 'Samsung',
+    Series: 'S Series',
+  });
+  assert.deepEqual(__testables.inferTaxonomyFromRaw('Note 20 ultra 256gb'), {
+    Category: 'Smartphones',
+    Brand: 'Samsung',
+    Series: 'Note Series',
+  });
+  assert.deepEqual(__testables.inferTaxonomyFromRaw('B7FS4UA-HP Stream 14-dq6015dx @ N321,000'), {
+    Category: 'Laptops',
+    Brand: 'Others',
+    Series: 'Laptop Series',
+  });
+  assert.deepEqual(__testables.inferTaxonomyFromRaw('HP 524SF MONITOR @ N220,000'), {
+    Category: 'Accessories',
+    Brand: 'Others',
+    Series: 'Monitor Series',
+  });
 });
 
 test('inferSimByBrandContext applies iPhone and Samsung defaults', () => {
@@ -126,4 +158,13 @@ test('inferSimByBrandContext applies iPhone and Samsung defaults', () => {
     taxonomy: { Brand: 'Samsung', Series: 'S Series' },
     deviceType: 'Samsung S24 Ultra',
   }), 'Single SIM');
+});
+
+test('inferDeviceTypeFromRaw resolves Samsung flagship variants', () => {
+  assert.equal(__testables.inferDeviceTypeFromRaw('Samsung Z fold6 256GB UNLOCK'), 'Samsung Z Fold6');
+  assert.equal(__testables.inferDeviceTypeFromRaw('Uk Used || Samsung Fold 6 || 512gb || Factory Unlocked ||'), 'Samsung Z Fold6');
+  assert.equal(__testables.inferDeviceTypeFromRaw('Samsung Z flip6 256GB unlocked'), 'Samsung Z Flip6');
+  assert.equal(__testables.inferDeviceTypeFromRaw('Uk Samsung S25 ultra 512GB UNLOCK'), 'Samsung S25 Ultra');
+  assert.equal(__testables.inferDeviceTypeFromRaw('S22 ultra128gb'), 'Samsung S22 Ultra');
+  assert.equal(__testables.inferDeviceTypeFromRaw('Note 20 ultra 128gb'), 'Samsung Note 20 Ultra');
 });
