@@ -1414,23 +1414,44 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
       };
 
       if (unknownLines.length > 0) {
-        // Use true micro-dictionary mode for normal day-to-day deltas.
-        // For very large unknown lists, fallback to one batched AI call to keep response time stable.
-        if (unknownLines.length <= 25) {
-          for (const unknownLine of unknownLines) {
-            const lineText = unknownLine.substring(0, 320);
-            const lineHash = lineText.substring(0, 150);
-            const deterministicProduct = deterministicLineExtract(lineText);
-            const lineProducts = deterministicProduct ? [deterministicProduct] : await extractFromText(lineText, 160);
+        const unresolvedLines = [];
+
+        // Pass 1: deterministic extraction per line (works best for structured pricelist broadcasts).
+        for (const unknownLine of unknownLines) {
+          const lineText = unknownLine.substring(0, 320);
+          const lineHash = lineText.substring(0, 150);
+          const deterministicProduct = deterministicLineExtract(lineText);
+
+          if (deterministicProduct) {
+            const lineProducts = [deterministicProduct];
             extractedProducts = extractedProducts.concat(lineProducts);
             if (lineLevelExtractionCache.size > 500) lineLevelExtractionCache.clear();
             lineLevelExtractionCache.set(lineHash, lineProducts);
+            continue;
           }
-        } else {
-          const MAX_INPUT_LENGTH = 1200;
-          const textForAI = unknownLines.join('\n').substring(0, MAX_INPUT_LENGTH);
-          const newProducts = await extractFromText(textForAI, 300);
-          extractedProducts = extractedProducts.concat(newProducts);
+
+          unresolvedLines.push(lineText);
+        }
+
+        // Pass 2: AI only for truly unresolved lines.
+        if (unresolvedLines.length > 0) {
+          if (unresolvedLines.length <= 25) {
+            for (const unresolvedLine of unresolvedLines) {
+              const lineHash = unresolvedLine.substring(0, 150);
+              const lineProducts = await extractFromText(unresolvedLine, 160);
+              extractedProducts = extractedProducts.concat(lineProducts);
+              if (lineLevelExtractionCache.size > 500) lineLevelExtractionCache.clear();
+              lineLevelExtractionCache.set(lineHash, lineProducts);
+            }
+          } else {
+            const CHUNK_SIZE = 20;
+            for (let index = 0; index < unresolvedLines.length; index += CHUNK_SIZE) {
+              const chunkLines = unresolvedLines.slice(index, index + CHUNK_SIZE);
+              const textForAI = chunkLines.join('\n').substring(0, 1200);
+              const chunkProducts = await extractFromText(textForAI, 300);
+              extractedProducts = extractedProducts.concat(chunkProducts);
+            }
+          }
         }
       }
 
