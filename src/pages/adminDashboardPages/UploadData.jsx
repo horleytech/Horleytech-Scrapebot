@@ -101,6 +101,20 @@ const UploadData = () => {
         <p className="text-gray-500 mt-1">Upload WhatsApp chat exports (.txt), choose an existing vendor, or create a new one.</p>
       </div>
 
+      <div className="mb-6 p-4 border border-amber-100 bg-amber-50 rounded-xl">
+        <h2 className="text-sm font-black text-amber-800 uppercase tracking-wider mb-2">Best Format To Send Products</h2>
+        <p className="text-sm text-amber-900 font-medium">
+          For best extraction quality, vendors should send products as:
+          {' '}
+          <span className="font-black">Product | Specs | Condition | Price</span>
+        </p>
+        <p className="text-xs text-amber-800 mt-2">
+          Example:
+          {' '}
+          <span className="font-black">Samsung S23 Ultra | 256GB Physical SIM | UK Used | 670000</span>
+        </p>
+      </div>
+
       <div className="bg-white p-8 rounded-[10px] shadow-sm border border-gray-100">
         <form onSubmit={handleUpload} className="space-y-5">
           <div className="border border-gray-200 rounded-[10px] p-5 bg-gray-50">

@@ -134,7 +134,7 @@ const groupProductsByVendor = (allExtractedProducts, options = {}) => {
       ...cleanProduct,
       DatePosted: exactServerDate,
       isGroupMessage: false,
-      groupName: 'TXT Upload'
+      groupName: 'Manually Uploaded'
     });
   });
 
