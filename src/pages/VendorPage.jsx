@@ -1014,6 +1014,7 @@ const VendorPage = () => {
   };
 
   const handleManualProductChange = (field, value) => {
+    if (field === 'groupName') return;
     setManualProductForm((prev) => ({ ...prev, [field]: value }));
   };
 
@@ -1044,7 +1045,7 @@ const VendorPage = () => {
       isVisible: true,
       DatePosted: nowIso,
       dateAdded: nowIso,
-      groupName: String(manualProductForm.groupName || 'Manual Entry').trim() || 'Manual Entry',
+      groupName: 'Manual Entry',
       source: 'manual',
       rawString: deviceType,
     };
@@ -1068,7 +1069,7 @@ const VendorPage = () => {
         storage: manualProductForm.storage || 'UNKNOWN',
         priceStore1: '',
         priceStore2: '',
-        groupName: manualProductForm.groupName || 'Manual Entry',
+        groupName: 'Manual Entry',
       });
       alert('✅ Product added successfully.');
     } catch (error) {
@@ -1667,7 +1668,13 @@ const VendorPage = () => {
               <input value={manualProductForm.storage} onChange={(e) => handleManualProductChange('storage', e.target.value)} className="p-3 border rounded-lg" placeholder="Storage (e.g. 256GB)" />
               <input value={manualProductForm.priceStore1} onChange={(e) => handleManualProductChange('priceStore1', e.target.value)} className="p-3 border rounded-lg" placeholder="Store 1 Price" />
               <input value={manualProductForm.priceStore2} onChange={(e) => handleManualProductChange('priceStore2', e.target.value)} className="p-3 border rounded-lg" placeholder="Store 2 Price (optional)" />
-              <input value={manualProductForm.groupName} onChange={(e) => handleManualProductChange('groupName', e.target.value)} className="p-3 border rounded-lg" placeholder="Source Group Label" />
+              <input
+                value="Manual Entry"
+                readOnly
+                aria-readonly="true"
+                className="p-3 border rounded-lg bg-gray-100 text-gray-600 cursor-not-allowed"
+                placeholder="Source Group Label"
+              />
             </div>
             <div className="mt-3">
               <button onClick={handleAddManualProduct} disabled={addingManualProduct} className="bg-emerald-600 text-white px-4 py-2 rounded-lg text-sm font-black uppercase tracking-wide disabled:opacity-50 hover:bg-emerald-700">
