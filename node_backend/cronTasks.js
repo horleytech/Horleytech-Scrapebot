@@ -237,7 +237,7 @@ const chunkArray = (arr = [], size = AI_BATCH_SIZE) => {
 };
 
 const runTwoLayerJudge = async (rows = []) => {
-  const systemPrompt = 'You are a strict Two-Layer AI Judge. Given an array of objects with a "raw" string, extract details. You MUST return a JSON object with a single root key called "data" containing an array of objects. Each object must strictly have: "raw", "category", "brand", "series", "deviceType", "condition", "sim", and "isOthers". "condition" must be one of "Brand New", "Grade A UK Used", or "Unknown". "sim" must be one of "Physical SIM", "ESIM", "Physical SIM + ESIM", or "Unknown".';
+  const systemPrompt = 'You are a strict Two-Layer AI Judge. Given an array of objects with a "raw" string, extract details. You MUST return a JSON object with a single root key called "data" containing an array of objects. Each object must strictly have: "raw", "category", "brand", "series", "deviceType", "condition", "sim", and "isOthers". "condition" must be one of "Brand New", "Grade A UK Used", or "Unknown". "sim" must be one of "Physical SIM", "ESIM", "Physical SIM + ESIM", "Locked/Wi-Fi Only (ESIM)", or "Unknown".';
 
   const textAI = await resolveTextAIConfig({ background: true });
   const aiResponse = await textAI.client.chat.completions.create({
