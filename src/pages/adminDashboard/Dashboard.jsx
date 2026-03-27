@@ -1588,29 +1588,6 @@ const AdminDashboard = () => {
     }
   };
 
-  const nukeAndRebuildDictionary = async () => {
-    const confirmed = window.prompt('⚠️ WARNING: Type NUKE to confirm.');
-    if (confirmed === 'NUKE') {
-      try {
-        const CAT_LIST = ['Smartphones', 'Smartwatches', 'Laptops', 'Sounds', 'Accessories', 'Tablets', 'Gaming', 'Others'];
-        const batch = writeBatch(db);
-
-        // Delete all sharded dictionaries
-        CAT_LIST.forEach((cat) => {
-          batch.delete(doc(db, 'horleyTech_Settings', `mappings_${cat}`));
-        });
-        // Delete the old legacy dictionary just in case
-        batch.delete(doc(db, 'horleyTech_Settings', 'customMappings'));
-
-        await batch.commit();
-        setMasterDictionary({});
-        alert('💥 Global AI Dictionary completely wiped.');
-      } catch (err) {
-        alert(`Error nuking dictionary: ${err.message}`);
-      }
-    }
-  };
-
   const nukeLocalCache = async () => {
     try {
       const localKeysToDelete = [];
@@ -1697,9 +1674,14 @@ const AdminDashboard = () => {
       return;
     }
 
-    await nukeAndRebuildDictionary();
     alert('🛑 Global cache + product containers wiped. Cache automation is now OFF. Use "Force Build Product Cache" to turn it ON again.');
     await nukeLocalCache();
+  };
+
+  const handleOpenCustomMarginModal = () => {
+    setCustomMarginType(marginType === 'percentage' ? 'percentage' : 'amount');
+    setCustomMarginValue(String(marginValue ?? '0'));
+    setCustomMarginModalOpen(true);
   };
 
   const applyTinbrControlsToAllVendors = async (nextTinbrLinksEnabled, nextShowBothTinbrAndNormalLinks) => {
@@ -2550,7 +2532,7 @@ const AdminDashboard = () => {
                 </div>
               </div>
               <div className="mb-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 bg-white/70 backdrop-blur-xl rounded-2xl border border-gray-100 shadow-sm p-4">
-                <p className="text-xs font-bold uppercase tracking-wider text-gray-500">Dictionary Mappings: {Object.keys(masterDictionary).length}</p>
+                <p className="text-xs font-bold uppercase tracking-wider text-gray-500">Mapped Device Aliases: {Object.keys(masterDictionary).length}</p>
                 <div className="flex items-center gap-3">
                   <select
                     value={selectedAIProvider}
@@ -2589,7 +2571,7 @@ const AdminDashboard = () => {
                       🛑 Stop Process
                     </button>
                   )}
-                  <button type="button" onClick={handleNukeAndRebuild} className="px-4 py-2.5 rounded-2xl text-xs font-black uppercase tracking-wider border border-red-200 text-red-700 bg-red-50 hover:bg-red-100">⚠️ Nuke & Rebuild Dictionary</button>
+                  <button type="button" onClick={handleNukeAndRebuild} className="px-4 py-2.5 rounded-2xl text-xs font-black uppercase tracking-wider border border-red-200 text-red-700 bg-red-50 hover:bg-red-100">⚠️ Nuke & Rebuild Cache</button>
                 </div>
               </div>
               <div className="space-y-3">
@@ -2884,11 +2866,11 @@ const AdminDashboard = () => {
                 <div className="fixed top-0 left-0 w-screen h-screen z-[99999] bg-black/60 flex items-center justify-center p-4 m-0" style={{ position: 'fixed' }}>
                   <div className="w-full max-w-md rounded-2xl bg-white shadow-2xl p-5 space-y-4 relative">
                     <h3 className="text-lg font-black text-gray-900">Apply Custom Margin {selectedProducts.length > 0 ? '(Selected)' : '(All Loaded)'}</h3>
-                    <select value={customMarginType} onChange={(e) => setCustomMarginType(e.target.value)} className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm">
+                    <select value={customMarginType} onChange={(e) => setCustomMarginType(e.target.value)} className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm cursor-pointer">
                       <option value="amount">Amount</option>
                       <option value="percentage">Percentage</option>
                     </select>
-                    <input value={customMarginValue} onChange={(e) => setCustomMarginValue(e.target.value)} placeholder="Enter margin value" className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm" />
+                    <input value={customMarginValue} onChange={(e) => setCustomMarginValue(e.target.value)} placeholder="Enter margin value" className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm cursor-text select-text" />
                     <div className="flex justify-end gap-2">
                       <button type="button" onClick={() => setCustomMarginModalOpen(false)} className="px-3 py-2 rounded-lg border border-gray-200 text-sm">Cancel</button>
                       <button type="button" onClick={applyCustomMarginToSelected} className="px-3 py-2 rounded-lg bg-indigo-600 text-white text-sm font-semibold">Apply</button>

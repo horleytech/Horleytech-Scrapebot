@@ -1,14 +1,8 @@
 import cron from 'node-cron';
-import fs from 'fs';
-import path from 'path';
-import { fileURLToPath } from 'url';
 import admin from 'firebase-admin';
 import { runBackup, getAdminFirestore } from './backup.js';
 import { resolveTextAIConfig } from './aiConfig.js';
 import { processWithShadowTesting } from './cleaner.js';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 
 const OFFLINE_COLLECTION = 'horleyTech_OfflineInventories';
 const SETTINGS_COLLECTION = 'horleyTech_Settings';
@@ -29,57 +23,8 @@ const normalizeCacheCondition = (value = '') => {
 
 const normalizeMappingKey = (value) => String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
 
-const toFlatMappingList = (customMappings) => {
-  if (Array.isArray(customMappings)) return customMappings;
-
-  if (customMappings && typeof customMappings === 'object') {
-    return Object.entries(customMappings).map(([raw, mapped]) => {
-      if (mapped && typeof mapped === 'object') {
-        return { raw, ...mapped };
-      }
-      return { raw, deviceType: String(mapped || '').trim() };
-    });
-  }
-
-  return [];
-};
-
-export const getLatestCustomMappings = async () => {
-  const firestore = getAdminFirestore();
-  const customMappingsDoc = await firestore.collection(SETTINGS_COLLECTION).doc('customMappings').get();
-  if (!customMappingsDoc.exists) return [];
-
-  const data = customMappingsDoc.data() || {};
-  return toFlatMappingList(data?.mappings || data?.dictionary || data?.customMappings || data);
-};
-
-const buildMappingIndex = (customMappings = []) => {
-  const index = new Map();
-
-  customMappings.forEach((entry) => {
-    const raw = entry?.raw || entry?.source || entry?.rawString || '';
-    const key = normalizeMappingKey(raw);
-    if (!key || key === '__unmappable__') return;
-
-    index.set(key, {
-      category: entry.category || 'Others',
-      brand: entry.brand || 'Others',
-      series: entry.series || 'Others',
-      deviceType: entry.deviceType || entry.standardName || '',
-    });
-  });
-
-  return index;
-};
-
 export const runRetroactiveSweep = async ({ dryRun = false } = {}) => {
   const firestore = getAdminFirestore();
-  const customMappings = await getLatestCustomMappings();
-  const mappingIndex = buildMappingIndex(customMappings);
-
-  if (!mappingIndex.size) {
-    return { success: true, inspectedProducts: 0, correctedProducts: 0, note: 'No mappings available.' };
-  }
 
   const snapshot = await firestore.collection(OFFLINE_COLLECTION).get();
   const batch = firestore.batch();
@@ -113,18 +58,6 @@ export const runRetroactiveSweep = async ({ dryRun = false } = {}) => {
       ).trim();
 
       let nextProduct = { ...product };
-      const mapping = mappingIndex.get(normalizeMappingKey(rawString));
-      if (needsRepair && mapping?.deviceType) {
-        nextProduct = {
-          ...nextProduct,
-          Category: mapping.category || nextProduct.Category || 'Others',
-          Brand: mapping.brand || nextProduct.Brand || 'Others',
-          Series: mapping.series || nextProduct.Series || 'Others',
-          'Device Type': mapping.deviceType,
-        };
-        vendorTouched = true;
-        correctedProducts += 1;
-      }
 
       const hasUnknownIgnoreReason = ['unknown-variant-attribute', 'taxonomy-others'].includes(String(nextProduct?.ignoreReason || '').trim());
       const shouldTryAiRepair = (needsRepair || hasUnknownIgnoreReason) && rawString && aiRepairsAttempted < RETRO_MAX_AI_REPAIRS;
@@ -190,41 +123,10 @@ export const runRetroactiveSweep = async ({ dryRun = false } = {}) => {
 };
 
 export const exportMappingsToJsonl = async () => {
-  const mappings = await getLatestCustomMappings();
-  const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-
-  const lines = mappings
-    .filter((entry) => entry?.raw && (entry?.deviceType || entry?.category || entry?.brand))
-    .map((entry) => JSON.stringify({
-      raw: String(entry.raw).trim(),
-      category: entry.category || 'Others',
-      brand: entry.brand || 'Others',
-      series: entry.series || 'Others',
-      deviceType: entry.deviceType || entry.standardName || 'Unknown Device',
-    }));
-
-  const fileName = `custom-mappings-finetune-${timestamp}.jsonl`;
-  const exportDir = path.join(__dirname, 'backups');
-  const filePath = path.join(exportDir, fileName);
-
-  if (!fs.existsSync(exportDir)) {
-    fs.mkdirSync(exportDir, { recursive: true });
-  }
-
-  fs.writeFileSync(filePath, `${lines.join('\n')}\n`, 'utf-8');
-
-  const firestore = getAdminFirestore();
-  await firestore.collection(SETTINGS_COLLECTION).doc('customMappingsFineTuneExports').set({
-    lastExportAt: new Date().toISOString(),
-    lastExportFileName: fileName,
-    totalLines: lines.length,
-  }, { merge: true });
-
   return {
     success: true,
-    fileName,
-    filePath,
-    totalLines: lines.length,
+    skipped: true,
+    note: 'Dictionary mapping export has been retired.',
   };
 };
 

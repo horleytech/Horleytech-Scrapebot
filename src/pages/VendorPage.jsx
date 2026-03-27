@@ -7,7 +7,7 @@ import PropTypes from 'prop-types';
 import { BASE_URL } from '../services/constants/apiConstants.js';
 
 const MAX_LOG_ITEMS = 200;
-const THEME_PRESETS = ['#16a34a', '#1d4ed8', '#7c3aed', '#ea580c'];
+const THEME_PRESETS = ['#16a34a', '#1d4ed8', '#7c3aed', '#ea580c', '#e11d48', '#0f766e', '#d97706', '#4f46e5', '#be123c', '#0ea5e9', '#14b8a6', '#f59e0b'];
 
 const HD_IMAGE_STYLE = {
   imageRendering: '-webkit-optimize-contrast',
@@ -253,9 +253,17 @@ const VendorPage = () => {
   const [addressInput, setAddressInput] = useState('');
   const [storeDescriptionInput, setStoreDescriptionInput] = useState('');
   const [themeColorInput, setThemeColorInput] = useState('#16a34a');
+  const [themeColorCodeInput, setThemeColorCodeInput] = useState('#16a34a');
   const [storeLayoutInput, setStoreLayoutInput] = useState('classic');
   const [logoBase64, setLogoBase64] = useState('');
   const [whatsappNumbersInput, setWhatsappNumbersInput] = useState(['', '', '']);
+
+  const normalizeHexColor = (value = '') => {
+    const trimmed = String(value || '').trim();
+    if (!trimmed) return '';
+    const prefixed = trimmed.startsWith('#') ? trimmed : `#${trimmed}`;
+    return /^#[0-9A-Fa-f]{6}$/.test(prefixed) ? prefixed.toLowerCase() : '';
+  };
   const [storeWhatsappNumberInput, setStoreWhatsappNumberInput] = useState('');
   const [vendorPasswordInput, setVendorPasswordInput] = useState('');
   const [allowedGroups, setAllowedGroups] = useState([]);
@@ -289,6 +297,18 @@ const VendorPage = () => {
   const [editVisStore2, setEditVisStore2] = useState(false);
   const [savingEdit, setSavingEdit] = useState(false);
   const [inventoryView, setInventoryView] = useState('all');
+  const [addingManualProduct, setAddingManualProduct] = useState(false);
+  const [manualProductForm, setManualProductForm] = useState({
+    category: 'Smartphones',
+    brand: 'Others',
+    deviceType: '',
+    condition: 'Brand New',
+    specification: 'Unknown',
+    storage: 'UNKNOWN',
+    priceStore1: '',
+    priceStore2: '',
+    groupName: 'Manual Entry',
+  });
 
   const vendorRef = useMemo(() => doc(db, 'horleyTech_OfflineInventories', vendorId), [vendorId]);
 
@@ -332,7 +352,9 @@ const VendorPage = () => {
     setVendorNameInput(payload.vendorName || '');
     setAddressInput(payload.address || '');
     setStoreDescriptionInput(payload.storeDescription || '');
-    setThemeColorInput(payload.themeColor || '#16a34a');
+    const resolvedTheme = payload.themeColor || '#16a34a';
+    setThemeColorInput(resolvedTheme);
+    setThemeColorCodeInput(resolvedTheme);
     setStoreLayoutInput(payload.storeLayout || 'classic');
     setLogoBase64(payload.logoBase64 || '');
     setAllowedGroups(existingAllowedGroups);
@@ -991,6 +1013,73 @@ const VendorPage = () => {
     }
   };
 
+  const handleManualProductChange = (field, value) => {
+    if (field === 'groupName') return;
+    setManualProductForm((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const handleAddManualProduct = async () => {
+    const deviceType = String(manualProductForm.deviceType || '').trim();
+    if (!deviceType) {
+      alert('Please enter a device name before adding.');
+      return;
+    }
+
+    const nowIso = new Date().toISOString();
+    const priceStore1 = normalizePriceInput(manualProductForm.priceStore1 || '0');
+    const priceStore2 = normalizePriceInput(manualProductForm.priceStore2 || priceStore1 || '0');
+    const nextProduct = {
+      Category: String(manualProductForm.category || 'Others').trim() || 'Others',
+      Brand: String(manualProductForm.brand || 'Others').trim() || 'Others',
+      'Device Type': deviceType,
+      Condition: String(manualProductForm.condition || 'Unknown').trim() || 'Unknown',
+      'SIM Type/Model/Processor': String(manualProductForm.specification || 'Unknown').trim() || 'Unknown',
+      'Storage Capacity/Configuration': String(manualProductForm.storage || 'UNKNOWN').trim() || 'UNKNOWN',
+      'Regular price': priceStore1,
+      priceStore1,
+      priceStore2,
+      'Store 1 price': priceStore1,
+      'Store 2 price': priceStore2,
+      visibleInStore1: true,
+      visibleInStore2: false,
+      isVisible: true,
+      DatePosted: nowIso,
+      dateAdded: nowIso,
+      groupName: 'Manual Entry',
+      source: 'manual',
+      rawString: deviceType,
+    };
+
+    const nextProducts = [...products, nextProduct];
+
+    try {
+      setAddingManualProduct(true);
+      await updateDoc(vendorRef, {
+        products: nextProducts,
+        lastUpdated: nowIso,
+      });
+      await saveAuditLog(`Added product manually: ${deviceType}`, logChannel);
+      await syncVendorFromFirebase();
+      setManualProductForm({
+        category: manualProductForm.category || 'Smartphones',
+        brand: manualProductForm.brand || 'Others',
+        deviceType: '',
+        condition: manualProductForm.condition || 'Brand New',
+        specification: manualProductForm.specification || 'Unknown',
+        storage: manualProductForm.storage || 'UNKNOWN',
+        priceStore1: '',
+        priceStore2: '',
+        groupName: 'Manual Entry',
+      });
+      alert('✅ Product added successfully.');
+    } catch (error) {
+      console.error('Manual product add failed:', error);
+      alert('❌ Could not add product manually.');
+    } finally {
+      setAddingManualProduct(false);
+    }
+  };
+
   const buildDeepComparisonActions = (previousVendorData, nextState) => {
     const actions = [];
     if ((previousVendorData.vendorName || '') !== nextState.vendorName) actions.push(`Changed Store Name to '${nextState.vendorName}'`);
@@ -1363,12 +1452,34 @@ const VendorPage = () => {
             <div>
               <label className="block text-sm font-bold text-gray-700 mb-2">Store Theme Color</label>
               <div className="flex items-center gap-3 mb-3">
-                <input type="color" value={themeColorInput} onChange={(e) => setThemeColorInput(e.target.value)} className="w-14 h-12 border rounded cursor-pointer" />
+                <input type="color" value={themeColorInput} onChange={(e) => {
+                  setThemeColorInput(e.target.value);
+                  setThemeColorCodeInput(e.target.value);
+                }} className="w-14 h-12 border rounded cursor-pointer" />
                 <span className="text-sm font-mono font-bold text-gray-600">{themeColorInput.toUpperCase()}</span>
               </div>
+              <input
+                type="text"
+                value={themeColorCodeInput}
+                onChange={(e) => setThemeColorCodeInput(e.target.value)}
+                onBlur={(e) => {
+                  const normalized = normalizeHexColor(e.target.value);
+                  if (normalized) {
+                    setThemeColorInput(normalized);
+                    setThemeColorCodeInput(normalized);
+                  } else {
+                    setThemeColorCodeInput(themeColorInput);
+                  }
+                }}
+                className="w-full p-2 border rounded mb-3 font-mono"
+                placeholder="#16a34a"
+              />
               <div className="flex flex-wrap gap-2">
                 {THEME_PRESETS.map((preset) => (
-                  <button key={preset} onClick={() => setThemeColorInput(preset)} className={`w-8 h-8 rounded-full border-2 shadow-sm transition-transform hover:scale-110 ${themeColorInput === preset ? 'border-gray-900' : 'border-white'}`} style={{ backgroundColor: preset }} aria-label={`Theme ${preset}`} />
+                  <button key={preset} onClick={() => {
+                    setThemeColorInput(preset);
+                    setThemeColorCodeInput(preset);
+                  }} className={`w-8 h-8 rounded-full border-2 shadow-sm transition-transform hover:scale-110 ${themeColorInput === preset ? 'border-gray-900' : 'border-white'}`} style={{ backgroundColor: preset }} aria-label={`Theme ${preset}`} />
                 ))}
               </div>
             </div>
@@ -1539,6 +1650,36 @@ const VendorPage = () => {
                 <button onClick={() => { const blob = new Blob([exportLines.join('\n')], { type: 'text/plain' }); const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `${vendorData.vendorName || 'vendor'}-pricelist.txt`; a.click(); }} className="bg-blue-600 text-white px-3 py-2 rounded-lg text-xs font-black uppercase">Download TXT</button>
                 <button onClick={() => downloadCsv(`${vendorData.vendorName || 'vendor'}-pricelist.csv`, storefrontProducts.map((product) => ({ Export: `${product.Category || 'Others'} -> ${product.Brand || 'Others'} -> ${product['Device Type'] || ''} -> Store 1: ${normalizePriceInput(product.priceStore1 || product['Regular price'])} | Store 2: ${normalizePriceInput(product.priceStore2 || product['Regular price'])}` })))} className="bg-emerald-600 text-white px-3 py-2 rounded-lg text-xs font-black uppercase">Download CSV</button>
               </div>
+            </div>
+          </div>
+
+          <div className="mb-6 bg-white border border-emerald-100 rounded-2xl p-4 shadow-sm">
+            <h3 className="text-sm font-black uppercase tracking-wider text-emerald-700 mb-3">Add Product Manually</h3>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <input value={manualProductForm.deviceType} onChange={(e) => handleManualProductChange('deviceType', e.target.value)} className="p-3 border rounded-lg md:col-span-2" placeholder="Device name (required)" />
+              <select value={manualProductForm.category} onChange={(e) => handleManualProductChange('category', e.target.value)} className="p-3 border rounded-lg bg-white">
+                {['Smartphones', 'Smartwatches', 'Laptops', 'Sounds', 'Accessories', 'Tablets', 'Gaming', 'Others'].map((cat) => (
+                  <option key={`manual-cat-${cat}`} value={cat}>{cat}</option>
+                ))}
+              </select>
+              <input value={manualProductForm.brand} onChange={(e) => handleManualProductChange('brand', e.target.value)} className="p-3 border rounded-lg" placeholder="Brand" />
+              <input value={manualProductForm.condition} onChange={(e) => handleManualProductChange('condition', e.target.value)} className="p-3 border rounded-lg" placeholder="Condition" />
+              <input value={manualProductForm.specification} onChange={(e) => handleManualProductChange('specification', e.target.value)} className="p-3 border rounded-lg" placeholder="SIM / Processor / Spec" />
+              <input value={manualProductForm.storage} onChange={(e) => handleManualProductChange('storage', e.target.value)} className="p-3 border rounded-lg" placeholder="Storage (e.g. 256GB)" />
+              <input value={manualProductForm.priceStore1} onChange={(e) => handleManualProductChange('priceStore1', e.target.value)} className="p-3 border rounded-lg" placeholder="Store 1 Price" />
+              <input value={manualProductForm.priceStore2} onChange={(e) => handleManualProductChange('priceStore2', e.target.value)} className="p-3 border rounded-lg" placeholder="Store 2 Price (optional)" />
+              <input
+                value="Manual Entry"
+                readOnly
+                aria-readonly="true"
+                className="p-3 border rounded-lg bg-gray-100 text-gray-600 cursor-not-allowed"
+                placeholder="Source Group Label"
+              />
+            </div>
+            <div className="mt-3">
+              <button onClick={handleAddManualProduct} disabled={addingManualProduct} className="bg-emerald-600 text-white px-4 py-2 rounded-lg text-sm font-black uppercase tracking-wide disabled:opacity-50 hover:bg-emerald-700">
+                {addingManualProduct ? 'Adding...' : 'Add Product'}
+              </button>
             </div>
           </div>
 
