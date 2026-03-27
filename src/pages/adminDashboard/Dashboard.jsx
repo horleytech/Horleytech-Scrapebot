@@ -1436,12 +1436,13 @@ const AdminDashboard = () => {
   };
   const bulkAssignMetaData = async () => {
     if (!selectedVendorIds.length) return;
+    const safeMetaDataValue = String(bulkMetaDataValue || '').trim() || 'Electronics';
     try {
       setBulkUpdating(true);
       const batch = writeBatch(db);
       selectedVendorIds.forEach((docId) => {
         batch.update(doc(db, COLLECTIONS.offline, docId), {
-          metaData: bulkMetaDataValue || 'Electronics',
+          metaData: safeMetaDataValue,
           lastUpdated: new Date().toISOString(),
         });
       });
