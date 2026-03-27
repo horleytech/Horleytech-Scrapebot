@@ -1283,6 +1283,13 @@ const AdminDashboard = () => {
     [offlineVendors]
   );
   const uniqueVendorNames = useMemo(() => uniqueVendorFilters.filter((name) => name !== 'All'), [uniqueVendorFilters]);
+  const metadataOptions = useMemo(() => {
+    const defaults = ['Electronics', 'Phones', 'Laptops', 'Accessories', 'Other'];
+    const live = offlineVendors
+      .map((vendor) => String(vendor.metaData || '').trim())
+      .filter(Boolean);
+    return Array.from(new Set([...defaults, ...live]));
+  }, [offlineVendors]);
   const platformActivityTimeline = useMemo(() => {
     const allEntries = [];
     offlineVendors.forEach((vendor) => {
@@ -3184,7 +3191,18 @@ const AdminDashboard = () => {
                 <div className="flex gap-3 flex-wrap items-center">
                   <button onClick={() => bulkUpdateStatus('suspended')} disabled={!selectedVendorIds.length || bulkUpdating} className="bg-red-600 text-white px-6 py-2 rounded-xl text-xs font-black uppercase tracking-wider hover:bg-red-700 disabled:opacity-50 shadow-md transition-all">Suspend</button>
                   <button onClick={() => bulkUpdateStatus('active')} disabled={!selectedVendorIds.length || bulkUpdating} className="bg-emerald-600 text-white px-6 py-2 rounded-xl text-xs font-black uppercase tracking-wider hover:bg-emerald-700 disabled:opacity-50 shadow-md transition-all">Activate</button>
-                  <input value={bulkMetaDataValue} onChange={(e) => setBulkMetaDataValue(e.target.value)} placeholder="Meta Data" className="px-3 py-2 rounded-xl border border-gray-200 bg-white/80 text-xs font-semibold cursor-text select-text" />
+                  <input
+                    list="metadata-options"
+                    value={bulkMetaDataValue}
+                    onChange={(e) => setBulkMetaDataValue(e.target.value)}
+                    placeholder="Meta Data"
+                    className="px-3 py-2 rounded-xl border border-gray-200 bg-white/80 text-xs font-semibold cursor-text select-text"
+                  />
+                  <datalist id="metadata-options">
+                    {metadataOptions.map((meta) => (
+                      <option key={`metadata-${meta}`} value={meta} />
+                    ))}
+                  </datalist>
                   <button onClick={bulkAssignMetaData} disabled={!selectedVendorIds.length || bulkUpdating} className="bg-blue-600 text-white px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider hover:bg-blue-700 disabled:opacity-50 shadow-md transition-all">Assign Meta Data</button>
                   <button onClick={handleExport} className="bg-gray-800 text-white px-6 py-2 rounded-xl text-xs font-black uppercase tracking-wider hover:bg-black shadow-md transition-all">Export</button>
                 </div>
