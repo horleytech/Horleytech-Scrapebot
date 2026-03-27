@@ -525,6 +525,7 @@ const AdminDashboard = () => {
   const [pricingVendorExtraOne, setPricingVendorExtraOne] = useState('');
   const [pricingVendorExtraTwo, setPricingVendorExtraTwo] = useState('');
   const [priceReferenceMode, setPriceReferenceMode] = useState('selected_primary');
+  const [pricingDataViewMode, setPricingDataViewMode] = useState('active_map');
   const [marginType, setMarginType] = useState('amount');
   const [marginValue, setMarginValue] = useState('0');
   const [selectedProducts, setSelectedProducts] = useState([]);
@@ -1153,6 +1154,26 @@ const AdminDashboard = () => {
         };
       });
   }, [globalProductsCacheRows, startDate, endDate, selectedVendorFilter, dataViewMode, excludedPhrases, masterDictionary]);
+  const mappedInventoryRows = useMemo(() => {
+    const unique = new Map();
+    normalizedProductRows.forEach((row) => {
+      const key = [
+        normalizeDictionaryKey(row.deviceType),
+        normalizeDisplayCondition(row.condition),
+        normalizeDisplaySpec(row.specification || row.simType || 'Unknown'),
+        normalizeDisplayStorage(row.storage || 'Unknown'),
+      ].join('::');
+      if (unique.has(key)) return;
+      unique.set(key, {
+        'Device Type': row.deviceType || 'Unknown Device',
+        Condition: normalizeDisplayCondition(row.condition),
+        'SIM Type/Model/Processor': normalizeDisplaySpec(row.specification || row.simType || 'Unknown'),
+        'Storage Capacity/Configuration': normalizeDisplayStorage(row.storage || 'Unknown'),
+        'Regular price': '',
+      });
+    });
+    return Array.from(unique.values());
+  }, [normalizedProductRows]);
   const filteredProductRows = useMemo(() => {
     const queryText = productSearchQuery.trim().toLowerCase();
     return normalizedProductRows.filter((row) => {
@@ -1774,7 +1795,7 @@ const AdminDashboard = () => {
 
   useEffect(() => {
     setSelectedProducts([]);
-  }, [pricingVendor, pricingVendorExtraOne, pricingVendorExtraTwo, priceReferenceMode, marginType, marginValue, companyCsvRows.length]);
+  }, [pricingVendor, pricingVendorExtraOne, pricingVendorExtraTwo, priceReferenceMode, pricingDataViewMode, marginType, marginValue, companyCsvRows.length]);
 
   const pricingResults = useMemo(() => {
     const margin = Number(marginValue) || 0;
@@ -1805,7 +1826,8 @@ const AdminDashboard = () => {
       }
     };
 
-    return companyCsvRows.map((row, index) => {
+    const baseRows = pricingDataViewMode === 'mapped_inventory' ? mappedInventoryRows : companyCsvRows;
+    return baseRows.map((row, index) => {
      // FIX: Ensure original name is captured perfectly
       const companyDevice = String(getCsvValueByAliases(row, ['Device Type', 'device type', 'Device', 'device', 'Device Name']) || row['Device Type'] || row['device type'] || '');
       const companyCondition = getCsvValueByAliases(row, ['Condition']) || 'Unknown';
@@ -1912,7 +1934,7 @@ const AdminDashboard = () => {
     isOverridden: Boolean(override),
   };
 });
-}, [companyCsvRows, pricingVendor, selectedCompareVendors, priceReferenceMode, marginType, marginValue, normalizedProductRows, officialTargets, masterDictionary, pricingOverrides]);
+}, [companyCsvRows, mappedInventoryRows, pricingDataViewMode, pricingVendor, selectedCompareVendors, priceReferenceMode, marginType, marginValue, normalizedProductRows, officialTargets, masterDictionary, pricingOverrides]);
 
   const groupedPricingResults = useMemo(() => {
     const groups = [];
@@ -2072,6 +2094,7 @@ const AdminDashboard = () => {
       pricingVendorExtraTwo,
       selectedCompareVendors,
       priceReferenceMode,
+      pricingDataViewMode,
       marginType,
       marginValue,
       companyCsvUrl,
@@ -2099,6 +2122,7 @@ const AdminDashboard = () => {
     setPricingVendorExtraOne(session.pricingVendorExtraOne || session.selectedCompareVendors?.[1] || '');
     setPricingVendorExtraTwo(session.pricingVendorExtraTwo || session.selectedCompareVendors?.[2] || '');
     setPriceReferenceMode(session.priceReferenceMode || 'selected_primary');
+    setPricingDataViewMode(session.pricingDataViewMode || 'active_map');
     setMarginType(session.marginType || 'amount');
     setMarginValue(session.marginValue || '0');
     setPricingOverrides(session.overrides || {});
@@ -2701,6 +2725,10 @@ const AdminDashboard = () => {
                 <input type="text" list="vendor-search-list" value={pricingVendorExtraOne} onChange={(e) => setPricingVendorExtraOne(e.target.value)} placeholder="Vendor (2/3)" className="px-4 py-3 rounded-2xl border border-gray-100 bg-white/80 text-sm outline-none focus:ring-2 focus:ring-gray-300 cursor-text select-text" />
                 <input type="text" list="vendor-search-list" value={pricingVendorExtraTwo} onChange={(e) => setPricingVendorExtraTwo(e.target.value)} placeholder="Vendor (3/3)" className="px-4 py-3 rounded-2xl border border-gray-100 bg-white/80 text-sm outline-none focus:ring-2 focus:ring-gray-300 cursor-text select-text" />
                 <button onClick={loadCompanyCsv} disabled={loadingCompanyCsv} className="px-4 py-3 rounded-2xl text-xs font-black uppercase tracking-wider border border-gray-100 bg-white/80 hover:bg-white disabled:opacity-50">{loadingCompanyCsv ? 'Loading...' : 'Load Company CSV'}</button>
+                <select value={pricingDataViewMode} onChange={(e) => setPricingDataViewMode(e.target.value)} className="px-4 py-3 rounded-2xl border border-gray-100 bg-white/80 text-sm outline-none focus:ring-2 focus:ring-gray-300 cursor-text select-text">
+                  <option value="active_map">Active Map (CSV-only)</option>
+                  <option value="mapped_inventory">Mapped Inventory (All Mapped)</option>
+                </select>
                 <select value={priceReferenceMode} onChange={(e) => setPriceReferenceMode(e.target.value)} className="px-4 py-3 rounded-2xl border border-gray-100 bg-white/80 text-sm outline-none focus:ring-2 focus:ring-gray-300 cursor-text select-text">
                   <option value="selected_primary">Selected Vendors • Primary Vendor Price</option>
                   <option value="selected_highest">Selected Vendors • Highest Price</option>
@@ -2729,6 +2757,12 @@ const AdminDashboard = () => {
                   <span className="font-semibold">
                     {selectedCompareVendors.length ? selectedCompareVendors.join(', ') : 'None selected'}
                   </span>
+                </p>
+                <p>
+                  Data mode: <span className="font-semibold">{pricingDataViewMode === 'active_map' ? 'Active Map (CSV-only)' : 'Mapped Inventory (All Mapped)'}</span>.
+                  {pricingDataViewMode === 'active_map'
+                    ? ' If CSV has no rows, this view stays empty.'
+                    : ' This view lists everything already mapped from inventory.'}
                 </p>
                 <div className="flex flex-wrap items-center gap-3 pt-1">
                   <label className="inline-flex items-center gap-2">
@@ -2870,7 +2904,11 @@ const AdminDashboard = () => {
                   );
                 })}
                 {!pricingResults.length && (
-                  <div className="border border-gray-100 rounded-2xl bg-white/60 px-4 py-4 text-sm text-gray-500">No matched rows. Load CSV and choose up to 3 vendors for comparison.</div>
+                  <div className="border border-gray-100 rounded-2xl bg-white/60 px-4 py-4 text-sm text-gray-500">
+                    {pricingDataViewMode === 'active_map'
+                      ? 'Active Map is empty. Load Company CSV to populate this view.'
+                      : 'No mapped inventory rows available yet. Add/refresh mappings first.'}
+                  </div>
                 )}
               </div>
               {customMarginModalOpen && (
