@@ -1816,12 +1816,33 @@ const AdminDashboard = () => {
       const companyPrice = parseNairaValue(companyPriceRaw);
       const requiresConditionMatch = condition !== 'Unknown';
       const requiresSpecMatch = mappedSpec !== 'Unknown';
-      const isRowMatch = (item) => item.deviceType === mappedDevice
-        && (!storage || item.storage === storage)
-        && (!requiresSpecMatch || (item.specification || item.simType) === mappedSpec)
-        && (!requiresConditionMatch || item.condition === condition);
+      const normalizedMappedDevice = normalizeDictionaryKey(mappedDevice);
+      const normalizedCompanyDevice = normalizeDictionaryKey(companyDevice);
+      const normalizedStorage = storage ? normalizeDisplayStorage(storage) : '';
+      const normalizedMappedSpec = normalizeDisplaySpec(mappedSpec || 'Unknown');
+      const normalizedCondition = normalizeDisplayCondition(condition || 'Unknown');
+      const isRowMatch = (item) => {
+        const itemDevice = String(item?.deviceType || '');
+        const normalizedItemDevice = normalizeDictionaryKey(itemDevice);
+        const deviceMatch = itemDevice === mappedDevice
+          || normalizedItemDevice === normalizedMappedDevice
+          || normalizedItemDevice === normalizedCompanyDevice
+          || normalizedMappedDevice.includes(normalizedItemDevice)
+          || normalizedItemDevice.includes(normalizedMappedDevice)
+          || normalizedCompanyDevice.includes(normalizedItemDevice)
+          || normalizedItemDevice.includes(normalizedCompanyDevice);
+
+        const normalizedItemStorage = normalizeDisplayStorage(item?.storage || '');
+        const itemSpec = normalizeDisplaySpec(item?.specification || item?.simType || 'Unknown');
+        const itemCondition = normalizeDisplayCondition(item?.condition || 'Unknown');
+
+        return deviceMatch
+          && (!normalizedStorage || normalizedItemStorage === normalizedStorage)
+          && (!requiresSpecMatch || itemSpec === normalizedMappedSpec)
+          && (!requiresConditionMatch || itemCondition === normalizedCondition);
+      };
       const getLatestMatchForVendor = (vendorName) => normalizedProductRows
-        .filter((item) => item.vendorName === vendorName)
+        .filter((item) => String(item.vendorName || '').trim().toLowerCase() === String(vendorName || '').trim().toLowerCase())
         .filter(isRowMatch)
         .sort((a, b) => {
           const timeA = new Date(a.date).getTime() || 0;
