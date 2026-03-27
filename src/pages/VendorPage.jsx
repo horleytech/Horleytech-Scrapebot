@@ -7,7 +7,7 @@ import PropTypes from 'prop-types';
 import { BASE_URL } from '../services/constants/apiConstants.js';
 
 const MAX_LOG_ITEMS = 200;
-const THEME_PRESETS = ['#16a34a', '#1d4ed8', '#7c3aed', '#ea580c'];
+const THEME_PRESETS = ['#16a34a', '#1d4ed8', '#7c3aed', '#ea580c', '#e11d48', '#0f766e', '#d97706', '#4f46e5', '#be123c', '#0ea5e9', '#14b8a6', '#f59e0b'];
 
 const HD_IMAGE_STYLE = {
   imageRendering: '-webkit-optimize-contrast',
@@ -253,9 +253,17 @@ const VendorPage = () => {
   const [addressInput, setAddressInput] = useState('');
   const [storeDescriptionInput, setStoreDescriptionInput] = useState('');
   const [themeColorInput, setThemeColorInput] = useState('#16a34a');
+  const [themeColorCodeInput, setThemeColorCodeInput] = useState('#16a34a');
   const [storeLayoutInput, setStoreLayoutInput] = useState('classic');
   const [logoBase64, setLogoBase64] = useState('');
   const [whatsappNumbersInput, setWhatsappNumbersInput] = useState(['', '', '']);
+
+  const normalizeHexColor = (value = '') => {
+    const trimmed = String(value || '').trim();
+    if (!trimmed) return '';
+    const prefixed = trimmed.startsWith('#') ? trimmed : `#${trimmed}`;
+    return /^#[0-9A-Fa-f]{6}$/.test(prefixed) ? prefixed.toLowerCase() : '';
+  };
   const [storeWhatsappNumberInput, setStoreWhatsappNumberInput] = useState('');
   const [vendorPasswordInput, setVendorPasswordInput] = useState('');
   const [allowedGroups, setAllowedGroups] = useState([]);
@@ -332,7 +340,9 @@ const VendorPage = () => {
     setVendorNameInput(payload.vendorName || '');
     setAddressInput(payload.address || '');
     setStoreDescriptionInput(payload.storeDescription || '');
-    setThemeColorInput(payload.themeColor || '#16a34a');
+    const resolvedTheme = payload.themeColor || '#16a34a';
+    setThemeColorInput(resolvedTheme);
+    setThemeColorCodeInput(resolvedTheme);
     setStoreLayoutInput(payload.storeLayout || 'classic');
     setLogoBase64(payload.logoBase64 || '');
     setAllowedGroups(existingAllowedGroups);
@@ -1363,12 +1373,34 @@ const VendorPage = () => {
             <div>
               <label className="block text-sm font-bold text-gray-700 mb-2">Store Theme Color</label>
               <div className="flex items-center gap-3 mb-3">
-                <input type="color" value={themeColorInput} onChange={(e) => setThemeColorInput(e.target.value)} className="w-14 h-12 border rounded cursor-pointer" />
+                <input type="color" value={themeColorInput} onChange={(e) => {
+                  setThemeColorInput(e.target.value);
+                  setThemeColorCodeInput(e.target.value);
+                }} className="w-14 h-12 border rounded cursor-pointer" />
                 <span className="text-sm font-mono font-bold text-gray-600">{themeColorInput.toUpperCase()}</span>
               </div>
+              <input
+                type="text"
+                value={themeColorCodeInput}
+                onChange={(e) => setThemeColorCodeInput(e.target.value)}
+                onBlur={(e) => {
+                  const normalized = normalizeHexColor(e.target.value);
+                  if (normalized) {
+                    setThemeColorInput(normalized);
+                    setThemeColorCodeInput(normalized);
+                  } else {
+                    setThemeColorCodeInput(themeColorInput);
+                  }
+                }}
+                className="w-full p-2 border rounded mb-3 font-mono"
+                placeholder="#16a34a"
+              />
               <div className="flex flex-wrap gap-2">
                 {THEME_PRESETS.map((preset) => (
-                  <button key={preset} onClick={() => setThemeColorInput(preset)} className={`w-8 h-8 rounded-full border-2 shadow-sm transition-transform hover:scale-110 ${themeColorInput === preset ? 'border-gray-900' : 'border-white'}`} style={{ backgroundColor: preset }} aria-label={`Theme ${preset}`} />
+                  <button key={preset} onClick={() => {
+                    setThemeColorInput(preset);
+                    setThemeColorCodeInput(preset);
+                  }} className={`w-8 h-8 rounded-full border-2 shadow-sm transition-transform hover:scale-110 ${themeColorInput === preset ? 'border-gray-900' : 'border-white'}`} style={{ backgroundColor: preset }} aria-label={`Theme ${preset}`} />
                 ))}
               </div>
             </div>

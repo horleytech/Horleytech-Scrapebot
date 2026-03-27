@@ -701,6 +701,7 @@ const collectMasterTaxonomy = async () => {
   const categories = ['Smartphones', 'Smartwatches', 'Laptops', 'Sounds', 'Accessories', 'Tablets', 'Gaming', 'Others'];
   const rows = [];
   const uniqueTriples = new Set();
+  const mappingIndex = {};
 
   for (const category of categories) {
     const docSnap = await withRetries(() => firestore.collection(SETTINGS_COLLECTION).doc(`mappings_${category}`).get(), { retries: 1, delayMs: 200 });
@@ -709,6 +710,7 @@ const collectMasterTaxonomy = async () => {
     const mappings = docSnap.data()?.mappings || {};
 
     Object.entries(mappings).forEach(([raw, mapped]) => {
+      mappingIndex[String(raw || '').trim()] = mapped || {};
       const candidate = {
         raw: String(raw || ''),
         Category: mapped?.category || 'Others',
@@ -728,7 +730,7 @@ const collectMasterTaxonomy = async () => {
     return { Category, Brand, Series };
   });
 
-  return { rows, canonicalTaxonomy };
+  return { rows, canonicalTaxonomy, mappingIndex };
 };
 
 const regexPredictTaxonomy = (rawProductString, masterRows = []) => {
@@ -928,12 +930,47 @@ export const processWithShadowTesting = async ({ rawProductString, price }) => {
 
   let rows = [];
   let canonicalTaxonomy = [];
+  let mappingIndex = {};
   try {
     const collected = await collectMasterTaxonomy();
     rows = collected.rows;
     canonicalTaxonomy = collected.canonicalTaxonomy;
+    mappingIndex = collected.mappingIndex || {};
   } catch (error) {
     console.warn('⚠️ Master taxonomy fetch failed, using fallback:', error.message);
+  }
+
+  const mappingKey = normalizeComparable(rawProductString);
+  const directMapping = mappingIndex[mappingKey];
+  if (directMapping) {
+    const directTaxonomy = sanitizeTaxonomyCandidate({
+      Category: directMapping?.category || 'Others',
+      Brand: directMapping?.brand || 'Others',
+      Series: directMapping?.series || (directMapping?.deviceType || 'Others'),
+    });
+    const directDeviceType = String(directMapping?.deviceType || directMapping?.standardName || inferDeviceTypeFromRaw(rawProductString, directTaxonomy.Series || 'Unknown Device')).trim() || 'Unknown Device';
+    const directCondition = resolveConditionWithDefaultUsed(rawProductString, directMapping?.condition || inferredConditionBase);
+    const directSpecification = String(directMapping?.specification || parsedSim || 'Unknown').trim() || 'Unknown';
+    const directVariationId = buildVariationId({
+      series: directTaxonomy.Series,
+      storage: parsedStorage,
+      condition: directCondition,
+      sim: directSpecification,
+    });
+
+    return {
+      rawProductString,
+      price,
+      taxonomy: directTaxonomy,
+      deviceType: directDeviceType,
+      storage: parsedStorage,
+      condition: directCondition,
+      sim: directSpecification,
+      variationId: directVariationId,
+      trustedFastLane: false,
+      ignored: false,
+      source: 'dictionary-mapping',
+    };
   }
 
   const regexPrediction = regexPredictTaxonomy(alias, rows);
