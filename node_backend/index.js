@@ -542,7 +542,7 @@ app.post('/api/admin/onboard-vendor', async (req, res) => {
     return res.status(400).json({ success: false, error: 'adminNumber must include digits.' });
   }
 
-  const message = `Hello! I am ${String(vendorName).trim()}. Please onboard me to Horleytech. My product list format will be: [Product] | [Specs] | [Condition] | [Price] or [Product] | [Specs] | [Condition] | [Storage] | [Price]`;
+  const message = `Hello! I am ${String(vendorName).trim()}. Please onboard me to Horleytech. My product list format will be: [Product] | [Specs] | [Condition] | [Price] OR [Product] | [Specs] | [Condition] | [Storage] | [Price] OR [Product] | [Condition] | [Specs] | [Price]`;
   const url = encodeURI(`https://wa.me/${cleanedNumber}?text=${message}`);
 
   return res.json({ success: true, url, message });

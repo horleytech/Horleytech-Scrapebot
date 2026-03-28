@@ -612,9 +612,14 @@ const parseStructuredGeneralListing = (rawText = '') => {
   if (!product) return null;
 
   if (parts.length === 3) {
-    const [_, specification, condition] = parts;
-    if (!specification || !condition) return null;
-    return { product, specification, condition, storage: 'UNKNOWN' };
+    const tokenA = parts[1];
+    const tokenB = parts[2];
+    const tokenAIsCondition = normalizeCondition(tokenA) !== 'Unknown';
+    const tokenBIsCondition = normalizeCondition(tokenB) !== 'Unknown';
+    if (tokenAIsCondition && !tokenBIsCondition) {
+      return { product, specification: tokenB, condition: tokenA, storage: '' };
+    }
+    return { product, specification: tokenA, condition: tokenB, storage: '' };
   }
 
   const tokenA = parts[1];
@@ -631,7 +636,7 @@ const parseStructuredGeneralListing = (rawText = '') => {
       product,
       condition: tokenA,
       specification: tokenB || 'Unknown',
-      storage: tokenC || 'UNKNOWN',
+      storage: tokenC || '',
     };
   }
 
@@ -639,8 +644,16 @@ const parseStructuredGeneralListing = (rawText = '') => {
     product,
     specification: tokenA || 'Unknown',
     condition: tokenB || 'Unknown',
-    storage: tokenC || 'UNKNOWN',
+    storage: tokenC || '',
   };
+};
+
+const formatGeneralListingDeviceType = (value = '') => {
+  const raw = String(value || '').trim();
+  if (!raw) return 'General Listing Item';
+  const commaLead = raw.split(',')[0].trim();
+  if (commaLead) return commaLead;
+  return raw.split(/\s+/).slice(0, 6).join(' ');
 };
 
 const inferDeviceTypeFromRaw = (rawText = '', fallbackSeries = 'Unknown Device') => {
@@ -953,9 +966,8 @@ const tryTrustedFastLane = async (alias) => {
 export const processWithShadowTesting = async ({ rawProductString, price, strictVendorMode = false }) => {
   const alias = normalizeAlias(rawProductString);
   const structuredGeneralListing = parseStructuredGeneralListing(rawProductString);
-  const parsedStorage = structuredGeneralListing?.storage
-    && structuredGeneralListing.storage !== 'UNKNOWN'
-    ? String(structuredGeneralListing.storage).trim()
+  const parsedStorage = structuredGeneralListing
+    ? String(structuredGeneralListing.storage || '').trim()
     : normalizeStorage(rawProductString);
   const parsedCondition = structuredGeneralListing
     ? normalizeCondition(structuredGeneralListing.condition)
@@ -1064,7 +1076,7 @@ export const processWithShadowTesting = async ({ rawProductString, price, strict
     : finalTaxonomy.Series;
   const resolvedDeviceType = catalogEntry?.deviceType
     || (isCustomIndustrySeries && structuredGeneralListing?.product
-      ? structuredGeneralListing.product
+      ? formatGeneralListingDeviceType(structuredGeneralListing.product)
       : inferDeviceTypeFromRaw(rawProductString, safeFallbackSeries || 'Unknown Device'));
   let resolvedSpecification = resolveSpecification({
     rawProductString,
@@ -1153,6 +1165,7 @@ export const __testables = {
   resolveConditionWithDefaultUsed,
   inferTaxonomyFromRaw,
   parseStructuredGeneralListing,
+  formatGeneralListingDeviceType,
   inferDeviceTypeFromRaw,
   inferSimByBrandContext,
   buildVariationId,

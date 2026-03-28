@@ -113,4 +113,5 @@ Preferred formats:
 - `Product | Specs | Condition | Storage | Price`
 
 Also supported:
+- `Product | Condition | Specs | Price`
 - `Product | Condition | Specs | Storage | Price`
