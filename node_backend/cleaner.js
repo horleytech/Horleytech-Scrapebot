@@ -966,11 +966,14 @@ const tryTrustedFastLane = async (alias) => {
 export const processWithShadowTesting = async ({ rawProductString, price, strictVendorMode = false }) => {
   const alias = normalizeAlias(rawProductString);
   const structuredGeneralListing = parseStructuredGeneralListing(rawProductString);
+  const generalListingAlias = structuredGeneralListing?.product
+    ? formatGeneralListingDeviceType(structuredGeneralListing.product)
+    : '';
   const parsedStorage = structuredGeneralListing
     ? String(structuredGeneralListing.storage || '').trim()
     : normalizeStorage(rawProductString);
   const parsedCondition = structuredGeneralListing
-    ? normalizeCondition(structuredGeneralListing.condition)
+    ? (String(structuredGeneralListing.condition || '').trim() || 'Unknown')
     : normalizeCondition(rawProductString);
   const inferredConditionBase = inferConditionFromRaw(rawProductString, parsedCondition);
   const catalogEntry = await resolveCatalogEntry(rawProductString, parsedStorage);
@@ -989,6 +992,7 @@ export const processWithShadowTesting = async ({ rawProductString, price, strict
       sim: parsedSim,
       variationId: null,
       trustedFastLane: false,
+      listingAlias: generalListingAlias,
       ignored: true,
       ignoreReason: 'excluded-phrase',
     };
@@ -1010,6 +1014,7 @@ export const processWithShadowTesting = async ({ rawProductString, price, strict
       sim: parsedSim,
       variationId: fastLane.variationId,
       trustedFastLane: true,
+      listingAlias: generalListingAlias,
       ignored: false,
     };
   }
@@ -1069,14 +1074,14 @@ export const processWithShadowTesting = async ({ rawProductString, price, strict
   const normalizedSeries = String(finalTaxonomy?.Series || '').toLowerCase();
   const isCustomIndustrySeries = normalizedSeries === 'general listing';
   const resolvedCondition = isCustomIndustrySeries
-    ? baseCondition
+    ? (String(structuredGeneralListing?.condition || '').trim() || baseCondition)
     : resolveConditionWithDefaultUsed(rawProductString, baseCondition);
   const safeFallbackSeries = String(finalTaxonomy.Series || '').trim().toLowerCase() === 'others'
     ? 'Unknown Device'
     : finalTaxonomy.Series;
   const resolvedDeviceType = catalogEntry?.deviceType
     || (isCustomIndustrySeries && structuredGeneralListing?.product
-      ? formatGeneralListingDeviceType(structuredGeneralListing.product)
+      ? structuredGeneralListing.product
       : inferDeviceTypeFromRaw(rawProductString, safeFallbackSeries || 'Unknown Device'));
   let resolvedSpecification = resolveSpecification({
     rawProductString,
@@ -1113,6 +1118,7 @@ export const processWithShadowTesting = async ({ rawProductString, price, strict
       sim: resolvedSpecification,
       variationId: null,
       trustedFastLane: false,
+      listingAlias: generalListingAlias,
       ignored: true,
       ignoreReason: hasUnknownVariantAttr ? 'unknown-variant-attribute' : 'taxonomy-others',
     };
@@ -1153,6 +1159,7 @@ export const processWithShadowTesting = async ({ rawProductString, price, strict
     sim: resolvedSpecification,
     variationId: aiVariationId,
     trustedFastLane: false,
+    listingAlias: generalListingAlias,
     ignored: false,
   };
 };
