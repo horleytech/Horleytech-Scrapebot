@@ -1191,9 +1191,42 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
   res.status(200).json({ data: [{ message: '' }] });
 
   try {
+    const normalizeVendorKey = (value = '') => String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    const resolveExtractionRoutingConfig = async () => {
+      try {
+        const firestore = getAdminFirestore();
+        const docSnap = await firestore.collection(SETTINGS_COLLECTION).doc('extractionRouting').get();
+        const data = docSnap.exists ? (docSnap.data() || {}) : {};
+        const enabled = data?.enabled !== false;
+        const rawList = Array.isArray(data?.strictVendors)
+          ? data.strictVendors
+          : String(data?.strictVendors || '').split(',');
+        const strictVendors = rawList
+          .map((item) => normalizeVendorKey(item))
+          .filter(Boolean);
+        return { enabled, strictVendors: new Set(strictVendors) };
+      } catch (error) {
+        console.warn('⚠️ Extraction routing config load skipped:', error.message);
+        return { enabled: true, strictVendors: new Set() };
+      }
+    };
+
+    const routingConfig = await resolveExtractionRoutingConfig();
+    const strictVendorMode = routingConfig.enabled
+      && routingConfig.strictVendors.has(normalizeVendorKey(senderName));
+
     const pipelineMetrics = {
       fragmentsMerged: 0,
       fragmentsSkippedWithoutBase: 0,
+      linesSeen: 0,
+      linesParsedDeterministic: 0,
+      linesDroppedDeterministic: 0,
+      dropReasons: {},
+      strictVendorMode: strictVendorMode ? 1 : 0,
+    };
+    const incrementDropReason = (reason = 'unknown') => {
+      const key = String(reason || 'unknown');
+      pipelineMetrics.dropReasons[key] = Number(pipelineMetrics.dropReasons[key] || 0) + 1;
     };
 
     const isLikelyFragment = (raw = '') => {
@@ -1206,8 +1239,9 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
       const specOnly = /^(esim|physical\s*sim|locked|fu|idm|ibm|wifi|wi-?fi\s*only)$/i.test(lower);
       const memoryOnly = /^\d+\s*\/\s*\d+\s*(gb|tb)$/i.test(lower);
       const storageOnly = /^\d+\s*(gb|tb)$/i.test(lower);
+      const styleOnly = /^([a-z\s-]+)?\(?\s*(clear|transition|transitions|lens|frame|cerulean|shiny|matte|black|blue|silver|gold|orange|pink)\s*[a-z\s-]*\)?$/i.test(lower);
 
-      return colorOnly || specOnly || memoryOnly || storageOnly;
+      return colorOnly || specOnly || memoryOnly || storageOnly || styleOnly;
     };
 
     const mergeFragmentedProducts = (products = []) => {
@@ -1237,14 +1271,54 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
       return merged;
     };
 
+    const stripWhatsAppEnvelope = (line = '') => String(line || '')
+      .replace(/^\[\d{1,2}\/\d{1,2}(?:\/\d{2,4})?,\s*[\d:]+\s*(?:am|pm)?\]\s*[^:]+:\s*/i, '')
+      .replace(/^\[\d{1,2}:\d{2}\s*(?:am|pm),\s*\d{1,2}\/\d{1,2}\/\d{2,4}\]\s*[^:]+:\s*/i, '')
+      .trim();
+
     const normalizeLinesForDeterministicParse = (message = '') => {
-      const rows = String(message || '')
+      const normalizedMessage = String(message || '')
+        // Handle pasted text that contains literal escaped newlines (e.g. "\\n")
+        .replace(/\\r\\n/g, '\n')
+        .replace(/\\n/g, '\n')
+        .replace(/\\r/g, '\n');
+
+      const rows = normalizedMessage
         .split('\n')
+        .map((line) => stripWhatsAppEnvelope(line))
         .map((line) => line.trim())
         .filter(Boolean);
 
+      const conditionedRows = [];
+      let sectionCondition = '';
+      for (const row of rows) {
+        const line = String(row || '').trim();
+        if (!line) continue;
+
+        const sectionMatch = line.match(/^\*?\s*(non\s*active(?:\s*without\s*warranty)?|active\s*stock|active|brand\s*new|uk\s*used)\s*\*?$/i);
+        if (sectionMatch?.[1]) {
+          const token = sectionMatch[1].toLowerCase();
+          if (token.includes('brand new')) sectionCondition = 'Brand New';
+          else if (token.includes('non')) sectionCondition = 'Non Active';
+          else if (token.includes('active')) sectionCondition = 'Active';
+          else if (token.includes('uk used')) sectionCondition = 'UK Used';
+          continue;
+        }
+
+        if (/^\d+\s*[.)]?\s*$/.test(line)) continue;
+
+        const hasConditionTag = /(brand\s*new|non\s*active|active|uk\s*used|like\s*new|good\s*condition|used)/i.test(line);
+        const hasPriceHint = /(₦\s*)?\d[\d,.\s]*(m|k)?\b/i.test(line);
+        const looksLikeProductEntry = /(iphone|ipad|macbook|airpod|watch|samsung|galaxy|fold|flip|pixel|note|tab|laptop|gb|tb|wig)/i.test(line);
+        if (sectionCondition && !hasConditionTag && hasPriceHint && looksLikeProductEntry) {
+          conditionedRows.push(`${line} | ${sectionCondition}`);
+        } else {
+          conditionedRows.push(line);
+        }
+      }
+
       const merged = [];
-      for (const line of rows) {
+      for (const line of conditionedRows) {
         const priceOnly = /^(₦?\s*)?\d[\d,.\s]*(m|k)?$/i.test(line);
         if (priceOnly && merged.length > 0) {
           merged[merged.length - 1] = `${merged[merged.length - 1]} ${line}`;
@@ -1259,7 +1333,7 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
       const cleaned = String(line || '')
         .replace(/\*(₦?\s*[\d,]+(?:\.\d+)?\s*[mk]?)\*/gi, '$1')
         .replace(/^[-*•]+\s*/, '')
-        .replace(/^\d+\s*[🅰🅱🅾a-z]*[\s.)-]*/i, '')
+        .replace(/^\d+\s*[🅰🅱🅾a-z]*[\s.)-]*/iu, '')
         .replace(/@\s*n/gi, ' ₦')
         .replace(/\bn(?=\d)/gi, '₦')
         .replace(/\s+/g, ' ')
@@ -1272,6 +1346,9 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
       const workingLine = startsWithSamsungShorthand && !/\bsamsung\b|\bgalaxy\b|\biphone\b/i.test(cleaned)
         ? `Samsung ${cleaned}`
         : cleaned;
+      const hasProductSignal = /(iphone|ipad|macbook|airpod|watch|pixel|samsung|galaxy|fold|flip|ultra|pro|max|hp|lenovo|dell|asus|acer|thinkpad|ideapad|yoga|omnibook|pavilion|xps|alienware|printer|monitor|ups|tv|television|ssd|ram|gb|tb|wifi|cell|sim|core\s*i[3579])/i.test(workingLine)
+        || /\bwig\b|\bfrontal\b|\bclosure\b|\bdensity\b|\bbody\s*wave\b|\bbone\s*straight\b|\bkinky\b/i.test(workingLine)
+        || startsWithSamsungShorthand;
 
       const isNonProductLine = /(updated price list|enquiries|orders|please reconfirm|subject to change|confirm availability|follow us|instagram|street|lagos|stores ltd|call to confirm|monitor series|series\s*\*?$)/i.test(workingLine);
       if (isNonProductLine && !/\d[\d,.\s]*(m|k)?$/i.test(workingLine)) return null;
@@ -1281,7 +1358,7 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
         const rawProduct = pipeParts.slice(0, -1).join(' | ');
         const priceToken = pipeParts[pipeParts.length - 1];
         const parsedPrice = normalizePriceToken(priceToken, { assumeMillionsForSmallDecimal: true });
-        if (rawProduct && (parsedPrice >= 10000 || /available|active|act/i.test(priceToken))) {
+        if (hasProductSignal && rawProduct && (parsedPrice >= 10000 || /available|active|act/i.test(priceToken))) {
           return {
             rawProductString: rawProduct,
             price: parsedPrice >= 10000 ? parsedPrice : 'Available',
@@ -1289,8 +1366,24 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
         }
       }
 
-      const hasProductSignal = /(iphone|ipad|macbook|airpod|watch|pixel|samsung|galaxy|fold|flip|ultra|pro|max|hp|lenovo|dell|asus|acer|thinkpad|ideapad|yoga|omnibook|pavilion|xps|alienware|printer|monitor|ups|tv|television|ssd|ram|gb|tb|wifi|cell|sim|core\s*i[3579])/i.test(workingLine)
-        || startsWithSamsungShorthand;
+      // Best-format support: Product | Specs | Condition | Price
+      // Also captures similar single-pipe vendor formats.
+      const singlePipeParts = workingLine.split('|').map((part) => part.trim()).filter(Boolean);
+      if (singlePipeParts.length >= 3) {
+        const rawProduct = singlePipeParts.slice(0, -1).join(' | ');
+        const priceToken = singlePipeParts[singlePipeParts.length - 1];
+        const parsedPrice = normalizePriceToken(priceToken, { assumeMillionsForSmallDecimal: true });
+        const leadSegment = String(singlePipeParts[0] || '').trim();
+        const looksLikeStructuredGenericListing = /[a-z]{3,}/i.test(leadSegment)
+          && !/(updated price list|enquiries|orders|follow us|instagram|stores ltd|lagos)/i.test(leadSegment);
+        const allowGenericStructured = !strictVendorMode;
+        if ((hasProductSignal || (allowGenericStructured && looksLikeStructuredGenericListing)) && rawProduct && parsedPrice >= 10000) {
+          return {
+            rawProductString: rawProduct,
+            price: parsedPrice,
+          };
+        }
+      }
       if (!hasProductSignal) return null;
 
       const availableMatch = workingLine.match(/^(.*?)(?:-|:)?\s*(available|act|active)\s*$/i);
@@ -1309,6 +1402,15 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
         return {
           rawProductString: pricedMatch[1].trim(),
           price: normalizedPrice || 'Available',
+        };
+      }
+
+      const looksLikeNoPriceEntry = strictVendorMode && hasProductSignal
+        && /\b(iphone|ipad|macbook|airpod|watch|samsung|galaxy|fold|flip|pixel|note|tab|s\d{1,2}|pro|max|plus|ultra|air|gb|tb)\b/i.test(workingLine);
+      if (looksLikeNoPriceEntry) {
+        return {
+          rawProductString: workingLine.trim(),
+          price: 'Available',
         };
       }
 
@@ -1390,6 +1492,7 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
       const rawLines = normalizeLinesForDeterministicParse(senderMessage)
         .map((line) => line.trim())
         .filter((line) => line.length > 3);
+      pipelineMetrics.linesSeen += rawLines.length;
 
       let knownProducts = [];
       let unknownLines = [];
@@ -1445,18 +1548,26 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
 
         // Pass 1: deterministic extraction per line (works best for structured pricelist broadcasts).
         for (const unknownLine of unknownLines) {
-          const lineText = unknownLine.substring(0, 500);
+          const lineText = unknownLine.substring(0, 2000);
           const lineHash = lineText.substring(0, 150);
           const deterministicProduct = deterministicLineExtract(lineText);
 
           if (deterministicProduct) {
             const lineProducts = [deterministicProduct];
             extractedProducts = extractedProducts.concat(lineProducts);
+            pipelineMetrics.linesParsedDeterministic += 1;
             if (lineLevelExtractionCache.size > 500) lineLevelExtractionCache.clear();
             lineLevelExtractionCache.set(lineHash, lineProducts);
             continue;
           }
 
+          pipelineMetrics.linesDroppedDeterministic += 1;
+          const dropReason = !/\d/.test(lineText)
+            ? 'no-price'
+            : (!/(iphone|ipad|macbook|airpod|watch|samsung|galaxy|fold|flip|pixel|note|tab|laptop|gb|tb|wig|service|repair|plumber)/i.test(lineText)
+              ? 'no-signal'
+              : 'unresolved');
+          incrementDropReason(dropReason);
           unresolvedLines.push(lineText);
         }
 
@@ -1500,7 +1611,7 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
         : (parsedPrice || rawPrice || 0);
 
       try {
-        const shadowResult = await processWithShadowTesting({ rawProductString, price: normalizedPrice });
+        const shadowResult = await processWithShadowTesting({ rawProductString, price: normalizedPrice, strictVendorMode });
         const confidence = computeConfidence({ shadowResult, normalizedPrice, rawProductString });
         shadowProcessed.push({
           ...shadowResult,
@@ -1574,10 +1685,22 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
           lastUpdated: new Date().toISOString(),
           fragmentsMerged: admin.firestore.FieldValue.increment(Number(metrics.fragmentsMerged || 0)),
           fragmentsSkippedWithoutBase: admin.firestore.FieldValue.increment(Number(metrics.fragmentsSkippedWithoutBase || 0)),
+          linesSeen: admin.firestore.FieldValue.increment(Number(metrics.linesSeen || 0)),
+          linesParsedDeterministic: admin.firestore.FieldValue.increment(Number(metrics.linesParsedDeterministic || 0)),
+          linesDroppedDeterministic: admin.firestore.FieldValue.increment(Number(metrics.linesDroppedDeterministic || 0)),
+          strictVendorModeRuns: admin.firestore.FieldValue.increment(Number(metrics.strictVendorMode || 0)),
           excludedPhraseDrops: admin.firestore.FieldValue.increment(excludedDrops),
           taxonomyFallbackDrops: admin.firestore.FieldValue.increment(taxonomyFallbacks),
           lowConfidenceRows: admin.firestore.FieldValue.increment(lowConfidence),
         }, { merge: true });
+        if (metrics.dropReasons && Object.keys(metrics.dropReasons).length) {
+          await firestore.collection(SETTINGS_COLLECTION).doc('pipelineMetrics').set({
+            dropReasons: Object.entries(metrics.dropReasons).reduce((acc, [reason, count]) => {
+              acc[reason] = admin.firestore.FieldValue.increment(Number(count || 0));
+              return acc;
+            }, {}),
+          }, { merge: true });
+        }
       } catch (metricError) {
         console.warn('⚠️ Pipeline metrics write skipped:', metricError.message);
       }
