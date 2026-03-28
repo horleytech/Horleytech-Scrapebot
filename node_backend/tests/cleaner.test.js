@@ -18,6 +18,7 @@ test('normalizeCondition maps slang and unknown', () => {
   assert.equal(__testables.normalizeCondition('non active'), 'Brand New');
   assert.equal(__testables.normalizeCondition('mint pristine like new'), 'Grade A UK Used');
   assert.equal(__testables.normalizeCondition('new phone only'), 'Grade A UK Used');
+  assert.equal(__testables.normalizeCondition('good condition'), 'Grade A UK Used');
   assert.equal(__testables.normalizeCondition('condition not stated'), 'Unknown');
   assert.equal(__testables.inferConditionFromRaw('iPhone 14 PM 89 BH', 'Unknown'), 'Grade A UK Used');
   assert.equal(__testables.resolveConditionWithDefaultUsed('iphone 12 pro max 128gb', 'Unknown'), 'Grade A UK Used');
@@ -56,6 +57,14 @@ test('regexPredictTaxonomy returns Others fallback when no hit', () => {
     { raw: 'iphone 15 pro', Category: 'Smartphones', Brand: 'Apple', Series: 'iPhone 15 Pro' },
   ]);
   assert.deepEqual(prediction, __testables.canonicalFallbackTaxonomy());
+});
+
+test('taxonomy scoring helpers prefer specific entries', () => {
+  assert.equal(__testables.taxonomySpecificityScore({ Category: 'Others', Brand: 'Others', Series: 'Others' }), 0);
+  assert.equal(__testables.taxonomySpecificityScore({ Category: 'Smartphones', Brand: 'Others', Series: 'Others' }), 1);
+  assert.equal(__testables.taxonomySpecificityScore({ Category: 'Smartphones', Brand: 'Samsung', Series: 'S Series' }), 3);
+  assert.equal(__testables.isAllOthersTaxonomy({ Category: 'Others', Brand: 'Others', Series: 'Others' }), true);
+  assert.equal(__testables.isAllOthersTaxonomy({ Category: 'Others', Brand: 'Samsung', Series: 'Others' }), false);
 });
 
 test('toAliasDocId encodes normalized alias', () => {
@@ -135,6 +144,26 @@ test('inferTaxonomyFromRaw handles shorthand iphone and airpods lines', () => {
     Brand: 'Others',
     Series: 'Monitor Series',
   });
+  assert.deepEqual(__testables.inferTaxonomyFromRaw('Wig Ally, Super Double Drawn Vietnamese Bone Straight Wig | 13x4 frontal, 20” | Brand New | ₦420,000'), {
+    Category: 'Others',
+    Brand: 'Others',
+    Series: 'General Listing',
+  });
+  assert.deepEqual(__testables.inferTaxonomyFromRaw('PLUMBERING | FIXING ALL TOILETS | WITH TILES | ₦10,000'), {
+    Category: 'Others',
+    Brand: 'Others',
+    Series: 'General Listing',
+  });
+  assert.deepEqual(__testables.inferTaxonomyFromRaw('Non Active Series SE 3rd Gen 40M GPS (7 unit)'), {
+    Category: 'Smartwatches',
+    Brand: 'Apple',
+    Series: 'Apple Watch Series',
+  });
+  assert.deepEqual(__testables.inferTaxonomyFromRaw('Space Black Nano-Texture Glass'), {
+    Category: 'Others',
+    Brand: 'Others',
+    Series: 'General Listing',
+  });
 });
 
 test('inferSimByBrandContext applies iPhone and Samsung defaults', () => {
@@ -167,4 +196,8 @@ test('inferDeviceTypeFromRaw resolves Samsung flagship variants', () => {
   assert.equal(__testables.inferDeviceTypeFromRaw('Uk Samsung S25 ultra 512GB UNLOCK'), 'Samsung S25 Ultra');
   assert.equal(__testables.inferDeviceTypeFromRaw('S22 ultra128gb'), 'Samsung S22 Ultra');
   assert.equal(__testables.inferDeviceTypeFromRaw('Note 20 ultra 128gb'), 'Samsung Note 20 Ultra');
+  assert.equal(__testables.inferDeviceTypeFromRaw('Wig Ally, Super Double Drawn Vietnamese Bone Straight Wig | 13x4 frontal, 20” | Brand New | ₦420,000'), 'Wig Ally');
+  assert.equal(__testables.inferDeviceTypeFromRaw('EBA | TWO PLATES | AND MEAT | ₦20,000'), 'EBA');
+  assert.equal(__testables.inferDeviceTypeFromRaw('Non Active Series SE 3rd Gen 40M GPS (7 unit)'), 'Apple Watch SE 3');
+  assert.equal(__testables.inferDeviceTypeFromRaw('Unknown non-device line', 'Unknown Device'), 'Unknown Device');
 });

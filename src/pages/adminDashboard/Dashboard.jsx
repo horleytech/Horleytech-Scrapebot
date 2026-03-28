@@ -583,6 +583,10 @@ const AdminDashboard = () => {
   const [bulkTinbrSaving, setBulkTinbrSaving] = useState(false);
   const [bulkTinbrUseTinyChecked, setBulkTinbrUseTinyChecked] = useState(true);
   const [bulkTinbrShowBothChecked, setBulkTinbrShowBothChecked] = useState(true);
+  const [strictRoutingEnabled, setStrictRoutingEnabled] = useState(true);
+  const [strictRoutingVendorsText, setStrictRoutingVendorsText] = useState('');
+  const [strictRoutingLoading, setStrictRoutingLoading] = useState(false);
+  const [strictRoutingSaving, setStrictRoutingSaving] = useState(false);
   const priceReferenceModeLabelMap = {
     selected_primary: 'Primary Vendor only',
     selected_highest: 'Selected Vendors • Highest',
@@ -868,6 +872,7 @@ const AdminDashboard = () => {
   useEffect(() => {
     if (activeTab === 'maintenance') {
       fetchDriveBackups();
+      loadExtractionRoutingSettings();
     }
   }, [activeTab]);
   useEffect(() => {
@@ -1514,6 +1519,55 @@ const AdminDashboard = () => {
       alert(`❌ Failed: ${data.error}`);
     } catch (error) {
       alert(`❌ Error: ${error.message}`);
+    }
+  };
+  const loadExtractionRoutingSettings = async () => {
+    setStrictRoutingLoading(true);
+    try {
+      const response = await fetch('/api/admin/settings/extractionRouting', {
+        headers: { 'Content-Type': 'application/json', 'x-user-role': 'admin' },
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload.success) {
+        throw new Error(payload.error || 'Failed to load strict routing settings');
+      }
+      const strictVendors = Array.isArray(payload.data?.strictVendors)
+        ? payload.data.strictVendors.join(', ')
+        : String(payload.data?.strictVendors || '');
+      setStrictRoutingVendorsText(strictVendors);
+      setStrictRoutingEnabled(payload.data?.enabled !== false);
+    } catch (error) {
+      console.error('Strict routing settings load failed:', error);
+      alert(`❌ ${error.message || 'Failed to load strict routing settings'}`);
+    } finally {
+      setStrictRoutingLoading(false);
+    }
+  };
+  const saveExtractionRoutingSettings = async () => {
+    setStrictRoutingSaving(true);
+    try {
+      const strictVendors = strictRoutingVendorsText
+        .split(',')
+        .map((item) => item.trim())
+        .filter(Boolean);
+      const response = await fetch('/api/admin/settings/extractionRouting', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-user-role': 'admin' },
+        body: JSON.stringify({
+          enabled: Boolean(strictRoutingEnabled),
+          strictVendors,
+        }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload.success) {
+        throw new Error(payload.error || 'Failed to save strict routing settings');
+      }
+      alert('✅ Strict routing vendor settings saved.');
+    } catch (error) {
+      console.error('Strict routing settings save failed:', error);
+      alert(`❌ ${error.message || 'Failed to save strict routing settings'}`);
+    } finally {
+      setStrictRoutingSaving(false);
     }
   };
   const restoreBackup = async (backupId) => {
@@ -3046,6 +3100,46 @@ const AdminDashboard = () => {
                 </label>
                 <button onClick={runRetroactiveCleanup} className="bg-emerald-600 text-white px-4 py-2 rounded-lg font-bold text-sm hover:bg-emerald-700">🧹 Run Retroactive Cleanup</button>
                 <button onClick={forceBuildProductCache} className="bg-purple-600 text-white px-4 py-2 rounded-lg font-bold text-sm hover:bg-purple-700">🏗️ Force Build Product Cache</button>
+              </div>
+              <div className="mb-5 border border-indigo-200 rounded-2xl p-4 bg-indigo-50">
+                <h3 className="text-sm font-black uppercase tracking-wider text-slate-800 mb-2">Strict Routing Vendors (Laptop/Phone)</h3>
+                <p className="text-xs text-slate-700 mb-3">
+                  This is where you enter vendor names that must use strict laptop/phone parsing in the WhatsApp backend.
+                </p>
+                <label className="flex items-center gap-2 text-xs font-semibold text-slate-900 mb-3">
+                  <input
+                    type="checkbox"
+                    checked={strictRoutingEnabled}
+                    onChange={(event) => setStrictRoutingEnabled(event.target.checked)}
+                    disabled={strictRoutingLoading || strictRoutingSaving}
+                    className="h-4 w-4 rounded border-slate-300 text-slate-700 focus:ring-slate-500"
+                  />
+                  Enable strict laptop/phone vendor routing
+                </label>
+                <textarea
+                  value={strictRoutingVendorsText}
+                  onChange={(event) => setStrictRoutingVendorsText(event.target.value)}
+                  placeholder="Lala Ikeja, Isreal Ikeja, Horleytech Line"
+                  disabled={strictRoutingLoading || strictRoutingSaving}
+                  className="w-full min-h-[90px] rounded-lg border border-slate-300 p-3 text-xs text-slate-900 bg-white"
+                />
+                <p className="text-[11px] text-slate-600 mt-2">Enter names separated by commas. Exact vendor names are recommended.</p>
+                <div className="flex gap-2 mt-3">
+                  <button
+                    onClick={saveExtractionRoutingSettings}
+                    disabled={strictRoutingLoading || strictRoutingSaving}
+                    className="px-3 py-2 rounded-lg text-xs font-black uppercase tracking-wider bg-slate-800 text-white hover:bg-black disabled:opacity-50"
+                  >
+                    {strictRoutingSaving ? 'Saving...' : 'Save Strict Vendors'}
+                  </button>
+                  <button
+                    onClick={loadExtractionRoutingSettings}
+                    disabled={strictRoutingLoading || strictRoutingSaving}
+                    className="px-3 py-2 rounded-lg text-xs font-black uppercase tracking-wider bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                  >
+                    {strictRoutingLoading ? 'Loading...' : 'Reload'}
+                  </button>
+                </div>
               </div>
               <div className="mb-5 border border-indigo-200 rounded-2xl p-4 bg-indigo-50">
                 <h3 className="text-sm font-black uppercase tracking-wider text-indigo-700 mb-2">Tiny Link Controls (All Vendors)</h3>
