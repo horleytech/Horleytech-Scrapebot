@@ -1004,8 +1004,8 @@ export const processWithShadowTesting = async ({ rawProductString, price }) => {
   const baseCondition = parsedCondition === 'Unknown' && catalogEntry?.condition && catalogEntry.condition !== 'Unknown'
     ? catalogEntry.condition
     : inferredConditionBase;
-  const resolvedCondition = resolveConditionWithDefaultUsed(rawProductString, baseCondition);
-  const resolvedDeviceType = catalogEntry?.deviceType
+  let resolvedCondition = resolveConditionWithDefaultUsed(rawProductString, baseCondition);
+  let resolvedDeviceType = catalogEntry?.deviceType
     || inferDeviceTypeFromRaw(rawProductString, finalTaxonomy.Series || 'Unknown Device');
   let resolvedSpecification = resolveSpecification({
     rawProductString,
@@ -1022,31 +1022,24 @@ export const processWithShadowTesting = async ({ rawProductString, price }) => {
   const othersCondition = structuredRaw.condition || inferredConditionBase || 'Unknown';
 
   if (isTaxonomyOthers) {
-    return {
-      rawProductString,
-      price,
-      taxonomy: finalTaxonomy,
-      deviceType: othersDeviceType,
-      storage: parsedStorage,
-      condition: othersCondition,
-      sim: othersSpecification,
-      variationId: null,
-      trustedFastLane: false,
-      ignored: false,
-      ignoreReason: '',
-    };
+    // Keep non-catalog/structured listings (e.g. wigs, custom items) readable and cacheable.
+    resolvedDeviceType = othersDeviceType;
+    resolvedSpecification = othersSpecification;
+    resolvedCondition = othersCondition;
   }
 
   const shouldUseAiForSim = ['smartphones', 'smartwatches'].includes(normalizedCategory) && resolvedSpecification === 'Unknown';
   if (shouldUseAiForSim) {
     resolvedSpecification = await resolveSimWithLowCostAI(rawProductString);
   }
-  resolvedSpecification = inferSimByBrandContext({
-    rawProductString,
-    parsedSim: resolvedSpecification,
-    taxonomy: finalTaxonomy,
-    deviceType: resolvedDeviceType,
-  });
+  if (!isTaxonomyOthers) {
+    resolvedSpecification = inferSimByBrandContext({
+      rawProductString,
+      parsedSim: resolvedSpecification,
+      taxonomy: finalTaxonomy,
+      deviceType: resolvedDeviceType,
+    });
+  }
 
   const requiresStorage = ['smartphones', 'laptops', 'tablets', 'gaming'].includes(normalizedCategory);
   const hasUnknownVariantAttr = (requiresStorage && parsedStorage === 'UNKNOWN');
