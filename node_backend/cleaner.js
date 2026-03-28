@@ -912,7 +912,7 @@ const tryTrustedFastLane = async (alias) => {
   };
 };
 
-export const processWithShadowTesting = async ({ rawProductString, price }) => {
+export const processWithShadowTesting = async ({ rawProductString, price, strictVendorMode = false }) => {
   const alias = normalizeAlias(rawProductString);
   const parsedStorage = normalizeStorage(rawProductString);
   const parsedCondition = normalizeCondition(rawProductString);
@@ -970,7 +970,13 @@ export const processWithShadowTesting = async ({ rawProductString, price }) => {
 
   const regexPrediction = regexPredictTaxonomy(alias, rows);
   const aiTruth = await runTwoLayerJudge(alias, canonicalTaxonomy);
-  const fallbackTaxonomy = inferTaxonomyFromRaw(rawProductString);
+  let fallbackTaxonomy = inferTaxonomyFromRaw(rawProductString);
+  if (strictVendorMode
+    && fallbackTaxonomy?.Category === 'Others'
+    && fallbackTaxonomy?.Brand === 'Others'
+    && fallbackTaxonomy?.Series === 'General Listing') {
+    fallbackTaxonomy = canonicalFallbackTaxonomy();
+  }
   const catalogTaxonomy = catalogEntry
     ? {
       Category: catalogEntry.category,

@@ -1611,7 +1611,7 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
         : (parsedPrice || rawPrice || 0);
 
       try {
-        const shadowResult = await processWithShadowTesting({ rawProductString, price: normalizedPrice });
+        const shadowResult = await processWithShadowTesting({ rawProductString, price: normalizedPrice, strictVendorMode });
         const confidence = computeConfidence({ shadowResult, normalizedPrice, rawProductString });
         shadowProcessed.push({
           ...shadowResult,
