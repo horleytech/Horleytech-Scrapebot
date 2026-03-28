@@ -287,6 +287,44 @@ const resolveSeedMatchFromCsvTargets = (rawString = '', csvTargets = []) => {
   };
 };
 
+const buildNewContainerSeedsFromTargets = (csvTargets = [], shardSeeds = [], maxContainers = 300) => {
+  if (!Array.isArray(csvTargets) || !csvTargets.length) return {};
+  const existingKeys = new Set();
+  shardSeeds.forEach((seed) => {
+    const rawKey = normalizeFuzzyDeviceKey(seed?.rawKey || '');
+    const deviceKey = normalizeFuzzyDeviceKey(seed?.deviceKey || '');
+    if (rawKey) existingKeys.add(rawKey);
+    if (deviceKey) existingKeys.add(deviceKey);
+  });
+
+  const proposed = {};
+  for (const target of csvTargets) {
+    const targetName = String(target || '').trim();
+    if (!targetName) continue;
+    const fuzzyKey = normalizeFuzzyDeviceKey(targetName);
+    if (!fuzzyKey || fuzzyKey.length < 3) continue;
+    if (existingKeys.has(fuzzyKey)) continue;
+
+    const mappingKey = normalizeMappingKey(targetName);
+    if (!mappingKey || proposed[mappingKey]) continue;
+
+    proposed[mappingKey] = {
+      standardName: targetName,
+      condition: 'Unknown',
+      sim: 'Unknown',
+      isOthers: false,
+      category: inferCategoryFromName(targetName),
+      brand: inferBrandFromName(targetName),
+      series: targetName,
+      deviceType: targetName,
+      confidenceSource: 'csv-new-container',
+    };
+
+    if (Object.keys(proposed).length >= maxContainers) break;
+  }
+  return proposed;
+};
+
 export const runRetroactiveSweep = async ({ dryRun = false } = {}) => {
   const firestore = getAdminFirestore();
   const customMappings = await getLatestCustomMappings();
@@ -484,6 +522,7 @@ export const runNightlyUnknownSweeper = async () => {
   const CAT_LIST = TAXONOMY_CATEGORIES;
   const shardSeeds = await loadShardedMappingSeeds(firestore);
   const csvTargets = await loadGlobalContainerTargets(firestore);
+  const newContainerSeeds = buildNewContainerSeedsFromTargets(csvTargets, shardSeeds);
   const strictRouting = await loadStrictRoutingVendors(firestore);
 
   const vendorSnapshot = await firestore.collection(OFFLINE_COLLECTION).get();
@@ -524,12 +563,10 @@ export const runNightlyUnknownSweeper = async () => {
   const candidateRows = Array.from(unknownCandidates)
     .slice(0, NIGHTLY_MAX_CANDIDATES)
     .map((raw) => ({ raw }));
-  if (!candidateRows.length) {
-    return { success: true, judged: 0, updatedMappings: 0 };
-  }
 
   const chunks = chunkArray(candidateRows, AI_BATCH_SIZE).slice(0, NIGHTLY_MAX_AI_CHUNKS);
-  const newAiMappings = {};
+  const newAiMappings = { ...newContainerSeeds };
+  const newContainersFromTargets = Object.keys(newContainerSeeds).length;
   let seededFromCatalog = 0;
   let seededFromCsv = 0;
   let failedChunks = 0;
@@ -586,6 +623,7 @@ export const runNightlyUnknownSweeper = async () => {
     shardUpdates[safeCat][key] = mapping;
   }
   for (const [catName, mapData] of Object.entries(shardUpdates)) {
+    if (!Object.keys(mapData || {}).length) continue;
     await firestore.collection('horleyTech_Settings').doc(`mappings_${catName}`).set({
       mappings: mapData,
       lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
@@ -598,6 +636,7 @@ export const runNightlyUnknownSweeper = async () => {
     success: true,
     judged: candidateRows.length,
     updatedMappings: Object.keys(newAiMappings).length,
+    newContainersFromTargets,
     seededFromCatalog,
     seededFromCsv,
     totalChunks: chunks.length,
