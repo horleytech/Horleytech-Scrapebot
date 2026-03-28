@@ -201,3 +201,12 @@ test('inferDeviceTypeFromRaw resolves Samsung flagship variants', () => {
   assert.equal(__testables.inferDeviceTypeFromRaw('Non Active Series SE 3rd Gen 40M GPS (7 unit)'), 'Apple Watch SE 3');
   assert.equal(__testables.inferDeviceTypeFromRaw('Unknown non-device line', 'Unknown Device'), 'Unknown Device');
 });
+
+test('parseStructuredGeneralListing extracts Product | Specs | Condition format', () => {
+  assert.deepEqual(__testables.parseStructuredGeneralListing('aaaa | bbbb | cccc'), {
+    product: 'aaaa',
+    specification: 'bbbb',
+    condition: 'cccc',
+  });
+  assert.equal(__testables.parseStructuredGeneralListing('single segment'), null);
+});
