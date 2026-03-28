@@ -574,6 +574,12 @@ const inferTaxonomyFromRaw = (rawText = '') => {
   if (/\b(monitor|inch\s+full\s+hd|display)\b/.test(text)) {
     return { Category: 'Accessories', Brand: 'Others', Series: 'Monitor Series' };
   }
+  if (/\bseries\s*se\b|\b(?:2nd|3rd|4th)\s*gen\b/.test(text) && /\b(40m|41m|45m|49m|gps|lte|cellular)\b/.test(text)) {
+    return { Category: 'Smartwatches', Brand: 'Apple', Series: 'Apple Watch Series' };
+  }
+  if (/\b(lens|frame|transitions?|nano-?texture|glass|cerulean|shiny|matte)\b/.test(text)) {
+    return { Category: 'Others', Brand: 'Others', Series: 'General Listing' };
+  }
   const pipeParts = String(rawText || '').split('|').map((part) => part.trim()).filter(Boolean);
   const pipeLead = String(pipeParts[0] || '').trim();
   const pipePriceToken = pipeParts.length >= 3 ? pipeParts[pipeParts.length - 1] : '';
@@ -669,6 +675,8 @@ const inferDeviceTypeFromRaw = (rawText = '', fallbackSeries = 'Unknown Device')
     return `Apple Watch ${watchSuffix}`;
   }
   if (appleWatch?.[1]) return 'Apple Watch';
+  const appleWatchSe = text.match(/\bseries\s*se\s*(\d{1,2})(?:st|nd|rd|th)?\s*gen\b/i);
+  if (appleWatchSe?.[1]) return `Apple Watch SE ${appleWatchSe[1]}`;
   if (/\bipad\s*air\b/i.test(text)) return 'iPad Air';
   if (/\bipad\s*pro\b/i.test(text)) return 'iPad Pro';
   if (/\bipad\b/i.test(text)) return 'iPad';

@@ -1239,8 +1239,9 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
       const specOnly = /^(esim|physical\s*sim|locked|fu|idm|ibm|wifi|wi-?fi\s*only)$/i.test(lower);
       const memoryOnly = /^\d+\s*\/\s*\d+\s*(gb|tb)$/i.test(lower);
       const storageOnly = /^\d+\s*(gb|tb)$/i.test(lower);
+      const styleOnly = /^([a-z\s-]+)?\(?\s*(clear|transition|transitions|lens|frame|cerulean|shiny|matte|black|blue|silver|gold|orange|pink)\s*[a-z\s-]*\)?$/i.test(lower);
 
-      return colorOnly || specOnly || memoryOnly || storageOnly;
+      return colorOnly || specOnly || memoryOnly || storageOnly || styleOnly;
     };
 
     const mergeFragmentedProducts = (products = []) => {

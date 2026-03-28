@@ -154,6 +154,16 @@ test('inferTaxonomyFromRaw handles shorthand iphone and airpods lines', () => {
     Brand: 'Others',
     Series: 'General Listing',
   });
+  assert.deepEqual(__testables.inferTaxonomyFromRaw('Non Active Series SE 3rd Gen 40M GPS (7 unit)'), {
+    Category: 'Smartwatches',
+    Brand: 'Apple',
+    Series: 'Apple Watch Series',
+  });
+  assert.deepEqual(__testables.inferTaxonomyFromRaw('Space Black Nano-Texture Glass'), {
+    Category: 'Others',
+    Brand: 'Others',
+    Series: 'General Listing',
+  });
 });
 
 test('inferSimByBrandContext applies iPhone and Samsung defaults', () => {
@@ -188,5 +198,6 @@ test('inferDeviceTypeFromRaw resolves Samsung flagship variants', () => {
   assert.equal(__testables.inferDeviceTypeFromRaw('Note 20 ultra 128gb'), 'Samsung Note 20 Ultra');
   assert.equal(__testables.inferDeviceTypeFromRaw('Wig Ally, Super Double Drawn Vietnamese Bone Straight Wig | 13x4 frontal, 20” | Brand New | ₦420,000'), 'Wig Ally');
   assert.equal(__testables.inferDeviceTypeFromRaw('EBA | TWO PLATES | AND MEAT | ₦20,000'), 'EBA');
+  assert.equal(__testables.inferDeviceTypeFromRaw('Non Active Series SE 3rd Gen 40M GPS (7 unit)'), 'Apple Watch SE 3');
   assert.equal(__testables.inferDeviceTypeFromRaw('Unknown non-device line', 'Unknown Device'), 'Unknown Device');
 });
