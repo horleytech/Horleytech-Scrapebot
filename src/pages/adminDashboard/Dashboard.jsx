@@ -86,6 +86,12 @@ const buildGeneralListingStoreGroups = (devices = {}) => {
   return grouped;
 };
 
+const sumVariationStock = (variations = {}) => Object.values(variations)
+  .reduce((sum, variation) => sum + Number(variation?.stockCount || 0), 0);
+
+const sumDeviceStock = (devices = {}) => Object.values(devices)
+  .reduce((sum, variations) => sum + sumVariationStock(variations), 0);
+
 const formatExportPrice = (vendors = []) => {
   const validPrices = vendors
     .map((vendor) => Number(vendor?.priceValue || 0))
@@ -2695,9 +2701,7 @@ const AdminDashboard = () => {
                                                   const storeKey = `store:${category}__${brand}__${series}__${storeName}`;
                                                   if (!paginatedGroupKeySet.has(storeKey)) return null;
                                                   const storeExpanded = expandedProductGroups.includes(storeKey);
-                                                  const storeCount = Object.values(storeDevices)
-                                                    .flatMap((variations) => Object.values(variations).map((variation) => variation.stockCount))
-                                                    .reduce((sum, count) => sum + count, 0);
+                                                  const storeCount = sumDeviceStock(storeDevices);
                                                   return (
                                                     <div key={storeKey} className="rounded-xl border border-gray-100 bg-gray-50">
                                                       <button type="button" onClick={() => toggleProductGroup(storeKey)} className="w-full px-4 py-3 text-left text-sm font-bold text-gray-900 flex items-center justify-between">{storeName} ({storeCount})<span>{storeExpanded ? '⌄' : '›'}</span></button>
@@ -2705,11 +2709,11 @@ const AdminDashboard = () => {
                                                         <div className="pl-4 pr-2 pb-3 space-y-2">
                                                           {Object.entries(storeDevices).map(([deviceType, variations]) => {
                                                             const deviceKey = `device:${category}__${brand}__${series}__${deviceType}`;
-                                                            if (!paginatedGroupKeySet.has(deviceKey)) return null;
+                                                                if (!paginatedGroupKeySet.has(deviceKey)) return null;
                                                             const deviceExpanded = expandedProductGroups.includes(deviceKey);
                                                             return (
                                                               <div key={`${storeKey}__${deviceKey}`} className="rounded-xl border border-gray-100 bg-white">
-                                                                <button type="button" onClick={() => toggleProductGroup(deviceKey)} className="w-full px-4 py-3 text-left text-sm font-bold text-gray-900 flex items-center justify-between">{deviceType} ({Object.values(variations).reduce((sum, variation) => sum + variation.stockCount, 0)})<span>{deviceExpanded ? '⌄' : '›'}</span></button>
+                                                                <button type="button" onClick={() => toggleProductGroup(deviceKey)} className="w-full px-4 py-3 text-left text-sm font-bold text-gray-900 flex items-center justify-between">{deviceType} ({sumVariationStock(variations)})<span>{deviceExpanded ? '⌄' : '›'}</span></button>
                                                                 {deviceExpanded && (
                                                                   <div className="px-2 pb-3 space-y-2">
                                                                     {Object.entries(variations).map(([variationRawKey, variation]) => {
