@@ -1259,7 +1259,7 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
       const cleaned = String(line || '')
         .replace(/\*(₦?\s*[\d,]+(?:\.\d+)?\s*[mk]?)\*/gi, '$1')
         .replace(/^[-*•]+\s*/, '')
-        .replace(/^\d+\s*[🅰🅱🅾a-z]*[\s.)-]*/i, '')
+        .replace(/^\d+\s*[🅰🅱🅾a-z]*[\s.)-]*/iu, '')
         .replace(/@\s*n/gi, ' ₦')
         .replace(/\bn(?=\d)/gi, '₦')
         .replace(/\s+/g, ' ')
@@ -1313,6 +1313,23 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
       }
 
       return null;
+    };
+
+    const fallbackExtractFromLine = (line = '') => {
+      const cleaned = String(line || '')
+        .replace(/^[-*•]+\s*/, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+
+      if (!cleaned || cleaned.length < 5) return null;
+      if (isLikelyFragment(cleaned)) return null;
+      if (!/[a-z]/i.test(cleaned)) return null;
+
+      const parsedRawPrice = parsePriceFromRaw(cleaned);
+      return {
+        rawProductString: cleaned,
+        price: parsedRawPrice >= 10000 ? String(parsedRawPrice) : 'Available',
+      };
     };
 
     const parsePriceFromRaw = (raw = '') => {
@@ -1465,7 +1482,13 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
           if (unresolvedLines.length <= 25) {
             for (const unresolvedLine of unresolvedLines) {
               const lineHash = unresolvedLine.substring(0, 150);
-              const lineProducts = await extractFromText(unresolvedLine, 160);
+              const aiLineProducts = await extractFromText(unresolvedLine, 160);
+              const lineProducts = (Array.isArray(aiLineProducts) && aiLineProducts.length > 0)
+                ? aiLineProducts
+                : (() => {
+                  const fallbackProduct = fallbackExtractFromLine(unresolvedLine);
+                  return fallbackProduct ? [fallbackProduct] : [];
+                })();
               extractedProducts = extractedProducts.concat(lineProducts);
               if (lineLevelExtractionCache.size > 500) lineLevelExtractionCache.clear();
               lineLevelExtractionCache.set(lineHash, lineProducts);
