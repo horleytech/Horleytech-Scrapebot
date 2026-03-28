@@ -16,9 +16,6 @@ const Ai = () => {
   // const [pricesData, setPricesData] = useState(null);
   const [responseMessage, setResponseMessage] = useState('');
   const [success, setSuccess] = useState(false);
-  const [customPromptText, setCustomPromptText] = useState('');
-  const [savingGlobalSettings, setSavingGlobalSettings] = useState(false);
-  const [loadingGlobalSettings, setLoadingGlobalSettings] = useState(false);
 
   const _dummyData = [
     {
@@ -52,46 +49,6 @@ const Ai = () => {
   useEffect(() => {
     console.log({ file });
   }, [file]);
-
-  const loadGlobalSettingsFromFirebase = async () => {
-    setLoadingGlobalSettings(true);
-    try {
-      const response = await fetch('/api/admin/settings/ai_config', {
-        headers: { 'Content-Type': 'application/json', 'x-user-role': 'admin' },
-      });
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok || !payload.success) throw new Error(payload.error || 'Failed to load AI settings');
-      setCustomPromptText(String(payload.data?.stageOnePrompt || ''));
-    } catch (error) {
-      console.error('Failed to load AI settings:', error);
-    } finally {
-      setLoadingGlobalSettings(false);
-    }
-  };
-
-  const saveGlobalSettingsToFirebase = async () => {
-    setSavingGlobalSettings(true);
-    try {
-      const response = await fetch('/api/admin/settings/ai_config', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-user-role': 'admin' },
-        body: JSON.stringify({
-          stageOnePrompt: customPromptText,
-        }),
-      });
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok || !payload.success) throw new Error(payload.error || 'Failed to save AI settings');
-      toast.success('AI global settings saved to Firebase');
-    } catch (error) {
-      toast.error(error.message || 'Failed to save AI settings');
-    } finally {
-      setSavingGlobalSettings(false);
-    }
-  };
-
-  useEffect(() => {
-    loadGlobalSettingsFromFirebase();
-  }, []);
 
   const handleDrop = (event) => {
     event.preventDefault();
@@ -191,28 +148,6 @@ const Ai = () => {
         </div>
 
         <div className="my-5">
-          <div className="mb-8 p-4 rounded-lg border border-gray-200 bg-white w-[50%]">
-            <label htmlFor="ai-prompt" className="block font-bold text-base mb-2">
-              AI Stage 1 Prompt (Global)
-            </label>
-            <textarea
-              id="ai-prompt"
-              value={customPromptText}
-              onChange={(event) => setCustomPromptText(event.target.value)}
-              className="w-full min-h-[120px] border rounded-lg p-3"
-              placeholder="Write the global AI extraction prompt..."
-              disabled={loadingGlobalSettings || savingGlobalSettings}
-            />
-            <button
-              type="button"
-              onClick={saveGlobalSettingsToFirebase}
-              disabled={loadingGlobalSettings || savingGlobalSettings}
-              className="mt-3 bg-black text-white rounded-lg px-4 py-2 hover:bg-gray-700 disabled:opacity-50"
-            >
-              {savingGlobalSettings ? 'Saving...' : 'Save AI Global Settings'}
-            </button>
-          </div>
-
           <form
             className="flex flex-col space-y-5 w-[50%]"
             onSubmit={handleSubmit}
