@@ -203,6 +203,31 @@ const normalizeVariationSpecLabel = (value = '') => {
   return String(value || 'Unknown').trim() || 'Unknown';
 };
 
+const normalizeContainerToken = (value = '') => String(value || '')
+  .trim()
+  .toLowerCase()
+  .replace(/\s+/g, ' ')
+  .replace(/[^a-z0-9]+/g, '-')
+  .replace(/(^-|-$)/g, '');
+
+const buildProductContainerId = ({
+  category = '',
+  brand = '',
+  series = '',
+  deviceType = '',
+  storage = '',
+  condition = '',
+  spec = '',
+}) => [
+  normalizeContainerToken(category || 'others'),
+  normalizeContainerToken(brand || 'others'),
+  normalizeContainerToken(series || 'others'),
+  normalizeContainerToken(deviceType || 'unknown-device'),
+  normalizeContainerToken(storage || 'unknown'),
+  normalizeContainerToken(condition || 'unknown'),
+  normalizeContainerToken(spec || 'unknown'),
+].filter(Boolean).join('__');
+
 const buildVariationId = ({ series, storage, condition, sim }) => `${series}_${storage}_${condition}_${normalizeVariationSpecLabel(sim)}`
   .toLowerCase()
   .replace(/\s+/g, '-');
@@ -396,8 +421,11 @@ const loadProductCatalogDictionary = async () => {
       series: String(cells[idx.series] || '').trim(),
       deviceType: String(cells[idx.deviceType] || '').trim(),
       storage: idx.storage >= 0 ? normalizeStorage(cells[idx.storage] || '') : 'UNKNOWN',
+      storageRaw: idx.storage >= 0 ? String(cells[idx.storage] || '').trim() : '',
       spec: idx.spec >= 0 ? normalizeSimLabel(cells[idx.spec] || '') : null,
+      specRaw: idx.spec >= 0 ? String(cells[idx.spec] || '').trim() : '',
       condition: idx.condition >= 0 ? normalizeCondition(cells[idx.condition] || '') : 'Unknown',
+      conditionRaw: idx.condition >= 0 ? String(cells[idx.condition] || '').trim() : '',
     })).filter((entry) => entry.category && entry.brand && entry.series && entry.deviceType);
 
     productCatalogCacheAt = now;
@@ -419,10 +447,14 @@ const resolveCatalogEntry = async (rawText = '', parsedStorage = 'UNKNOWN') => {
     .map((entry) => {
       const deviceToken = toComparableToken(entry.deviceType);
       const seriesToken = toComparableToken(entry.series);
+      const specToken = toComparableToken(entry.specRaw || '');
+      const conditionToken = toComparableToken(entry.conditionRaw || '');
       const deviceHit = deviceToken && haystack.includes(deviceToken);
       const seriesHit = seriesToken && haystack.includes(seriesToken);
+      const specHit = specToken && haystack.includes(specToken);
+      const conditionHit = conditionToken && haystack.includes(conditionToken);
       const storageHit = normalizedStorage === 'UNKNOWN' || entry.storage === 'UNKNOWN' || entry.storage === normalizedStorage;
-      const score = (deviceHit ? 3 : 0) + (seriesHit ? 2 : 0) + (storageHit ? 1 : 0);
+      const score = (deviceHit ? 3 : 0) + (seriesHit ? 2 : 0) + (specHit ? 2 : 0) + (conditionHit ? 1 : 0) + (storageHit ? 1 : 0);
       return { entry, score, tokenSize: Math.max(deviceToken.length, seriesToken.length) };
     })
     .filter((candidate) => candidate.score >= 3)
@@ -1022,6 +1054,16 @@ export const processWithShadowTesting = async ({ rawProductString, price }) => {
   const othersCondition = structuredRaw.condition || inferredConditionBase || 'Unknown';
 
   if (isTaxonomyOthers) {
+    const othersVariationId = buildProductContainerId({
+      category: finalTaxonomy.Category,
+      brand: finalTaxonomy.Brand,
+      series: finalTaxonomy.Series,
+      deviceType: othersDeviceType,
+      storage: parsedStorage,
+      condition: othersCondition,
+      spec: othersSpecification,
+    });
+
     return {
       rawProductString,
       price,
@@ -1030,7 +1072,7 @@ export const processWithShadowTesting = async ({ rawProductString, price }) => {
       storage: parsedStorage,
       condition: othersCondition,
       sim: othersSpecification,
-      variationId: null,
+      variationId: othersVariationId,
       trustedFastLane: false,
       ignored: false,
       ignoreReason: '',
@@ -1067,12 +1109,22 @@ export const processWithShadowTesting = async ({ rawProductString, price }) => {
     };
   }
 
-  const aiVariationId = buildVariationId({
-    series: finalTaxonomy.Series,
-    storage: parsedStorage,
-    condition: resolvedCondition,
-    sim: resolvedSpecification,
-  });
+  const aiVariationId = catalogEntry
+    ? buildProductContainerId({
+      category: catalogEntry.category,
+      brand: catalogEntry.brand,
+      series: catalogEntry.series,
+      deviceType: catalogEntry.deviceType,
+      storage: catalogEntry.storageRaw || parsedStorage,
+      condition: catalogEntry.conditionRaw || resolvedCondition,
+      spec: catalogEntry.specRaw || resolvedSpecification,
+    })
+    : buildVariationId({
+      series: finalTaxonomy.Series,
+      storage: parsedStorage,
+      condition: resolvedCondition,
+      sim: resolvedSpecification,
+    });
 
   let shadowResult = { didMatch: false, promotedToTrusted: false };
   try {
@@ -1116,6 +1168,7 @@ export const __testables = {
   inferDeviceTypeFromRaw,
   inferSimByBrandContext,
   buildVariationId,
+  buildProductContainerId,
   canonicalFallbackTaxonomy,
   regexPredictTaxonomy,
   toAliasDocId,
