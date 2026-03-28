@@ -18,6 +18,8 @@ const NIGHTLY_MAX_AI_CHUNKS = 20;
 const NIGHTLY_AI_THROTTLE_MS = 750;
 let inMemoryGlobalProducts = [];
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const TAXONOMY_CATEGORIES = ['Smartphones', 'Smartwatches', 'Laptops', 'Sounds', 'Accessories', 'Tablets', 'Gaming', 'Others'];
+const normalizeVendorKey = (value = '') => String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
 
 const normalizeCacheCondition = (value = '') => {
   const normalized = String(value || '').trim().toLowerCase();
@@ -28,6 +30,39 @@ const normalizeCacheCondition = (value = '') => {
 };
 
 const normalizeMappingKey = (value) => String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+const normalizeFuzzyDeviceKey = (value = '') => String(value || '')
+  .toLowerCase()
+  .replace(/pro\s*max/g, 'promax')
+  .replace(/ultra\s*2/g, 'ultra2')
+  .replace(/series\s*se/g, 'se')
+  .replace(/[^a-z0-9]/g, '');
+const tokenizeCsvLine = (line = '') => {
+  const cells = [];
+  let current = '';
+  let inQuotes = false;
+
+  for (let i = 0; i < line.length; i += 1) {
+    const char = line[i];
+    const next = line[i + 1];
+    if (char === '"' && inQuotes && next === '"') {
+      current += '"';
+      i += 1;
+      continue;
+    }
+    if (char === '"') {
+      inQuotes = !inQuotes;
+      continue;
+    }
+    if (char === ',' && !inQuotes) {
+      cells.push(current.trim());
+      current = '';
+      continue;
+    }
+    current += char;
+  }
+  cells.push(current.trim());
+  return cells;
+};
 
 const toFlatMappingList = (customMappings) => {
   if (Array.isArray(customMappings)) return customMappings;
@@ -70,6 +105,224 @@ const buildMappingIndex = (customMappings = []) => {
   });
 
   return index;
+};
+
+const loadShardedMappingSeeds = async (firestore) => {
+  const rows = [];
+  for (const category of TAXONOMY_CATEGORIES) {
+    const docSnap = await firestore.collection(SETTINGS_COLLECTION).doc(`mappings_${category}`).get();
+    if (!docSnap.exists) continue;
+    const mappings = docSnap.data()?.mappings || {};
+    Object.entries(mappings).forEach(([raw, mapped]) => {
+      const rawKey = normalizeFuzzyDeviceKey(raw);
+      const deviceType = mapped?.deviceType || mapped?.standardName || '';
+      const deviceKey = normalizeFuzzyDeviceKey(deviceType);
+      if (!rawKey && !deviceKey) return;
+      rows.push({
+        rawKey,
+        deviceKey,
+        category: mapped?.category || category || 'Others',
+        brand: mapped?.brand || 'Others',
+        series: mapped?.series || 'Others',
+        deviceType: deviceType || mapped?.series || 'Unknown Device',
+      });
+    });
+  }
+  return rows;
+};
+
+const resolveSeedMatchFromShards = (rawString = '', seeds = []) => {
+  const rawKey = normalizeFuzzyDeviceKey(rawString);
+  if (!rawKey || rawKey.length < 3) return null;
+
+  let best = null;
+  let bestScore = 0;
+  seeds.forEach((seed) => {
+    const candidateRaw = String(seed.rawKey || '');
+    const candidateDevice = String(seed.deviceKey || '');
+    const rawContains = candidateRaw && (rawKey.includes(candidateRaw) || candidateRaw.includes(rawKey));
+    const deviceContains = candidateDevice && (rawKey.includes(candidateDevice) || candidateDevice.includes(rawKey));
+    if (!rawContains && !deviceContains) return;
+
+    const overlap = Math.max(candidateRaw.length, candidateDevice.length, 1);
+    const scoreBase = Math.min(rawKey.length, overlap);
+    const score = (rawContains ? scoreBase : 0) + (deviceContains ? scoreBase + 3 : 0);
+    if (score > bestScore) {
+      bestScore = score;
+      best = seed;
+    }
+  });
+
+  if (!best || bestScore < 4) return null;
+  return {
+    standardName: best.deviceType || 'Unknown Device',
+    condition: 'Unknown',
+    sim: 'Unknown',
+    isOthers: false,
+    category: best.category || 'Others',
+    brand: best.brand || 'Others',
+    series: best.series || 'Others',
+    deviceType: best.deviceType || 'Unknown Device',
+    confidenceSource: 'catalog-seed',
+  };
+};
+
+const inferCategoryFromName = (deviceType = '') => {
+  const text = String(deviceType || '').toLowerCase();
+  if (!text) return 'Others';
+  if (/(iphone|samsung|pixel|tecno|infinix|redmi|xiaomi|phone)/.test(text)) return 'Smartphones';
+  if (/(macbook|thinkpad|ideapad|laptop|notebook|elitebook|xps|pavilion|omen)/.test(text)) return 'Laptops';
+  if (/(watch|smartwatch|ultra2|se2)/.test(text)) return 'Smartwatches';
+  if (/(ipad|tablet|tab)/.test(text)) return 'Tablets';
+  if (/(airpod|speaker|earbud|headphone)/.test(text)) return 'Sounds';
+  return 'Others';
+};
+
+const inferBrandFromName = (deviceType = '') => {
+  const text = String(deviceType || '').toLowerCase();
+  if (!text) return 'Others';
+  if (text.includes('iphone') || text.includes('ipad') || text.includes('macbook') || text.includes('airpod') || text.includes('watch')) return 'Apple';
+  if (text.includes('samsung') || /\bs\d{1,2}\b/.test(text)) return 'Samsung';
+  if (text.includes('pixel')) return 'Google';
+  if (text.includes('tecno')) return 'Tecno';
+  if (text.includes('infinix')) return 'Infinix';
+  if (text.includes('xiaomi') || text.includes('redmi')) return 'Xiaomi';
+  return 'Others';
+};
+
+const loadStrictRoutingVendors = async (firestore) => {
+  try {
+    const docSnap = await firestore.collection(SETTINGS_COLLECTION).doc('extractionRouting').get();
+    const data = docSnap.exists ? (docSnap.data() || {}) : {};
+    const enabled = data?.enabled !== false;
+    const rawList = Array.isArray(data?.strictVendors) ? data.strictVendors : String(data?.strictVendors || '').split(',');
+    const strictVendors = new Set(rawList.map((item) => normalizeVendorKey(item)).filter(Boolean));
+    return { enabled, strictVendors };
+  } catch (error) {
+    console.warn('⚠️ Nightly strict routing config load failed:', error.message);
+    return { enabled: true, strictVendors: new Set() };
+  }
+};
+
+const loadGlobalContainerTargets = async (firestore) => {
+  try {
+    // First source: existing global product arrangement cache (already built from your core flow).
+    const cacheSnap = await firestore.collection(SETTINGS_COLLECTION).doc('globalProductsCache').get();
+    const cacheData = cacheSnap.exists ? (cacheSnap.data() || {}) : {};
+    const officialTargets = Array.isArray(cacheData?.officialTargets)
+      ? cacheData.officialTargets.map((item) => String(item || '').trim()).filter(Boolean)
+      : [];
+    if (officialTargets.length) return officialTargets.slice(0, 5000);
+  } catch (error) {
+    console.warn('⚠️ Nightly global cache target load skipped:', error.message);
+  }
+
+  // Second source: env CSV URL (same global sheet source-of-truth).
+  const envCsvUrl = String(
+    process.env.GLOBAL_PRODUCTS_CSV_URL
+    || process.env.COMPANY_PRICING_CSV_URL
+    || process.env.COMPANY_CSV_URL
+    || process.env.PRODUCT_DICTIONARY_URL
+    || ''
+  ).trim();
+  try {
+    let csvUrl = envCsvUrl;
+    if (!csvUrl) {
+      const sessionsSnap = await firestore.collection('horleyTech_PricingSessions').orderBy('createdAt', 'desc').limit(5).get();
+      const sessionDoc = sessionsSnap.docs.find((docSnap) => String(docSnap.data()?.companyCsvUrl || '').trim());
+      csvUrl = String(sessionDoc?.data()?.companyCsvUrl || '').trim();
+    }
+    if (!csvUrl) return [];
+    const response = await fetch(csvUrl, { headers: { Accept: 'text/csv,text/plain,*/*' } });
+    if (!response.ok) return [];
+    const csvText = await response.text();
+    const lines = String(csvText || '').split(/\r?\n/).filter((line) => String(line || '').trim());
+    if (!lines.length) return [];
+    const headers = tokenizeCsvLine(lines[0]).map((cell) => String(cell || '').toLowerCase());
+    const targetIndex = headers.findIndex((header) => ['device type', 'device', 'product', 'model'].includes(header.trim()));
+    const fallbackIndex = targetIndex >= 0 ? targetIndex : 0;
+    return lines.slice(1)
+      .map((line) => tokenizeCsvLine(line)[fallbackIndex] || '')
+      .map((value) => String(value || '').trim())
+      .filter(Boolean)
+      .slice(0, 5000);
+  } catch (error) {
+    console.warn('⚠️ Nightly global target load skipped:', error.message);
+    return [];
+  }
+};
+
+const resolveSeedMatchFromCsvTargets = (rawString = '', csvTargets = []) => {
+  const rawKey = normalizeFuzzyDeviceKey(rawString);
+  if (!rawKey || !csvTargets.length) return null;
+
+  let bestTarget = '';
+  let bestScore = 0;
+  csvTargets.forEach((target) => {
+    const targetKey = normalizeFuzzyDeviceKey(target);
+    if (!targetKey || targetKey.length < 3) return;
+    const contains = rawKey.includes(targetKey) || targetKey.includes(rawKey);
+    if (!contains) return;
+    const score = Math.min(rawKey.length, targetKey.length);
+    if (score > bestScore) {
+      bestScore = score;
+      bestTarget = target;
+    }
+  });
+
+  if (!bestTarget || bestScore < 4) return null;
+  const deviceType = String(bestTarget || '').trim();
+  const category = inferCategoryFromName(deviceType);
+  const brand = inferBrandFromName(deviceType);
+  return {
+    standardName: deviceType || 'Unknown Device',
+    condition: 'Unknown',
+    sim: 'Unknown',
+    isOthers: false,
+    category,
+    brand,
+    series: deviceType || 'Others',
+    deviceType: deviceType || 'Unknown Device',
+    confidenceSource: 'csv-seed',
+  };
+};
+
+const buildNewContainerSeedsFromTargets = (csvTargets = [], shardSeeds = [], maxContainers = 300) => {
+  if (!Array.isArray(csvTargets) || !csvTargets.length) return {};
+  const existingKeys = new Set();
+  shardSeeds.forEach((seed) => {
+    const rawKey = normalizeFuzzyDeviceKey(seed?.rawKey || '');
+    const deviceKey = normalizeFuzzyDeviceKey(seed?.deviceKey || '');
+    if (rawKey) existingKeys.add(rawKey);
+    if (deviceKey) existingKeys.add(deviceKey);
+  });
+
+  const proposed = {};
+  for (const target of csvTargets) {
+    const targetName = String(target || '').trim();
+    if (!targetName) continue;
+    const fuzzyKey = normalizeFuzzyDeviceKey(targetName);
+    if (!fuzzyKey || fuzzyKey.length < 3) continue;
+    if (existingKeys.has(fuzzyKey)) continue;
+
+    const mappingKey = normalizeMappingKey(targetName);
+    if (!mappingKey || proposed[mappingKey]) continue;
+
+    proposed[mappingKey] = {
+      standardName: targetName,
+      condition: 'Unknown',
+      sim: 'Unknown',
+      isOthers: false,
+      category: inferCategoryFromName(targetName),
+      brand: inferBrandFromName(targetName),
+      series: targetName,
+      deviceType: targetName,
+      confidenceSource: 'csv-new-container',
+    };
+
+    if (Object.keys(proposed).length >= maxContainers) break;
+  }
+  return proposed;
 };
 
 export const runRetroactiveSweep = async ({ dryRun = false } = {}) => {
@@ -266,15 +519,27 @@ export const runNightlyUnknownSweeper = async () => {
     return { success: false, judged: 0, skipped: true };
   }
 
-  const CAT_LIST = ['Smartphones', 'Smartwatches', 'Laptops', 'Sounds', 'Accessories', 'Tablets', 'Gaming', 'Others'];
+  const CAT_LIST = TAXONOMY_CATEGORIES;
+  const shardSeeds = await loadShardedMappingSeeds(firestore);
+  const csvTargets = await loadGlobalContainerTargets(firestore);
+  const newContainerSeeds = buildNewContainerSeedsFromTargets(csvTargets, shardSeeds);
+  const strictRouting = await loadStrictRoutingVendors(firestore);
 
   const vendorSnapshot = await firestore.collection(OFFLINE_COLLECTION).get();
   const unknownCandidates = new Set();
 
   vendorSnapshot.docs.forEach((docSnap) => {
     const vendorData = docSnap.data() || {};
+    const vendorName = String(vendorData?.vendorName || docSnap.id || '').trim();
+    const vendorKey = normalizeVendorKey(vendorName);
+    const shouldIncludeVendor = strictRouting.enabled && strictRouting.strictVendors.size > 0
+      ? strictRouting.strictVendors.has(vendorKey)
+      : false;
+    if (!shouldIncludeVendor) return;
     const products = Array.isArray(vendorData.products) ? vendorData.products : [];
     products.forEach((product) => {
+      const series = String(product?.Series || '').trim().toLowerCase();
+      if (series === 'general listing') return;
       const condition = String(product?.Condition || product?.condition || '').trim();
       const deviceType = String(product?.['Device Type'] || product?.deviceType || '').trim();
       const isUnknownCondition = condition.toLowerCase() === 'unknown';
@@ -298,18 +563,35 @@ export const runNightlyUnknownSweeper = async () => {
   const candidateRows = Array.from(unknownCandidates)
     .slice(0, NIGHTLY_MAX_CANDIDATES)
     .map((raw) => ({ raw }));
-  if (!candidateRows.length) {
-    return { success: true, judged: 0, updatedMappings: 0 };
-  }
 
   const chunks = chunkArray(candidateRows, AI_BATCH_SIZE).slice(0, NIGHTLY_MAX_AI_CHUNKS);
-  const newAiMappings = {};
+  const newAiMappings = { ...newContainerSeeds };
+  const newContainersFromTargets = Object.keys(newContainerSeeds).length;
+  let seededFromCatalog = 0;
+  let seededFromCsv = 0;
   let failedChunks = 0;
+
+  candidateRows.forEach(({ raw }) => {
+    const key = normalizeMappingKey(raw);
+    if (!key) return;
+    const seeded = resolveSeedMatchFromShards(raw, shardSeeds);
+    if (seeded) {
+      newAiMappings[key] = seeded;
+      seededFromCatalog += 1;
+      return;
+    }
+    const csvSeeded = resolveSeedMatchFromCsvTargets(raw, csvTargets);
+    if (!csvSeeded) return;
+    newAiMappings[key] = csvSeeded;
+    seededFromCsv += 1;
+  });
 
   for (let index = 0; index < chunks.length; index += 1) {
     const chunk = chunks[index];
     try {
-      const judgedRows = await runTwoLayerJudge(chunk);
+      const rowsNeedingAi = chunk.filter(({ raw }) => !newAiMappings[normalizeMappingKey(raw)]);
+      if (!rowsNeedingAi.length) continue;
+      const judgedRows = await runTwoLayerJudge(rowsNeedingAi);
       judgedRows.forEach((item) => {
         const raw = String(item?.raw || '').trim();
         if (!raw) return;
@@ -341,6 +623,7 @@ export const runNightlyUnknownSweeper = async () => {
     shardUpdates[safeCat][key] = mapping;
   }
   for (const [catName, mapData] of Object.entries(shardUpdates)) {
+    if (!Object.keys(mapData || {}).length) continue;
     await firestore.collection('horleyTech_Settings').doc(`mappings_${catName}`).set({
       mappings: mapData,
       lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
@@ -353,6 +636,9 @@ export const runNightlyUnknownSweeper = async () => {
     success: true,
     judged: candidateRows.length,
     updatedMappings: Object.keys(newAiMappings).length,
+    newContainersFromTargets,
+    seededFromCatalog,
+    seededFromCsv,
     totalChunks: chunks.length,
     failedChunks,
   };

@@ -35,6 +35,10 @@ QWEN_API_KEY_SYNC=your_optional_background_qwen_key
 QWEN_BASE_URL=https://dashscope-intl.aliyuncs.com/compatible-mode/v1
 AI_TEXT_MODEL_QWEN=qwen-plus
 AI_IMAGE_MODEL_QWEN=qwen-image
+
+# Optional: CSV used for global product/container arrangement.
+# Nightly unknown sweeper will use this first for CSV-target seeding.
+GLOBAL_PRODUCTS_CSV_URL=https://docs.google.com/spreadsheets/d/<sheet-id>/export?format=csv&gid=0
 ```
 
 ### What to install on DigitalOcean

@@ -226,6 +226,7 @@ VendorLogin.defaultProps = {
 };
 
 const VendorPage = () => {
+  const MANUAL_ENTRY_GROUP_NAME = 'Manual Entry';
   const { vendorId } = useParams();
   const isAdmin = useSelector((state) => state.auth?.isAuthenticated);
   const logChannel = isAdmin ? 'admin' : 'vendor';
@@ -297,7 +298,6 @@ const VendorPage = () => {
   const [manualStorage, setManualStorage] = useState('');
   const [manualPriceStore1, setManualPriceStore1] = useState('');
   const [manualPriceStore2, setManualPriceStore2] = useState('');
-  const [manualGroupName, setManualGroupName] = useState('Manual Entry');
   const [addingManualProduct, setAddingManualProduct] = useState(false);
 
   const vendorRef = useMemo(() => doc(db, 'horleyTech_OfflineInventories', vendorId), [vendorId]);
@@ -552,7 +552,9 @@ const VendorPage = () => {
         'Store 2 price': normalizedStore2,
         DatePosted: exactServerDate,
         isGroupMessage: false,
-        groupName: String(manualGroupName || '').trim() || 'Manual Entry',
+        groupName: MANUAL_ENTRY_GROUP_NAME,
+        entrySource: 'manual',
+        addedManuallyByVendor: true,
         trustedFastLane: false,
         ignored: false,
         ignoreReason: '',
@@ -585,7 +587,6 @@ const VendorPage = () => {
       setManualStorage('');
       setManualPriceStore1('');
       setManualPriceStore2('');
-      setManualGroupName('Manual Entry');
       alert('✅ Product added successfully.');
     } catch (error) {
       console.error('Manual add product failed:', error);
@@ -1648,7 +1649,13 @@ const VendorPage = () => {
               <input type="text" value={manualStorage} onChange={(e) => setManualStorage(e.target.value)} className="p-3 border rounded-[8px] font-semibold bg-gray-50" placeholder="Storage (e.g. 256GB)" />
               <input type="text" value={manualPriceStore1} onChange={(e) => setManualPriceStore1(e.target.value)} className="p-3 border rounded-[8px] font-semibold bg-gray-50" placeholder="Store 1 Price" />
               <input type="text" value={manualPriceStore2} onChange={(e) => setManualPriceStore2(e.target.value)} className="p-3 border rounded-[8px] font-semibold bg-gray-50" placeholder="Store 2 Price (optional)" />
-              <input type="text" value={manualGroupName} onChange={(e) => setManualGroupName(e.target.value)} className="p-3 border rounded-[8px] font-semibold bg-gray-50" placeholder="Manual Entry" />
+              <input
+                type="text"
+                value={MANUAL_ENTRY_GROUP_NAME}
+                readOnly
+                className="p-3 border rounded-[8px] font-semibold bg-gray-100 text-gray-500 cursor-not-allowed"
+                aria-label="Manual entry tag"
+              />
             </div>
             <button
               onClick={handleAddManualProduct}
