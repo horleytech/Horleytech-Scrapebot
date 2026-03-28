@@ -41,6 +41,7 @@ const MESSAGES_CACHE_TTL_MS = 15000;
 const MESSAGE_FETCH_TIMEOUT_MS = 8000;
 const processedMessageCache = new Map();
 const lineLevelExtractionCache = new Map();
+const EXTRACTION_CACHE_VERSION = 'v2-general-listing-retry-empty-cache';
 const WEBHOOK_JSON_LIMIT = process.env.WEBHOOK_JSON_LIMIT || '10mb';
 const WEBHOOK_FORM_LIMIT = process.env.WEBHOOK_FORM_LIMIT || '10mb';
 const parsePositiveInt = (rawValue, fallback) => {
@@ -1499,7 +1500,7 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
       if (text.length <= 180) return text;
       return crypto.createHash('sha1').update(text).digest('hex');
     };
-    const msgHash = `${normalizedIncoming.slice(0, 500)}::${normalizedIncoming.slice(-500)}::len-${normalizedIncoming.length}`;
+    const msgHash = `${EXTRACTION_CACHE_VERSION}::${normalizedIncoming.slice(0, 500)}::${normalizedIncoming.slice(-500)}::len-${normalizedIncoming.length}`;
 
     if (processedMessageCache.has(msgHash)) {
       console.log('⚡ Using cached extraction for repeat broadcast. Saving tokens!');
@@ -1519,6 +1520,9 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
           const cachedProducts = lineLevelExtractionCache.get(lineHash);
           if (Array.isArray(cachedProducts) && cachedProducts.length) {
             knownProducts = knownProducts.concat(cachedProducts);
+          } else {
+            // Retry previously empty cache entries so lines are never permanently dropped.
+            unknownLines.push(line);
           }
         } else {
           unknownLines.push(line);
