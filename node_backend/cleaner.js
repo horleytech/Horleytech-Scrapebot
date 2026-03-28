@@ -203,7 +203,7 @@ const normalizeVariationSpecLabel = (value = '') => {
   return String(value || 'Unknown').trim() || 'Unknown';
 };
 
-const buildVariationId = ({ series, storage, condition, sim }) => `${series}_${storage}_${condition}_${normalizeVariationSpecLabel(sim)}`
+const buildVariationId = ({ deviceType, series, storage, condition, sim }) => `${deviceType || series}_${storage}_${condition}_${normalizeVariationSpecLabel(sim)}`
   .toLowerCase()
   .replace(/\s+/g, '-');
 
@@ -1068,6 +1068,7 @@ export const processWithShadowTesting = async ({ rawProductString, price }) => {
   }
 
   const aiVariationId = buildVariationId({
+    deviceType: resolvedDeviceType,
     series: finalTaxonomy.Series,
     storage: parsedStorage,
     condition: resolvedCondition,

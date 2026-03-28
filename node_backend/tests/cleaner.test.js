@@ -51,6 +51,17 @@ test('variation id is deterministic and lower-kebab', () => {
   assert.equal(id, 'iphone-17-pro-max_256gb_brand-new_esim');
 });
 
+test('variation id prefers concrete device type container over broad series', () => {
+  const id = __testables.buildVariationId({
+    deviceType: 'iPhone 16 Pro Max',
+    series: 'iPhone 16 Series',
+    storage: '256GB',
+    condition: 'Brand New',
+    sim: 'Physical SIM + ESIM',
+  });
+  assert.equal(id, 'iphone-16-pro-max_256gb_brand-new_physical-sim-+-esim');
+});
+
 test('regexPredictTaxonomy returns Others fallback when no hit', () => {
   const prediction = __testables.regexPredictTaxonomy('unknown xyz', [
     { raw: 'iphone 15 pro', Category: 'Smartphones', Brand: 'Apple', Series: 'iPhone 15 Pro' },

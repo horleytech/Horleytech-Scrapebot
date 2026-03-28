@@ -66,6 +66,9 @@ function App() {
       >
         <Route path="upload" element={<UploadData />} />
         <Route path="autolisten" element={<AutoListen />} />
+        <Route path="logic" element={<Navigate to="/dashboard/upload" replace />} />
+        <Route path="requestsbot" element={<Navigate to="/dashboard/autolisten" replace />} />
+        <Route path="dashboard" element={<Navigate to="/dashboard" replace />} />
       </Route>
 
       <Route
@@ -76,6 +79,8 @@ function App() {
           </AdminRoute>
         }
       />
+      <Route path="/admin/logic" element={<Navigate to="/dashboard/upload" replace />} />
+      <Route path="/admin/requestsbot" element={<Navigate to="/dashboard/autolisten" replace />} />
 
       <Route
         path="/admin/team"
