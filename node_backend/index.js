@@ -1243,7 +1243,13 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
       .trim();
 
     const normalizeLinesForDeterministicParse = (message = '') => {
-      const rows = String(message || '')
+      const normalizedMessage = String(message || '')
+        // Handle pasted text that contains literal escaped newlines (e.g. "\\n")
+        .replace(/\\r\\n/g, '\n')
+        .replace(/\\n/g, '\n')
+        .replace(/\\r/g, '\n');
+
+      const rows = normalizedMessage
         .split('\n')
         .map((line) => stripWhatsAppEnvelope(line))
         .map((line) => line.trim())
@@ -1469,7 +1475,7 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
 
         // Pass 1: deterministic extraction per line (works best for structured pricelist broadcasts).
         for (const unknownLine of unknownLines) {
-          const lineText = unknownLine.substring(0, 500);
+          const lineText = unknownLine.substring(0, 2000);
           const lineHash = lineText.substring(0, 150);
           const deterministicProduct = deterministicLineExtract(lineText);
 
