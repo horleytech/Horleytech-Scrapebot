@@ -605,6 +605,44 @@ const inferTaxonomyFromRaw = (rawText = '') => {
   return canonicalFallbackTaxonomy();
 };
 
+const parseStructuredGeneralListing = (rawText = '') => {
+  const parts = String(rawText || '').split('|').map((part) => part.trim()).filter(Boolean);
+  if (parts.length < 3) return null;
+  const product = parts[0];
+  if (!product) return null;
+
+  if (parts.length === 3) {
+    const [_, specification, condition] = parts;
+    if (!specification || !condition) return null;
+    return { product, specification, condition, storage: 'UNKNOWN' };
+  }
+
+  const tokenA = parts[1];
+  const tokenB = parts[2];
+  const tokenC = parts[3] || 'UNKNOWN';
+  const tokenAIsCondition = normalizeCondition(tokenA) !== 'Unknown';
+  const tokenBIsCondition = normalizeCondition(tokenB) !== 'Unknown';
+
+  // Supports both:
+  // 1) Product | Specs | Condition | Storage
+  // 2) Product | Condition | Specs | Storage
+  if (tokenAIsCondition && !tokenBIsCondition) {
+    return {
+      product,
+      condition: tokenA,
+      specification: tokenB || 'Unknown',
+      storage: tokenC || 'UNKNOWN',
+    };
+  }
+
+  return {
+    product,
+    specification: tokenA || 'Unknown',
+    condition: tokenB || 'Unknown',
+    storage: tokenC || 'UNKNOWN',
+  };
+};
+
 const inferDeviceTypeFromRaw = (rawText = '', fallbackSeries = 'Unknown Device') => {
   const text = String(rawText || '').toLowerCase();
   const normalizeIphoneSuffix = (value = '') => {
@@ -914,8 +952,14 @@ const tryTrustedFastLane = async (alias) => {
 
 export const processWithShadowTesting = async ({ rawProductString, price, strictVendorMode = false }) => {
   const alias = normalizeAlias(rawProductString);
-  const parsedStorage = normalizeStorage(rawProductString);
-  const parsedCondition = normalizeCondition(rawProductString);
+  const structuredGeneralListing = parseStructuredGeneralListing(rawProductString);
+  const parsedStorage = structuredGeneralListing?.storage
+    && structuredGeneralListing.storage !== 'UNKNOWN'
+    ? String(structuredGeneralListing.storage).trim()
+    : normalizeStorage(rawProductString);
+  const parsedCondition = structuredGeneralListing
+    ? normalizeCondition(structuredGeneralListing.condition)
+    : normalizeCondition(rawProductString);
   const inferredConditionBase = inferConditionFromRaw(rawProductString, parsedCondition);
   const catalogEntry = await resolveCatalogEntry(rawProductString, parsedStorage);
   const parsedSim = catalogEntry?.spec || (await resolveSimWithDictionary(rawProductString)) || normalizeSim(rawProductString);
@@ -1019,12 +1063,17 @@ export const processWithShadowTesting = async ({ rawProductString, price, strict
     ? 'Unknown Device'
     : finalTaxonomy.Series;
   const resolvedDeviceType = catalogEntry?.deviceType
-    || inferDeviceTypeFromRaw(rawProductString, safeFallbackSeries || 'Unknown Device');
+    || (isCustomIndustrySeries && structuredGeneralListing?.product
+      ? structuredGeneralListing.product
+      : inferDeviceTypeFromRaw(rawProductString, safeFallbackSeries || 'Unknown Device'));
   let resolvedSpecification = resolveSpecification({
     rawProductString,
     category: finalTaxonomy.Category,
     parsedSim,
   });
+  if (isCustomIndustrySeries && structuredGeneralListing?.specification) {
+    resolvedSpecification = structuredGeneralListing.specification;
+  }
 
   const normalizedCategory = String(finalTaxonomy.Category || '').toLowerCase();
   const shouldUseAiForSim = ['smartphones', 'smartwatches'].includes(normalizedCategory) && resolvedSpecification === 'Unknown';
@@ -1103,6 +1152,7 @@ export const __testables = {
   inferConditionFromRaw,
   resolveConditionWithDefaultUsed,
   inferTaxonomyFromRaw,
+  parseStructuredGeneralListing,
   inferDeviceTypeFromRaw,
   inferSimByBrandContext,
   buildVariationId,

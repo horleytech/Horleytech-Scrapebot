@@ -39,6 +39,12 @@ AI_IMAGE_MODEL_QWEN=qwen-image
 # Optional: CSV used for global product/container arrangement.
 # Nightly unknown sweeper will use this first for CSV-target seeding.
 GLOBAL_PRODUCTS_CSV_URL=https://docs.google.com/spreadsheets/d/<sheet-id>/export?format=csv&gid=0
+
+# Webhook/parser robustness (recommended for large WhatsApp inventory payloads)
+WEBHOOK_JSON_LIMIT=10mb
+WEBHOOK_FORM_LIMIT=10mb
+MAX_LINE_PARSE_CHARS=8000
+MAX_AI_CHUNK_CHARS=16000
 ```
 
 ### What to install on DigitalOcean
@@ -99,3 +105,12 @@ The WhatsApp webhook supports vendor-specific strict parsing for laptop/phone br
 4. Parsed products continue through normalization and taxonomy scoring before storage.
 
 This means messages still go straight to the backend, while the admin page only controls the backend behavior via settings.
+
+### General Listing format (non-strict vendors)
+
+Preferred formats:
+- `Product | Specs | Condition | Price`
+- `Product | Specs | Condition | Storage | Price`
+
+Also supported:
+- `Product | Condition | Specs | Storage | Price`

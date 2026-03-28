@@ -187,7 +187,7 @@ const Ai = () => {
           <div className="mb-8 p-4 rounded-lg border border-gray-200 bg-white w-[50%]">
             <p className="font-bold text-base mb-2">Strict Routing Vendors (Laptop/Phone)</p>
             <p className="text-sm text-gray-600 mb-3">
-              Type exact vendor names here to force strict laptop/phone extraction. Vendors in this list use the two-layer phone/electronics flow, while others use the general `Product | Specs | Condition | Price` flow.
+              Type exact vendor names here to force strict laptop/phone extraction. Vendors in this list use the two-layer phone/electronics flow, while others use the general `Product | Specs | Condition | Price` / `Product | Specs | Condition | Storage | Price` flow.
             </p>
             <label className="flex items-center gap-2 mb-3">
               <input
