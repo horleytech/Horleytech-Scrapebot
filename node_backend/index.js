@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import crypto from 'crypto';
 import express from 'express';
 import dotenv from 'dotenv';
 import multer from 'multer';
@@ -40,6 +41,15 @@ const MESSAGES_CACHE_TTL_MS = 15000;
 const MESSAGE_FETCH_TIMEOUT_MS = 8000;
 const processedMessageCache = new Map();
 const lineLevelExtractionCache = new Map();
+const EXTRACTION_CACHE_VERSION = 'v2-general-listing-retry-empty-cache';
+const WEBHOOK_JSON_LIMIT = process.env.WEBHOOK_JSON_LIMIT || '10mb';
+const WEBHOOK_FORM_LIMIT = process.env.WEBHOOK_FORM_LIMIT || '10mb';
+const parsePositiveInt = (rawValue, fallback) => {
+  const numeric = Number.parseInt(String(rawValue ?? ''), 10);
+  return Number.isFinite(numeric) && numeric > 0 ? numeric : fallback;
+};
+const MAX_LINE_PARSE_CHARS = parsePositiveInt(process.env.MAX_LINE_PARSE_CHARS, 8000);
+const MAX_AI_CHUNK_CHARS = parsePositiveInt(process.env.MAX_AI_CHUNK_CHARS, 16000);
 
 const sanitizeForFirestore = (value) => JSON.parse(JSON.stringify(value, (_key, entry) => (
   entry === undefined ? null : entry
@@ -128,12 +138,13 @@ app.use((req, res, next) => {
   return next();
 });
 app.use(compression());
-app.use(express.json({ limit: '2mb' }));
-app.use(express.urlencoded({ extended: true, limit: '2mb' }));
+app.use(express.json({ limit: WEBHOOK_JSON_LIMIT }));
+app.use(express.urlencoded({ extended: true, limit: WEBHOOK_FORM_LIMIT }));
 app.use(morgan('dev'));
 
 const PORT = process.env.PORT || 8000;
 const _CATS = "'Smartphones', 'Smartwatches', 'Laptops', 'Sounds', 'Accessories', 'Tablets', 'Gaming', 'Others'";
+console.log(`⚙️ Webhook limits configured: json=${WEBHOOK_JSON_LIMIT}, form=${WEBHOOK_FORM_LIMIT}, lineChars=${MAX_LINE_PARSE_CHARS}, aiChunkChars=${MAX_AI_CHUNK_CHARS}`);
 
 // Initialize infrastructure
 initializeSystemCollections();
@@ -532,7 +543,7 @@ app.post('/api/admin/onboard-vendor', async (req, res) => {
     return res.status(400).json({ success: false, error: 'adminNumber must include digits.' });
   }
 
-  const message = `Hello! I am ${String(vendorName).trim()}. Please onboard me to Horleytech. My product list format will be: [Device] | [Specs] | [Condition] | [Price]`;
+  const message = `Hello! I am ${String(vendorName).trim()}. Please onboard me to Horleytech. My product list format will be: [Product] | [Specs] | [Condition] | [Price] OR [Product] | [Specs] | [Condition] | [Storage] | [Price] OR [Product] | [Condition] | [Specs] | [Price]`;
   const url = encodeURI(`https://wa.me/${cleanedNumber}?text=${message}`);
 
   return res.json({ success: true, url, message });
@@ -1283,15 +1294,24 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
         .replace(/\\n/g, '\n')
         .replace(/\\r/g, '\n');
 
+      // Recover numbered WhatsApp lists even when each item spans multiple wrapped lines.
+      const numberedRows = [...normalizedMessage.matchAll(/(?:^|\n)\s*\d{1,3}\.\s*([\s\S]*?)(?=(?:\n\s*\d{1,3}\.\s*)|$)/g)]
+        .map((match) => String(match?.[1] || '').replace(/\s+/g, ' ').trim())
+        .filter(Boolean);
+
       const rows = normalizedMessage
         .split('\n')
         .map((line) => stripWhatsAppEnvelope(line))
         .map((line) => line.trim())
         .filter(Boolean);
 
+      const seedRows = numberedRows.length
+        ? Array.from(new Set([...numberedRows, ...rows]))
+        : rows;
+
       const conditionedRows = [];
       let sectionCondition = '';
-      for (const row of rows) {
+      for (const row of seedRows) {
         const line = String(row || '').trim();
         if (!line) continue;
 
@@ -1317,8 +1337,22 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
         }
       }
 
+      // Some WhatsApp payloads flatten multiple numbered items into one line.
+      // Expand inline numbered entries so each product line can be parsed independently.
+      const expandedRows = [];
+      for (const row of conditionedRows) {
+        const line = String(row || '').trim();
+        if (!line) continue;
+        const inlineSegments = line.split(/(?=\b\d{1,3}\.\s+)/g).map((part) => part.trim()).filter(Boolean);
+        if (inlineSegments.length > 1) {
+          inlineSegments.forEach((segment) => expandedRows.push(segment.replace(/^\d{1,3}\.\s*/, '').trim()));
+        } else {
+          expandedRows.push(line);
+        }
+      }
+
       const merged = [];
-      for (const line of conditionedRows) {
+      for (const line of expandedRows) {
         const priceOnly = /^(₦?\s*)?\d[\d,.\s]*(m|k)?$/i.test(line);
         if (priceOnly && merged.length > 0) {
           merged[merged.length - 1] = `${merged[merged.length - 1]} ${line}`;
@@ -1483,7 +1517,13 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
     // --- CROSS-LEARNED TOKEN FIX 1: THE CACHE ---
     // Fingerprint both the start and end so long messages with similar headers don't collide.
     const normalizedIncoming = String(senderMessage || '').trim();
-    const msgHash = `${normalizedIncoming.slice(0, 500)}::${normalizedIncoming.slice(-500)}::len-${normalizedIncoming.length}`;
+    const toLineCacheKey = (value = '') => {
+      const text = String(value || '');
+      if (!text) return '';
+      if (text.length <= 180) return text;
+      return crypto.createHash('sha1').update(text).digest('hex');
+    };
+    const msgHash = `${EXTRACTION_CACHE_VERSION}::${normalizedIncoming.slice(0, 500)}::${normalizedIncoming.slice(-500)}::len-${normalizedIncoming.length}`;
 
     if (processedMessageCache.has(msgHash)) {
       console.log('⚡ Using cached extraction for repeat broadcast. Saving tokens!');
@@ -1498,11 +1538,14 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
       let unknownLines = [];
 
       rawLines.forEach((line) => {
-        const lineHash = line.substring(0, 150);
+        const lineHash = toLineCacheKey(line);
         if (lineLevelExtractionCache.has(lineHash)) {
           const cachedProducts = lineLevelExtractionCache.get(lineHash);
           if (Array.isArray(cachedProducts) && cachedProducts.length) {
             knownProducts = knownProducts.concat(cachedProducts);
+          } else {
+            // Retry previously empty cache entries so lines are never permanently dropped.
+            unknownLines.push(line);
           }
         } else {
           unknownLines.push(line);
@@ -1548,8 +1591,8 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
 
         // Pass 1: deterministic extraction per line (works best for structured pricelist broadcasts).
         for (const unknownLine of unknownLines) {
-          const lineText = unknownLine.substring(0, 2000);
-          const lineHash = lineText.substring(0, 150);
+          const lineText = unknownLine.substring(0, MAX_LINE_PARSE_CHARS);
+          const lineHash = toLineCacheKey(lineText);
           const deterministicProduct = deterministicLineExtract(lineText);
 
           if (deterministicProduct) {
@@ -1575,7 +1618,7 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
         if (unresolvedLines.length > 0) {
           if (unresolvedLines.length <= 25) {
             for (const unresolvedLine of unresolvedLines) {
-              const lineHash = unresolvedLine.substring(0, 150);
+              const lineHash = toLineCacheKey(unresolvedLine);
               const lineProducts = await extractFromText(unresolvedLine, 160);
               extractedProducts = extractedProducts.concat(lineProducts);
               if (lineLevelExtractionCache.size > 500) lineLevelExtractionCache.clear();
@@ -1585,7 +1628,7 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
             const CHUNK_SIZE = 20;
             for (let index = 0; index < unresolvedLines.length; index += CHUNK_SIZE) {
               const chunkLines = unresolvedLines.slice(index, index + CHUNK_SIZE);
-              const textForAI = chunkLines.join('\n').substring(0, 4000);
+              const textForAI = chunkLines.join('\n').substring(0, MAX_AI_CHUNK_CHARS);
               const chunkProducts = await extractFromText(textForAI, 300);
               extractedProducts = extractedProducts.concat(chunkProducts);
             }
@@ -1663,6 +1706,7 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
         'Storage Capacity/Configuration': product.storage,
         'Regular price': product.price || 'Available',
         rawProductString: product.rawProductString,
+        'Listing Alias': product.listingAlias || '',
         variationId: product.variationId,
         trustedFastLane: product.trustedFastLane,
         ignored: Boolean(product.ignored),
