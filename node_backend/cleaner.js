@@ -32,7 +32,7 @@ const normalizeAlias = (value = '') => String(value || '').trim().toLowerCase();
 const normalizeComparable = (value = '') => normalizeAlias(value).replace(/[^a-z0-9]/g, '');
 const toAliasDocId = (alias) => encodeURIComponent(normalizeAlias(alias));
 
-const USED_QUALIFIERS = /(uk used|pre-?owned|fair|open box|used|mint|pristine|almost new|basically new|just like new|like new|new phone only|clean as new)/i;
+const USED_QUALIFIERS = /(uk used|pre-?owned|fair|open box|used|mint|pristine|almost new|basically new|just like new|like new|new phone only|clean as new|good condition)/i;
 const NEW_QUALIFIERS = /(brand new|new sealed|sealed|^new$)/i;
 
 const normalizeStorage = (value = '') => {
@@ -574,6 +574,9 @@ const inferTaxonomyFromRaw = (rawText = '') => {
   if (/\b(monitor|inch\s+full\s+hd|display)\b/.test(text)) {
     return { Category: 'Accessories', Brand: 'Others', Series: 'Monitor Series' };
   }
+  if (/\bwig\b|\bfrontal\b|\bclosure\b|\bdensity\b|\bbody\s*wave\b|\bbone\s*straight\b|\bkinky\b/.test(text)) {
+    return { Category: 'Others', Brand: 'Others', Series: 'Wig Series' };
+  }
   if (/\b(printer|laserjet|neverstop)\b/.test(text)) {
     return { Category: 'Accessories', Brand: 'Others', Series: 'Printers Series' };
   }
@@ -667,6 +670,11 @@ const inferDeviceTypeFromRaw = (rawText = '', fallbackSeries = 'Unknown Device')
   if (/\bairpods?\b|\bairpod\b/i.test(text)) return 'AirPods';
   if (/thinkpad/i.test(text)) return 'Lenovo ThinkPad';
   if (/probook/i.test(text)) return 'HP ProBook';
+  const wigMatch = text.match(/\bwig\s*([a-z0-9-]+)?/i);
+  if (wigMatch) {
+    const wigName = String(wigMatch[1] || '').replace(/[^a-z0-9-]/gi, '').trim();
+    return wigName ? `Wig ${wigName.charAt(0).toUpperCase()}${wigName.slice(1).toLowerCase()}` : 'Wig';
+  }
 
   return fallbackSeries || 'Unknown Device';
 };
@@ -682,6 +690,11 @@ const sanitizeTaxonomyCandidate = (entry = canonicalFallbackTaxonomy()) => {
     Series: safeSeries,
   };
 };
+
+const taxonomySpecificityScore = (entry = canonicalFallbackTaxonomy()) => ['Category', 'Brand', 'Series']
+  .reduce((score, key) => (String(entry?.[key] || '').trim().toLowerCase() !== 'others' ? score + 1 : score), 0);
+
+const isAllOthersTaxonomy = (entry = canonicalFallbackTaxonomy()) => taxonomySpecificityScore(entry) === 0;
 
 const isTaxonomyEntryValid = (entry = {}) => {
   const category = String(entry.Category || '').trim();
@@ -947,22 +960,40 @@ export const processWithShadowTesting = async ({ rawProductString, price }) => {
     }
     : null;
 
-  const selectedTaxonomy = catalogTaxonomy
-    || ((aiTruth.Category === 'Others' && aiTruth.Brand === 'Others' && aiTruth.Series === 'Others')
-      ? fallbackTaxonomy
-      : aiTruth);
+  const selectedTaxonomy = (() => {
+    // Always execute and prioritize the Two-Layer judge first.
+    // If AI is uncertain, prefer whichever fallback has higher specificity.
+    if (!isAllOthersTaxonomy(aiTruth)) {
+      const aiScore = taxonomySpecificityScore(aiTruth);
+      const fallbackScore = taxonomySpecificityScore(fallbackTaxonomy);
+      const catalogScore = taxonomySpecificityScore(catalogTaxonomy || canonicalFallbackTaxonomy());
+
+      if (fallbackScore > aiScore) return fallbackTaxonomy;
+      if (catalogScore > aiScore) return catalogTaxonomy;
+      return aiTruth;
+    }
+
+    if (!isAllOthersTaxonomy(catalogTaxonomy || canonicalFallbackTaxonomy())) return catalogTaxonomy;
+    return fallbackTaxonomy;
+  })();
   const finalTaxonomy = sanitizeTaxonomyCandidate(selectedTaxonomy);
 
-  if (aiTruth.Category === 'Others' && aiTruth.Brand === 'Others' && aiTruth.Series === 'Others') {
+  if (isAllOthersTaxonomy(aiTruth)) {
     await incrementMetrics({ stage2OthersFallbacks: 1 });
   }
 
   const baseCondition = parsedCondition === 'Unknown' && catalogEntry?.condition && catalogEntry.condition !== 'Unknown'
     ? catalogEntry.condition
     : inferredConditionBase;
-  const resolvedCondition = resolveConditionWithDefaultUsed(rawProductString, baseCondition);
+  const isWigSeries = String(finalTaxonomy?.Series || '').toLowerCase() === 'wig series';
+  const resolvedCondition = isWigSeries
+    ? baseCondition
+    : resolveConditionWithDefaultUsed(rawProductString, baseCondition);
+  const safeFallbackSeries = String(finalTaxonomy.Series || '').trim().toLowerCase() === 'others'
+    ? 'Unknown Device'
+    : finalTaxonomy.Series;
   const resolvedDeviceType = catalogEntry?.deviceType
-    || inferDeviceTypeFromRaw(rawProductString, finalTaxonomy.Series || 'Unknown Device');
+    || inferDeviceTypeFromRaw(rawProductString, safeFallbackSeries || 'Unknown Device');
   let resolvedSpecification = resolveSpecification({
     rawProductString,
     category: finalTaxonomy.Category,
@@ -1050,6 +1081,8 @@ export const __testables = {
   inferSimByBrandContext,
   buildVariationId,
   canonicalFallbackTaxonomy,
+  taxonomySpecificityScore,
+  isAllOthersTaxonomy,
   regexPredictTaxonomy,
   toAliasDocId,
 };

@@ -1237,9 +1237,15 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
       return merged;
     };
 
+    const stripWhatsAppEnvelope = (line = '') => String(line || '')
+      .replace(/^\[\d{1,2}\/\d{1,2}(?:\/\d{2,4})?,\s*[\d:]+\s*(?:am|pm)?\]\s*[^:]+:\s*/i, '')
+      .replace(/^\[\d{1,2}:\d{2}\s*(?:am|pm),\s*\d{1,2}\/\d{1,2}\/\d{2,4}\]\s*[^:]+:\s*/i, '')
+      .trim();
+
     const normalizeLinesForDeterministicParse = (message = '') => {
       const rows = String(message || '')
         .split('\n')
+        .map((line) => stripWhatsAppEnvelope(line))
         .map((line) => line.trim())
         .filter(Boolean);
 
@@ -1289,7 +1295,23 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
         }
       }
 
+      // Best-format support: Product | Specs | Condition | Price
+      // Also captures similar single-pipe vendor formats.
+      const singlePipeParts = workingLine.split('|').map((part) => part.trim()).filter(Boolean);
+      if (singlePipeParts.length >= 3) {
+        const rawProduct = singlePipeParts.slice(0, -1).join(' | ');
+        const priceToken = singlePipeParts[singlePipeParts.length - 1];
+        const parsedPrice = normalizePriceToken(priceToken, { assumeMillionsForSmallDecimal: true });
+        if (rawProduct && parsedPrice >= 10000) {
+          return {
+            rawProductString: rawProduct,
+            price: parsedPrice,
+          };
+        }
+      }
+
       const hasProductSignal = /(iphone|ipad|macbook|airpod|watch|pixel|samsung|galaxy|fold|flip|ultra|pro|max|hp|lenovo|dell|asus|acer|thinkpad|ideapad|yoga|omnibook|pavilion|xps|alienware|printer|monitor|ups|tv|television|ssd|ram|gb|tb|wifi|cell|sim|core\s*i[3579])/i.test(workingLine)
+        || /\bwig\b|\bfrontal\b|\bclosure\b|\bdensity\b|\bbody\s*wave\b|\bbone\s*straight\b|\bkinky\b/i.test(workingLine)
         || startsWithSamsungShorthand;
       if (!hasProductSignal) return null;
 
