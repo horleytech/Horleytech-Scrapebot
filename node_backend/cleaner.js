@@ -973,7 +973,7 @@ export const processWithShadowTesting = async ({ rawProductString, price, strict
     ? String(structuredGeneralListing.storage || '').trim()
     : normalizeStorage(rawProductString);
   const parsedCondition = structuredGeneralListing
-    ? normalizeCondition(structuredGeneralListing.condition)
+    ? (String(structuredGeneralListing.condition || '').trim() || 'Unknown')
     : normalizeCondition(rawProductString);
   const inferredConditionBase = inferConditionFromRaw(rawProductString, parsedCondition);
   const catalogEntry = await resolveCatalogEntry(rawProductString, parsedStorage);
@@ -1074,7 +1074,7 @@ export const processWithShadowTesting = async ({ rawProductString, price, strict
   const normalizedSeries = String(finalTaxonomy?.Series || '').toLowerCase();
   const isCustomIndustrySeries = normalizedSeries === 'general listing';
   const resolvedCondition = isCustomIndustrySeries
-    ? baseCondition
+    ? (String(structuredGeneralListing?.condition || '').trim() || baseCondition)
     : resolveConditionWithDefaultUsed(rawProductString, baseCondition);
   const safeFallbackSeries = String(finalTaxonomy.Series || '').trim().toLowerCase() === 'others'
     ? 'Unknown Device'
