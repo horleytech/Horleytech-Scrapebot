@@ -1,11 +1,9 @@
-import { useEffect } from 'react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { BsFillCpuFill } from 'react-icons/bs';
 import { MutatingDots } from 'react-loader-spinner';
 //import { collection, addDoc, writeBatch, doc } from 'firebase/firestore';
 import { toast } from 'react-toastify';
 //import { db } from '../../services/firebase';
-const _localBE = 'http://localhost:8000/process';
 const cloudBE = 'https://backend.horleytech.com/process';
 
 const Ai = () => {
@@ -20,17 +18,6 @@ const Ai = () => {
   const [strictRoutingEnabled, setStrictRoutingEnabled] = useState(true);
   const [loadingRouting, setLoadingRouting] = useState(false);
   const [savingRouting, setSavingRouting] = useState(false);
-
-  const _dummyData = [
-    {
-      model: 'Iphone X',
-      storage: '64gb',
-      lock_status: 'NFI',
-      sim_type: 'Factory Unlocked',
-      device_type: 'iphone',
-      price: '120k',
-    },
-  ];
 
   const messages = [
     'AI Analyzing... Please wait 🤓',
@@ -49,10 +36,6 @@ const Ai = () => {
     }
     return () => clearInterval(interval);
   }, [loading, messages.length]);
-
-  useEffect(() => {
-    console.log({ file });
-  }, [file]);
 
   const loadExtractionRouting = async () => {
     setLoadingRouting(true);
@@ -131,7 +114,6 @@ const Ai = () => {
 
   const handleSubmit = async (event) => {
     event.preventDefault();
-    console.log("handleSubmit triggered"); // DEBUG: Check if function is called
     if (!file) {
       toast.error('Please Attach txt file 😢');
       return;

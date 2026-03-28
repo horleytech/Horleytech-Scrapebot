@@ -76,3 +76,22 @@ View Live Terminal Logs: pm2 log 0
 Restart Nginx Bouncer: sudo systemctl restart nginx
 
 Pull Latest Code: git pull origin main --rebase
+
+## Strict Vendor Routing (Laptop/Phone Flow)
+
+The WhatsApp webhook supports vendor-specific strict parsing for laptop/phone broadcasts.
+
+- Admin UI location: **Admin Dashboard → AI TXT Analyzer → Strict Routing Vendors (Laptop/Phone)**.
+- Backend settings document: `horleyTech_Settings/extractionRouting`.
+- Fields:
+  - `enabled` (boolean): turns strict routing on/off globally.
+  - `strictVendors` (string[]): vendor names that should use strict laptop/phone parsing.
+
+### Message path (end-to-end)
+
+1. WhatsApp messages hit the backend webhook (`/api/webhook/whatsapp`).
+2. Webhook loads `extractionRouting` from settings and checks sender/vendor name against `strictVendors`.
+3. If matched and enabled, backend sets `strictVendorMode=true` and runs stricter line parsing + fallback behavior.
+4. Parsed products continue through normalization and taxonomy scoring before storage.
+
+This means messages still go straight to the backend, while the admin page only controls the backend behavior via settings.
