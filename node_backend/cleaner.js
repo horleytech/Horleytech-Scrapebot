@@ -931,8 +931,6 @@ export const processWithShadowTesting = async ({ rawProductString, price }) => {
   const catalogEntry = await resolveCatalogEntry(rawProductString, parsedStorage);
   const parsedSim = catalogEntry?.spec || (await resolveSimWithDictionary(rawProductString)) || normalizeSim(rawProductString);
   const structuredRaw = parseStructuredRawProduct(rawProductString);
-  const isStructuredVendorListing = Boolean(structuredRaw.name)
-    && Boolean(structuredRaw.specification || structuredRaw.condition);
 
   const ignoredByPhrase = await shouldIgnoreRawString(rawProductString);
   if (ignoredByPhrase) {
@@ -953,27 +951,6 @@ export const processWithShadowTesting = async ({ rawProductString, price }) => {
   }
 
   await incrementMetrics({ totalProcessed: 1 });
-
-  // Structured vendor lines (Name | Spec | Condition | Price) that are NOT in catalog/CSV:
-  // keep exact vendor fields and skip two-layer AI to avoid unnecessary overrides.
-  // If there is a catalog match, do NOT short-circuit; continue through the normal
-  // two-layer cleanup flow for your core catalog products.
-  if (isStructuredVendorListing && !catalogEntry) {
-    const safeTaxonomy = sanitizeTaxonomyCandidate(canonicalFallbackTaxonomy());
-    return {
-      rawProductString,
-      price,
-      taxonomy: safeTaxonomy,
-      deviceType: structuredRaw.name || rawProductString,
-      storage: parsedStorage,
-      condition: structuredRaw.condition || inferredConditionBase || 'Unknown',
-      sim: structuredRaw.specification || parsedSim || 'Unknown',
-      variationId: null,
-      trustedFastLane: false,
-      ignored: false,
-      ignoreReason: '',
-    };
-  }
 
   const fastLane = await tryTrustedFastLane(alias);
   if (fastLane) {
