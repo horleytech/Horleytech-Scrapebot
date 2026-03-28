@@ -204,7 +204,20 @@ const loadStrictRoutingVendors = async (firestore) => {
   }
 };
 
-const loadCsvDeviceTargets = async (firestore) => {
+const loadGlobalContainerTargets = async (firestore) => {
+  try {
+    // First source: existing global product arrangement cache (already built from your core flow).
+    const cacheSnap = await firestore.collection(SETTINGS_COLLECTION).doc('globalProductsCache').get();
+    const cacheData = cacheSnap.exists ? (cacheSnap.data() || {}) : {};
+    const officialTargets = Array.isArray(cacheData?.officialTargets)
+      ? cacheData.officialTargets.map((item) => String(item || '').trim()).filter(Boolean)
+      : [];
+    if (officialTargets.length) return officialTargets.slice(0, 5000);
+  } catch (error) {
+    console.warn('⚠️ Nightly global cache target load skipped:', error.message);
+  }
+
+  // Second source: env CSV URL (same global sheet source-of-truth).
   const envCsvUrl = String(
     process.env.GLOBAL_PRODUCTS_CSV_URL
     || process.env.COMPANY_PRICING_CSV_URL
@@ -234,7 +247,7 @@ const loadCsvDeviceTargets = async (firestore) => {
       .filter(Boolean)
       .slice(0, 5000);
   } catch (error) {
-    console.warn('⚠️ Nightly CSV target load skipped:', error.message);
+    console.warn('⚠️ Nightly global target load skipped:', error.message);
     return [];
   }
 };
@@ -470,7 +483,7 @@ export const runNightlyUnknownSweeper = async () => {
 
   const CAT_LIST = TAXONOMY_CATEGORIES;
   const shardSeeds = await loadShardedMappingSeeds(firestore);
-  const csvTargets = await loadCsvDeviceTargets(firestore);
+  const csvTargets = await loadGlobalContainerTargets(firestore);
   const strictRouting = await loadStrictRoutingVendors(firestore);
 
   const vendorSnapshot = await firestore.collection(OFFLINE_COLLECTION).get();
@@ -482,7 +495,7 @@ export const runNightlyUnknownSweeper = async () => {
     const vendorKey = normalizeVendorKey(vendorName);
     const shouldIncludeVendor = strictRouting.enabled && strictRouting.strictVendors.size > 0
       ? strictRouting.strictVendors.has(vendorKey)
-      : true;
+      : false;
     if (!shouldIncludeVendor) return;
     const products = Array.isArray(vendorData.products) ? vendorData.products : [];
     products.forEach((product) => {
