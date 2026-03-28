@@ -39,6 +39,12 @@ AI_IMAGE_MODEL_QWEN=qwen-image
 # Optional: CSV used for global product/container arrangement.
 # Nightly unknown sweeper will use this first for CSV-target seeding.
 GLOBAL_PRODUCTS_CSV_URL=https://docs.google.com/spreadsheets/d/<sheet-id>/export?format=csv&gid=0
+
+# Webhook/parser robustness (recommended for large WhatsApp inventory payloads)
+WEBHOOK_JSON_LIMIT=10mb
+WEBHOOK_FORM_LIMIT=10mb
+MAX_LINE_PARSE_CHARS=8000
+MAX_AI_CHUNK_CHARS=16000
 ```
 
 ### What to install on DigitalOcean

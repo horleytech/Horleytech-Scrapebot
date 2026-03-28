@@ -43,8 +43,12 @@ const processedMessageCache = new Map();
 const lineLevelExtractionCache = new Map();
 const WEBHOOK_JSON_LIMIT = process.env.WEBHOOK_JSON_LIMIT || '10mb';
 const WEBHOOK_FORM_LIMIT = process.env.WEBHOOK_FORM_LIMIT || '10mb';
-const MAX_LINE_PARSE_CHARS = Number(process.env.MAX_LINE_PARSE_CHARS || 8000);
-const MAX_AI_CHUNK_CHARS = Number(process.env.MAX_AI_CHUNK_CHARS || 16000);
+const parsePositiveInt = (rawValue, fallback) => {
+  const numeric = Number.parseInt(String(rawValue ?? ''), 10);
+  return Number.isFinite(numeric) && numeric > 0 ? numeric : fallback;
+};
+const MAX_LINE_PARSE_CHARS = parsePositiveInt(process.env.MAX_LINE_PARSE_CHARS, 8000);
+const MAX_AI_CHUNK_CHARS = parsePositiveInt(process.env.MAX_AI_CHUNK_CHARS, 16000);
 
 const sanitizeForFirestore = (value) => JSON.parse(JSON.stringify(value, (_key, entry) => (
   entry === undefined ? null : entry
@@ -139,6 +143,7 @@ app.use(morgan('dev'));
 
 const PORT = process.env.PORT || 8000;
 const _CATS = "'Smartphones', 'Smartwatches', 'Laptops', 'Sounds', 'Accessories', 'Tablets', 'Gaming', 'Others'";
+console.log(`⚙️ Webhook limits configured: json=${WEBHOOK_JSON_LIMIT}, form=${WEBHOOK_FORM_LIMIT}, lineChars=${MAX_LINE_PARSE_CHARS}, aiChunkChars=${MAX_AI_CHUNK_CHARS}`);
 
 // Initialize infrastructure
 initializeSystemCollections();
