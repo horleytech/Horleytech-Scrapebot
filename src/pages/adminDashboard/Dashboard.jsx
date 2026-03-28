@@ -60,6 +60,32 @@ const normalizeDisplayStorage = (value = '') => {
   return normalized.toUpperCase();
 };
 
+const buildGeneralListingStoreGroups = (devices = {}) => {
+  const grouped = {};
+  Object.entries(devices).forEach(([deviceType, variations]) => {
+    Object.entries(variations || {}).forEach(([variationRawKey, variation]) => {
+      const vendors = Array.isArray(variation?.vendors) ? variation.vendors : [];
+      vendors.forEach((vendor) => {
+        const storeName = String(vendor?.vendorName || 'Unknown Store').trim() || 'Unknown Store';
+        grouped[storeName] ??= {};
+        grouped[storeName][deviceType] ??= {};
+        if (!grouped[storeName][deviceType][variationRawKey]) {
+          grouped[storeName][deviceType][variationRawKey] = {
+            ...variation,
+            vendors: [],
+            stockCount: 0,
+            totalAccumulatedPrice: 0,
+          };
+        }
+        grouped[storeName][deviceType][variationRawKey].vendors.push(vendor);
+        grouped[storeName][deviceType][variationRawKey].stockCount += 1;
+        grouped[storeName][deviceType][variationRawKey].totalAccumulatedPrice += Number(vendor?.priceValue || 0);
+      });
+    });
+  });
+  return grouped;
+};
+
 const formatExportPrice = (vendors = []) => {
   const validPrices = vendors
     .map((vendor) => Number(vendor?.priceValue || 0))
@@ -1262,6 +1288,11 @@ const AdminDashboard = () => {
       keys.add(`category:${row.category}`);
       keys.add(`brand:${row.category}__${row.brand}`);
       keys.add(`series:${row.category}__${row.brand}__${row.series}`);
+      if (String(row.series || '').toLowerCase() === 'general listing') {
+        (row.vendors || []).forEach((vendor) => {
+          keys.add(`store:${row.category}__${row.brand}__${row.series}__${String(vendor?.vendorName || 'Unknown Store')}`);
+        });
+      }
       keys.add(`device:${row.category}__${row.brand}__${row.series}__${row.deviceType}`);
       keys.add(`variation:${row.category}__${row.brand}__${row.series}__${row.deviceType}__${row.condition}__${row.specification || row.simType || 'Unknown'}__${row.storage}`);
     });
@@ -2659,7 +2690,74 @@ const AdminDashboard = () => {
                                           <button type="button" onClick={() => toggleProductGroup(seriesKey)} className="w-full px-4 py-3 text-left text-sm font-bold text-gray-800 flex items-center justify-between">{series} ({Object.values(devices).flatMap((variations) => Object.values(variations).map((variation) => variation.stockCount)).reduce((sum, count) => sum + count, 0)})<span>{seriesExpanded ? '⌄' : '›'}</span></button>
                                           {seriesExpanded && (
                                             <div className="pl-4 pr-2 pb-3 space-y-2">
-                                              {Object.entries(devices).map(([deviceType, variations]) => {
+                                              {String(series || '').toLowerCase() === 'general listing' && (
+                                                Object.entries(buildGeneralListingStoreGroups(devices)).map(([storeName, storeDevices]) => {
+                                                  const storeKey = `store:${category}__${brand}__${series}__${storeName}`;
+                                                  if (!paginatedGroupKeySet.has(storeKey)) return null;
+                                                  const storeExpanded = expandedProductGroups.includes(storeKey);
+                                                  const storeCount = Object.values(storeDevices)
+                                                    .flatMap((variations) => Object.values(variations).map((variation) => variation.stockCount))
+                                                    .reduce((sum, count) => sum + count, 0);
+                                                  return (
+                                                    <div key={storeKey} className="rounded-xl border border-gray-100 bg-gray-50">
+                                                      <button type="button" onClick={() => toggleProductGroup(storeKey)} className="w-full px-4 py-3 text-left text-sm font-bold text-gray-900 flex items-center justify-between">{storeName} ({storeCount})<span>{storeExpanded ? '⌄' : '›'}</span></button>
+                                                      {storeExpanded && (
+                                                        <div className="pl-4 pr-2 pb-3 space-y-2">
+                                                          {Object.entries(storeDevices).map(([deviceType, variations]) => {
+                                                            const deviceKey = `device:${category}__${brand}__${series}__${deviceType}`;
+                                                            if (!paginatedGroupKeySet.has(deviceKey)) return null;
+                                                            const deviceExpanded = expandedProductGroups.includes(deviceKey);
+                                                            return (
+                                                              <div key={`${storeKey}__${deviceKey}`} className="rounded-xl border border-gray-100 bg-white">
+                                                                <button type="button" onClick={() => toggleProductGroup(deviceKey)} className="w-full px-4 py-3 text-left text-sm font-bold text-gray-900 flex items-center justify-between">{deviceType} ({Object.values(variations).reduce((sum, variation) => sum + variation.stockCount, 0)})<span>{deviceExpanded ? '⌄' : '›'}</span></button>
+                                                                {deviceExpanded && (
+                                                                  <div className="px-2 pb-3 space-y-2">
+                                                                    {Object.entries(variations).map(([variationRawKey, variation]) => {
+                                                                      const variationKey = `variation:${category}__${brand}__${series}__${deviceType}__${variationRawKey}`;
+                                                                      if (!paginatedGroupKeySet.has(variationKey)) return null;
+                                                                      const variationExpanded = expandedProductGroups.includes(variationKey);
+                                                                      return (
+                                                                        <div key={`${storeKey}__${variationKey}`} className="rounded-xl border border-gray-100 bg-gray-50">
+                                                                          <button type="button" onClick={() => toggleProductGroup(variationKey)} className="w-full px-3 py-2 text-left text-xs font-semibold text-gray-700 grid grid-cols-5 gap-2">
+                                                                            <span>{variation.condition}</span>
+                                                                            <span>{variation.specification}</span>
+                                                                            <span>{variation.storage}</span>
+                                                                            <span>{formatNaira(variation.totalAccumulatedPrice)}</span>
+                                                                            <span className="text-right">{variation.stockCount} in stock {variationExpanded ? '⌄' : '›'}</span>
+                                                                          </button>
+                                                                          {variationExpanded && (
+                                                                            <div className="px-3 pb-3">
+                                                                              <div className="flex overflow-x-auto hide-scrollbar gap-4 snap-x snap-mandatory pb-2">
+                                                                                {variation.vendors
+                                                                                  .sort((a, b) => (productSortMode === 'lowest_price' ? a.priceValue - b.priceValue : b.priceValue - a.priceValue))
+                                                                                  .slice(0, 10)
+                                                                                  .map((item) => (
+                                                                                    <article key={`${storeKey}-${item.id}`} className="min-w-[200px] snap-center bg-white border border-gray-100 rounded-xl p-3 shadow-sm flex-shrink-0">
+                                                                                      <p className="text-xs font-bold text-gray-900">{item.vendorName}</p>
+                                                                                      <p className="text-sm font-bold text-green-600 mt-1">{item.price}</p>
+                                                                                      <p className="text-[11px] text-gray-500 mt-1">{formatTimelineDate(item.date)}</p>
+                                                                                      <Link to={item.vendorLink} target="_blank" rel="noopener noreferrer" className="inline-block text-xs text-blue-600 font-bold mt-2">Open ↗</Link>
+                                                                                    </article>
+                                                                                  ))}
+                                                                              </div>
+                                                                            </div>
+                                                                          )}
+                                                                        </div>
+                                                                      );
+                                                                    })}
+                                                                  </div>
+                                                                )}
+                                                              </div>
+                                                            );
+                                                          })}
+                                                        </div>
+                                                      )}
+                                                    </div>
+                                                  );
+                                                })
+                                              )}
+                                              {String(series || '').toLowerCase() !== 'general listing' && (
+                                              Object.entries(devices).map(([deviceType, variations]) => {
                                                 const deviceKey = `device:${category}__${brand}__${series}__${deviceType}`;
                                                 if (!paginatedGroupKeySet.has(deviceKey)) return null;
                                                 const deviceExpanded = expandedProductGroups.includes(deviceKey);
@@ -2705,7 +2803,8 @@ const AdminDashboard = () => {
                                                     )}
                                                   </div>
                                                 );
-                                              })}
+                                              })
+                                              )}
                                             </div>
                                           )}
                                         </div>
