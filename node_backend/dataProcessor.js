@@ -19,13 +19,24 @@ export const saveVendorsToFirebase = async (vendorsData) => {
             }
 
             // Merge & Remove Duplicates
+            // Use a richer identity key so distinct listings with same device/price are not dropped.
             const mergedProducts = [...existingProducts, ...vendor.products];
-            const uniqueProducts = mergedProducts.filter((product, index, self) =>
-                index === self.findIndex((t) => (
-                    t['Device Type'] === product['Device Type'] && 
-                    t['Regular price'] === product['Regular price']
-                ))
-            );
+            const seen = new Set();
+            const uniqueProducts = [];
+
+            mergedProducts.forEach((product) => {
+                const rawKey = String(product?.rawProductString || '').trim().toLowerCase();
+                const fallbackKey = [
+                    String(product?.['Device Type'] || '').trim().toLowerCase(),
+                    String(product?.['Regular price'] || '').trim().toLowerCase(),
+                    String(product?.['SIM Type/Model/Processor'] || '').trim().toLowerCase(),
+                    String(product?.Condition || '').trim().toLowerCase(),
+                ].join('::');
+                const dedupeKey = rawKey || fallbackKey;
+                if (seen.has(dedupeKey)) return;
+                seen.add(dedupeKey);
+                uniqueProducts.push(product);
+            });
 
             await setDoc(docRef, {
                 vendorId: masterDocId,
