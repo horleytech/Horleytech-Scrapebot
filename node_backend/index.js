@@ -1278,6 +1278,9 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
       const workingLine = startsWithSamsungShorthand && !/\bsamsung\b|\bgalaxy\b|\biphone\b/i.test(cleaned)
         ? `Samsung ${cleaned}`
         : cleaned;
+      const hasProductSignal = /(iphone|ipad|macbook|airpod|watch|pixel|samsung|galaxy|fold|flip|ultra|pro|max|hp|lenovo|dell|asus|acer|thinkpad|ideapad|yoga|omnibook|pavilion|xps|alienware|printer|monitor|ups|tv|television|ssd|ram|gb|tb|wifi|cell|sim|core\s*i[3579])/i.test(workingLine)
+        || /\bwig\b|\bfrontal\b|\bclosure\b|\bdensity\b|\bbody\s*wave\b|\bbone\s*straight\b|\bkinky\b/i.test(workingLine)
+        || startsWithSamsungShorthand;
 
       const isNonProductLine = /(updated price list|enquiries|orders|please reconfirm|subject to change|confirm availability|follow us|instagram|street|lagos|stores ltd|call to confirm|monitor series|series\s*\*?$)/i.test(workingLine);
       if (isNonProductLine && !/\d[\d,.\s]*(m|k)?$/i.test(workingLine)) return null;
@@ -1287,7 +1290,7 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
         const rawProduct = pipeParts.slice(0, -1).join(' | ');
         const priceToken = pipeParts[pipeParts.length - 1];
         const parsedPrice = normalizePriceToken(priceToken, { assumeMillionsForSmallDecimal: true });
-        if (rawProduct && (parsedPrice >= 10000 || /available|active|act/i.test(priceToken))) {
+        if (hasProductSignal && rawProduct && (parsedPrice >= 10000 || /available|active|act/i.test(priceToken))) {
           return {
             rawProductString: rawProduct,
             price: parsedPrice >= 10000 ? parsedPrice : 'Available',
@@ -1295,9 +1298,23 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
         }
       }
 
-      const hasProductSignal = /(iphone|ipad|macbook|airpod|watch|pixel|samsung|galaxy|fold|flip|ultra|pro|max|hp|lenovo|dell|asus|acer|thinkpad|ideapad|yoga|omnibook|pavilion|xps|alienware|printer|monitor|ups|tv|television|ssd|ram|gb|tb|wifi|cell|sim|core\s*i[3579])/i.test(workingLine)
-        || /\bwig\b|\bfrontal\b|\bclosure\b|\bdensity\b|\bbody\s*wave\b|\bbone\s*straight\b|\bkinky\b/i.test(workingLine)
-        || startsWithSamsungShorthand;
+      // Best-format support: Product | Specs | Condition | Price
+      // Also captures similar single-pipe vendor formats.
+      const singlePipeParts = workingLine.split('|').map((part) => part.trim()).filter(Boolean);
+      if (singlePipeParts.length >= 3) {
+        const rawProduct = singlePipeParts.slice(0, -1).join(' | ');
+        const priceToken = singlePipeParts[singlePipeParts.length - 1];
+        const parsedPrice = normalizePriceToken(priceToken, { assumeMillionsForSmallDecimal: true });
+        const leadSegment = String(singlePipeParts[0] || '').trim();
+        const looksLikeStructuredGenericListing = /[a-z]{3,}/i.test(leadSegment)
+          && !/(updated price list|enquiries|orders|follow us|instagram|stores ltd|lagos)/i.test(leadSegment);
+        if ((hasProductSignal || looksLikeStructuredGenericListing) && rawProduct && parsedPrice >= 10000) {
+          return {
+            rawProductString: rawProduct,
+            price: parsedPrice,
+          };
+        }
+      }
       if (!hasProductSignal) return null;
 
       const availableMatch = workingLine.match(/^(.*?)(?:-|:)?\s*(available|act|active)\s*$/i);

@@ -577,6 +577,12 @@ const inferTaxonomyFromRaw = (rawText = '') => {
   if (/\bwig\b|\bfrontal\b|\bclosure\b|\bdensity\b|\bbody\s*wave\b|\bbone\s*straight\b|\bkinky\b/.test(text)) {
     return { Category: 'Others', Brand: 'Others', Series: 'Wig Series' };
   }
+  const pipeParts = String(rawText || '').split('|').map((part) => part.trim()).filter(Boolean);
+  const pipePriceToken = pipeParts.length >= 3 ? pipeParts[pipeParts.length - 1] : '';
+  const pipeLooksPriced = /\d[\d,\s.]*/.test(pipePriceToken);
+  if (pipeParts.length >= 3 && pipeLooksPriced) {
+    return { Category: 'Others', Brand: 'Others', Series: 'General Listing' };
+  }
   if (/\b(printer|laserjet|neverstop)\b/.test(text)) {
     return { Category: 'Accessories', Brand: 'Others', Series: 'Printers Series' };
   }
@@ -674,6 +680,11 @@ const inferDeviceTypeFromRaw = (rawText = '', fallbackSeries = 'Unknown Device')
   if (wigMatch) {
     const wigName = String(wigMatch[1] || '').replace(/[^a-z0-9-]/gi, '').trim();
     return wigName ? `Wig ${wigName.charAt(0).toUpperCase()}${wigName.slice(1).toLowerCase()}` : 'Wig';
+  }
+  const genericPipeParts = String(rawText || '').split('|').map((part) => part.trim()).filter(Boolean);
+  if (genericPipeParts.length >= 3) {
+    const lead = String(genericPipeParts[0] || '').trim();
+    if (lead) return lead;
   }
 
   return fallbackSeries || 'Unknown Device';
@@ -985,7 +996,11 @@ export const processWithShadowTesting = async ({ rawProductString, price }) => {
   const baseCondition = parsedCondition === 'Unknown' && catalogEntry?.condition && catalogEntry.condition !== 'Unknown'
     ? catalogEntry.condition
     : inferredConditionBase;
-  const resolvedCondition = resolveConditionWithDefaultUsed(rawProductString, baseCondition);
+  const normalizedSeries = String(finalTaxonomy?.Series || '').toLowerCase();
+  const isCustomIndustrySeries = normalizedSeries === 'wig series' || normalizedSeries === 'general listing';
+  const resolvedCondition = isCustomIndustrySeries
+    ? baseCondition
+    : resolveConditionWithDefaultUsed(rawProductString, baseCondition);
   const safeFallbackSeries = String(finalTaxonomy.Series || '').trim().toLowerCase() === 'others'
     ? 'Unknown Device'
     : finalTaxonomy.Series;
