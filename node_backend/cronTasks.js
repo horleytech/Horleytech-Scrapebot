@@ -18,6 +18,7 @@ const NIGHTLY_MAX_AI_CHUNKS = 20;
 const NIGHTLY_AI_THROTTLE_MS = 750;
 let inMemoryGlobalProducts = [];
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const TAXONOMY_CATEGORIES = ['Smartphones', 'Smartwatches', 'Laptops', 'Sounds', 'Accessories', 'Tablets', 'Gaming', 'Others'];
 
 const normalizeCacheCondition = (value = '') => {
   const normalized = String(value || '').trim().toLowerCase();
@@ -28,6 +29,12 @@ const normalizeCacheCondition = (value = '') => {
 };
 
 const normalizeMappingKey = (value) => String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+const normalizeFuzzyDeviceKey = (value = '') => String(value || '')
+  .toLowerCase()
+  .replace(/pro\s*max/g, 'promax')
+  .replace(/ultra\s*2/g, 'ultra2')
+  .replace(/series\s*se/g, 'se')
+  .replace(/[^a-z0-9]/g, '');
 
 const toFlatMappingList = (customMappings) => {
   if (Array.isArray(customMappings)) return customMappings;
@@ -70,6 +77,66 @@ const buildMappingIndex = (customMappings = []) => {
   });
 
   return index;
+};
+
+const loadShardedMappingSeeds = async (firestore) => {
+  const rows = [];
+  for (const category of TAXONOMY_CATEGORIES) {
+    const docSnap = await firestore.collection(SETTINGS_COLLECTION).doc(`mappings_${category}`).get();
+    if (!docSnap.exists) continue;
+    const mappings = docSnap.data()?.mappings || {};
+    Object.entries(mappings).forEach(([raw, mapped]) => {
+      const rawKey = normalizeFuzzyDeviceKey(raw);
+      const deviceType = mapped?.deviceType || mapped?.standardName || '';
+      const deviceKey = normalizeFuzzyDeviceKey(deviceType);
+      if (!rawKey && !deviceKey) return;
+      rows.push({
+        rawKey,
+        deviceKey,
+        category: mapped?.category || category || 'Others',
+        brand: mapped?.brand || 'Others',
+        series: mapped?.series || 'Others',
+        deviceType: deviceType || mapped?.series || 'Unknown Device',
+      });
+    });
+  }
+  return rows;
+};
+
+const resolveSeedMatchFromShards = (rawString = '', seeds = []) => {
+  const rawKey = normalizeFuzzyDeviceKey(rawString);
+  if (!rawKey || rawKey.length < 3) return null;
+
+  let best = null;
+  let bestScore = 0;
+  seeds.forEach((seed) => {
+    const candidateRaw = String(seed.rawKey || '');
+    const candidateDevice = String(seed.deviceKey || '');
+    const rawContains = candidateRaw && (rawKey.includes(candidateRaw) || candidateRaw.includes(rawKey));
+    const deviceContains = candidateDevice && (rawKey.includes(candidateDevice) || candidateDevice.includes(rawKey));
+    if (!rawContains && !deviceContains) return;
+
+    const overlap = Math.max(candidateRaw.length, candidateDevice.length, 1);
+    const scoreBase = Math.min(rawKey.length, overlap);
+    const score = (rawContains ? scoreBase : 0) + (deviceContains ? scoreBase + 3 : 0);
+    if (score > bestScore) {
+      bestScore = score;
+      best = seed;
+    }
+  });
+
+  if (!best || bestScore < 4) return null;
+  return {
+    standardName: best.deviceType || 'Unknown Device',
+    condition: 'Unknown',
+    sim: 'Unknown',
+    isOthers: false,
+    category: best.category || 'Others',
+    brand: best.brand || 'Others',
+    series: best.series || 'Others',
+    deviceType: best.deviceType || 'Unknown Device',
+    confidenceSource: 'catalog-seed',
+  };
 };
 
 export const runRetroactiveSweep = async ({ dryRun = false } = {}) => {
@@ -266,7 +333,8 @@ export const runNightlyUnknownSweeper = async () => {
     return { success: false, judged: 0, skipped: true };
   }
 
-  const CAT_LIST = ['Smartphones', 'Smartwatches', 'Laptops', 'Sounds', 'Accessories', 'Tablets', 'Gaming', 'Others'];
+  const CAT_LIST = TAXONOMY_CATEGORIES;
+  const shardSeeds = await loadShardedMappingSeeds(firestore);
 
   const vendorSnapshot = await firestore.collection(OFFLINE_COLLECTION).get();
   const unknownCandidates = new Set();
@@ -304,12 +372,24 @@ export const runNightlyUnknownSweeper = async () => {
 
   const chunks = chunkArray(candidateRows, AI_BATCH_SIZE).slice(0, NIGHTLY_MAX_AI_CHUNKS);
   const newAiMappings = {};
+  let seededFromCatalog = 0;
   let failedChunks = 0;
+
+  candidateRows.forEach(({ raw }) => {
+    const key = normalizeMappingKey(raw);
+    if (!key) return;
+    const seeded = resolveSeedMatchFromShards(raw, shardSeeds);
+    if (!seeded) return;
+    newAiMappings[key] = seeded;
+    seededFromCatalog += 1;
+  });
 
   for (let index = 0; index < chunks.length; index += 1) {
     const chunk = chunks[index];
     try {
-      const judgedRows = await runTwoLayerJudge(chunk);
+      const rowsNeedingAi = chunk.filter(({ raw }) => !newAiMappings[normalizeMappingKey(raw)]);
+      if (!rowsNeedingAi.length) continue;
+      const judgedRows = await runTwoLayerJudge(rowsNeedingAi);
       judgedRows.forEach((item) => {
         const raw = String(item?.raw || '').trim();
         if (!raw) return;
@@ -353,6 +433,7 @@ export const runNightlyUnknownSweeper = async () => {
     success: true,
     judged: candidateRows.length,
     updatedMappings: Object.keys(newAiMappings).length,
+    seededFromCatalog,
     totalChunks: chunks.length,
     failedChunks,
   };
