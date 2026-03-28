@@ -207,6 +207,30 @@ test('parseStructuredGeneralListing extracts Product | Specs | Condition format'
     product: 'aaaa',
     specification: 'bbbb',
     condition: 'cccc',
+    storage: '',
+  });
+  assert.deepEqual(__testables.parseStructuredGeneralListing('aaaa | Brand New | bbbb'), {
+    product: 'aaaa',
+    specification: 'bbbb',
+    condition: 'Brand New',
+    storage: '',
+  });
+  assert.deepEqual(__testables.parseStructuredGeneralListing('aaaa | bbbb | cccc | dddd'), {
+    product: 'aaaa',
+    specification: 'bbbb',
+    condition: 'cccc',
+    storage: 'dddd',
+  });
+  assert.deepEqual(__testables.parseStructuredGeneralListing('aaaa | Brand New | bbbb | dddd'), {
+    product: 'aaaa',
+    specification: 'bbbb',
+    condition: 'Brand New',
+    storage: 'dddd',
   });
   assert.equal(__testables.parseStructuredGeneralListing('single segment'), null);
+});
+
+test('formatGeneralListingDeviceType keeps list rows readable', () => {
+  assert.equal(__testables.formatGeneralListingDeviceType('Wig Ally, Super Double Drawn Vietnamese Bone Straight Wig'), 'Wig Ally');
+  assert.equal(__testables.formatGeneralListingDeviceType('Simple Product Name Without Comma'), 'Simple Product Name Without Comma');
 });

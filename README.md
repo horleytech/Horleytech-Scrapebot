@@ -105,3 +105,13 @@ The WhatsApp webhook supports vendor-specific strict parsing for laptop/phone br
 4. Parsed products continue through normalization and taxonomy scoring before storage.
 
 This means messages still go straight to the backend, while the admin page only controls the backend behavior via settings.
+
+### General Listing format (non-strict vendors)
+
+Preferred formats:
+- `Product | Specs | Condition | Price`
+- `Product | Specs | Condition | Storage | Price`
+
+Also supported:
+- `Product | Condition | Specs | Price`
+- `Product | Condition | Specs | Storage | Price`

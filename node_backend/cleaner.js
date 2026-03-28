@@ -608,9 +608,52 @@ const inferTaxonomyFromRaw = (rawText = '') => {
 const parseStructuredGeneralListing = (rawText = '') => {
   const parts = String(rawText || '').split('|').map((part) => part.trim()).filter(Boolean);
   if (parts.length < 3) return null;
-  const [product, specification, condition] = parts;
-  if (!product || !specification || !condition) return null;
-  return { product, specification, condition };
+  const product = parts[0];
+  if (!product) return null;
+
+  if (parts.length === 3) {
+    const tokenA = parts[1];
+    const tokenB = parts[2];
+    const tokenAIsCondition = normalizeCondition(tokenA) !== 'Unknown';
+    const tokenBIsCondition = normalizeCondition(tokenB) !== 'Unknown';
+    if (tokenAIsCondition && !tokenBIsCondition) {
+      return { product, specification: tokenB, condition: tokenA, storage: '' };
+    }
+    return { product, specification: tokenA, condition: tokenB, storage: '' };
+  }
+
+  const tokenA = parts[1];
+  const tokenB = parts[2];
+  const tokenC = parts[3] || 'UNKNOWN';
+  const tokenAIsCondition = normalizeCondition(tokenA) !== 'Unknown';
+  const tokenBIsCondition = normalizeCondition(tokenB) !== 'Unknown';
+
+  // Supports both:
+  // 1) Product | Specs | Condition | Storage
+  // 2) Product | Condition | Specs | Storage
+  if (tokenAIsCondition && !tokenBIsCondition) {
+    return {
+      product,
+      condition: tokenA,
+      specification: tokenB || 'Unknown',
+      storage: tokenC || '',
+    };
+  }
+
+  return {
+    product,
+    specification: tokenA || 'Unknown',
+    condition: tokenB || 'Unknown',
+    storage: tokenC || '',
+  };
+};
+
+const formatGeneralListingDeviceType = (value = '') => {
+  const raw = String(value || '').trim();
+  if (!raw) return 'General Listing Item';
+  const commaLead = raw.split(',')[0].trim();
+  if (commaLead) return commaLead;
+  return raw.split(/\s+/).slice(0, 6).join(' ');
 };
 
 const inferDeviceTypeFromRaw = (rawText = '', fallbackSeries = 'Unknown Device') => {
@@ -923,7 +966,9 @@ const tryTrustedFastLane = async (alias) => {
 export const processWithShadowTesting = async ({ rawProductString, price, strictVendorMode = false }) => {
   const alias = normalizeAlias(rawProductString);
   const structuredGeneralListing = parseStructuredGeneralListing(rawProductString);
-  const parsedStorage = normalizeStorage(rawProductString);
+  const parsedStorage = structuredGeneralListing
+    ? String(structuredGeneralListing.storage || '').trim()
+    : normalizeStorage(rawProductString);
   const parsedCondition = structuredGeneralListing
     ? normalizeCondition(structuredGeneralListing.condition)
     : normalizeCondition(rawProductString);
@@ -1031,7 +1076,7 @@ export const processWithShadowTesting = async ({ rawProductString, price, strict
     : finalTaxonomy.Series;
   const resolvedDeviceType = catalogEntry?.deviceType
     || (isCustomIndustrySeries && structuredGeneralListing?.product
-      ? structuredGeneralListing.product
+      ? formatGeneralListingDeviceType(structuredGeneralListing.product)
       : inferDeviceTypeFromRaw(rawProductString, safeFallbackSeries || 'Unknown Device'));
   let resolvedSpecification = resolveSpecification({
     rawProductString,
@@ -1120,6 +1165,7 @@ export const __testables = {
   resolveConditionWithDefaultUsed,
   inferTaxonomyFromRaw,
   parseStructuredGeneralListing,
+  formatGeneralListingDeviceType,
   inferDeviceTypeFromRaw,
   inferSimByBrandContext,
   buildVariationId,
