@@ -16,9 +16,10 @@ const Ai = () => {
   // const [pricesData, setPricesData] = useState(null);
   const [responseMessage, setResponseMessage] = useState('');
   const [success, setSuccess] = useState(false);
-  const [customPromptText, setCustomPromptText] = useState('');
-  const [savingGlobalSettings, setSavingGlobalSettings] = useState(false);
-  const [loadingGlobalSettings, setLoadingGlobalSettings] = useState(false);
+  const [strictVendorsText, setStrictVendorsText] = useState('');
+  const [strictRoutingEnabled, setStrictRoutingEnabled] = useState(true);
+  const [loadingRouting, setLoadingRouting] = useState(false);
+  const [savingRouting, setSavingRouting] = useState(false);
 
   const _dummyData = [
     {
@@ -53,44 +54,54 @@ const Ai = () => {
     console.log({ file });
   }, [file]);
 
-  const loadGlobalSettingsFromFirebase = async () => {
-    setLoadingGlobalSettings(true);
+  const loadExtractionRouting = async () => {
+    setLoadingRouting(true);
     try {
-      const response = await fetch('/api/admin/settings/ai_config', {
+      const response = await fetch('/api/admin/settings/extractionRouting', {
         headers: { 'Content-Type': 'application/json', 'x-user-role': 'admin' },
       });
       const payload = await response.json().catch(() => ({}));
-      if (!response.ok || !payload.success) throw new Error(payload.error || 'Failed to load AI settings');
-      setCustomPromptText(String(payload.data?.stageOnePrompt || ''));
+      if (!response.ok || !payload.success) throw new Error(payload.error || 'Failed to load extraction routing settings');
+      const strictVendors = Array.isArray(payload.data?.strictVendors)
+        ? payload.data.strictVendors.join(', ')
+        : String(payload.data?.strictVendors || '');
+      setStrictVendorsText(strictVendors);
+      setStrictRoutingEnabled(payload.data?.enabled !== false);
     } catch (error) {
-      console.error('Failed to load AI settings:', error);
+      toast.error(error.message || 'Failed to load extraction routing settings');
     } finally {
-      setLoadingGlobalSettings(false);
+      setLoadingRouting(false);
     }
   };
 
-  const saveGlobalSettingsToFirebase = async () => {
-    setSavingGlobalSettings(true);
+  const saveExtractionRouting = async () => {
+    setSavingRouting(true);
     try {
-      const response = await fetch('/api/admin/settings/ai_config', {
+      const strictVendors = strictVendorsText
+        .split(',')
+        .map((item) => item.trim())
+        .filter(Boolean);
+
+      const response = await fetch('/api/admin/settings/extractionRouting', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-user-role': 'admin' },
         body: JSON.stringify({
-          stageOnePrompt: customPromptText,
+          enabled: Boolean(strictRoutingEnabled),
+          strictVendors,
         }),
       });
       const payload = await response.json().catch(() => ({}));
-      if (!response.ok || !payload.success) throw new Error(payload.error || 'Failed to save AI settings');
-      toast.success('AI global settings saved to Firebase');
+      if (!response.ok || !payload.success) throw new Error(payload.error || 'Failed to save extraction routing settings');
+      toast.success('Extraction routing settings saved');
     } catch (error) {
-      toast.error(error.message || 'Failed to save AI settings');
+      toast.error(error.message || 'Failed to save extraction routing settings');
     } finally {
-      setSavingGlobalSettings(false);
+      setSavingRouting(false);
     }
   };
 
   useEffect(() => {
-    loadGlobalSettingsFromFirebase();
+    loadExtractionRouting();
   }, []);
 
   const handleDrop = (event) => {
@@ -192,24 +203,34 @@ const Ai = () => {
 
         <div className="my-5">
           <div className="mb-8 p-4 rounded-lg border border-gray-200 bg-white w-[50%]">
-            <label htmlFor="ai-prompt" className="block font-bold text-base mb-2">
-              AI Stage 1 Prompt (Global)
+            <p className="font-bold text-base mb-2">Strict Vendor Routing (Phones/Electronics)</p>
+            <p className="text-sm text-gray-600 mb-3">
+              Vendors in this list use the strict two-layer phone/electronics flow. Others use the general `Product | Specs | Condition | Price` flow.
+            </p>
+            <label className="flex items-center gap-2 mb-3">
+              <input
+                type="checkbox"
+                checked={strictRoutingEnabled}
+                onChange={(event) => setStrictRoutingEnabled(event.target.checked)}
+                disabled={loadingRouting || savingRouting}
+              />
+              <span>Enable strict vendor routing</span>
             </label>
             <textarea
-              id="ai-prompt"
-              value={customPromptText}
-              onChange={(event) => setCustomPromptText(event.target.value)}
-              className="w-full min-h-[120px] border rounded-lg p-3"
-              placeholder="Write the global AI extraction prompt..."
-              disabled={loadingGlobalSettings || savingGlobalSettings}
+              value={strictVendorsText}
+              onChange={(event) => setStrictVendorsText(event.target.value)}
+              className="w-full min-h-[110px] border rounded-lg p-3"
+              placeholder="Lala Ikeja, Isreal Ikeja, Horleytech Line"
+              disabled={loadingRouting || savingRouting}
             />
+            <p className="text-xs text-gray-500 mt-2">Enter vendor names separated by commas.</p>
             <button
               type="button"
-              onClick={saveGlobalSettingsToFirebase}
-              disabled={loadingGlobalSettings || savingGlobalSettings}
+              onClick={saveExtractionRouting}
+              disabled={loadingRouting || savingRouting}
               className="mt-3 bg-black text-white rounded-lg px-4 py-2 hover:bg-gray-700 disabled:opacity-50"
             >
-              {savingGlobalSettings ? 'Saving...' : 'Save AI Global Settings'}
+              {savingRouting ? 'Saving...' : 'Save Routing Settings'}
             </button>
           </div>
 
