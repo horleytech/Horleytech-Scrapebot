@@ -930,6 +930,9 @@ export const processWithShadowTesting = async ({ rawProductString, price }) => {
   const inferredConditionBase = inferConditionFromRaw(rawProductString, parsedCondition);
   const catalogEntry = await resolveCatalogEntry(rawProductString, parsedStorage);
   const parsedSim = catalogEntry?.spec || (await resolveSimWithDictionary(rawProductString)) || normalizeSim(rawProductString);
+  const structuredRaw = parseStructuredRawProduct(rawProductString);
+  const isStructuredVendorListing = Boolean(structuredRaw.name)
+    && Boolean(structuredRaw.specification || structuredRaw.condition);
 
   const ignoredByPhrase = await shouldIgnoreRawString(rawProductString);
   if (ignoredByPhrase) {
@@ -950,6 +953,35 @@ export const processWithShadowTesting = async ({ rawProductString, price }) => {
   }
 
   await incrementMetrics({ totalProcessed: 1 });
+
+  // Structured vendor lines (Name | Spec | Condition | Price) already contain rich semantics.
+  // In this path, avoid two-layer AI taxonomy overrides:
+  // - If dictionary/catalog has a match, trust it.
+  // - Otherwise safely keep exact vendor data in Others.
+  if (isStructuredVendorListing) {
+    const trustedTaxonomy = catalogEntry
+      ? {
+        Category: catalogEntry.category || 'Others',
+        Brand: catalogEntry.brand || 'Others',
+        Series: catalogEntry.series || 'Others',
+      }
+      : canonicalFallbackTaxonomy();
+    const safeTaxonomy = sanitizeTaxonomyCandidate(trustedTaxonomy);
+
+    return {
+      rawProductString,
+      price,
+      taxonomy: safeTaxonomy,
+      deviceType: catalogEntry?.deviceType || structuredRaw.name || rawProductString,
+      storage: parsedStorage,
+      condition: structuredRaw.condition || inferredConditionBase || 'Unknown',
+      sim: structuredRaw.specification || parsedSim || 'Unknown',
+      variationId: null,
+      trustedFastLane: false,
+      ignored: false,
+      ignoreReason: '',
+    };
+  }
 
   const fastLane = await tryTrustedFastLane(alias);
   if (fastLane) {
@@ -1016,7 +1048,6 @@ export const processWithShadowTesting = async ({ rawProductString, price }) => {
   const isTaxonomyOthers = finalTaxonomy.Category === 'Others'
     && finalTaxonomy.Brand === 'Others'
     && finalTaxonomy.Series === 'Others';
-  const structuredRaw = parseStructuredRawProduct(rawProductString);
   const othersDeviceType = structuredRaw.name || rawProductString || resolvedDeviceType;
   const othersSpecification = structuredRaw.specification || resolvedSpecification || rawProductString || 'Unknown';
   const othersCondition = structuredRaw.condition || inferredConditionBase || 'Unknown';
