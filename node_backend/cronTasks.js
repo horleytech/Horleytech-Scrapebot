@@ -71,8 +71,14 @@ export const runRetroactiveSweep = async ({ dryRun = false } = {}) => {
           const repairedIsKnown = !(repaired?.ignored)
             && String(repaired?.taxonomy?.Category || '').toLowerCase() !== 'others'
             && String(repaired?.taxonomy?.Series || '').toLowerCase() !== 'others';
+          const repairedIsStructuredOthers = !(repaired?.ignored)
+            && String(repaired?.taxonomy?.Category || '').toLowerCase() === 'others'
+            && (
+              (String(repaired?.deviceType || '').trim() && String(repaired?.deviceType || '').trim().toLowerCase() !== 'others')
+              || (String(repaired?.sim || '').trim() && String(repaired?.sim || '').trim().toLowerCase() !== 'unknown')
+            );
 
-          if (repairedIsKnown) {
+          if (repairedIsKnown || repairedIsStructuredOthers) {
             nextProduct = {
               ...nextProduct,
               Category: repaired.taxonomy?.Category || nextProduct.Category || 'Others',
