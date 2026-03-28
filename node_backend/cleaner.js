@@ -27,6 +27,7 @@ const PRODUCT_CONTAINER_COLLECTION = 'horleyTech_ProductContainers';
 const PRODUCT_ALIAS_INDEX_COLLECTION = 'horleyTech_ProductAliasIndex';
 const SETTINGS_COLLECTION = 'horleyTech_Settings';
 const SHADOW_METRICS_DOC = 'shadowTestingMetrics';
+const ENABLE_CONTAINER_IDS = String(process.env.ENABLE_CONTAINER_IDS || '').toLowerCase() === 'true';
 
 const normalizeAlias = (value = '') => String(value || '').trim().toLowerCase();
 const normalizeComparable = (value = '') => normalizeAlias(value).replace(/[^a-z0-9]/g, '');
@@ -1015,6 +1016,7 @@ export const processWithShadowTesting = async ({ rawProductString, price }) => {
       condition: inferredConditionBase,
       sim: parsedSim,
       variationId: fastLane.variationId,
+      productContainerId: fastLane.variationId,
       trustedFastLane: true,
       ignored: false,
     };
@@ -1072,7 +1074,7 @@ export const processWithShadowTesting = async ({ rawProductString, price }) => {
   const othersCondition = structuredRaw.condition || inferredConditionBase || 'Unknown';
 
   if (isTaxonomyOthers) {
-    const othersVariationId = buildProductContainerId({
+    const othersContainerId = buildProductContainerId({
       category: finalTaxonomy.Category,
       brand: finalTaxonomy.Brand,
       series: finalTaxonomy.Series,
@@ -1090,7 +1092,8 @@ export const processWithShadowTesting = async ({ rawProductString, price }) => {
       storage: parsedStorage,
       condition: othersCondition,
       sim: othersSpecification,
-      variationId: othersVariationId,
+      variationId: null,
+      productContainerId: othersContainerId,
       trustedFastLane: false,
       ignored: false,
       ignoreReason: '',
@@ -1127,16 +1130,18 @@ export const processWithShadowTesting = async ({ rawProductString, price }) => {
     };
   }
 
-  const aiVariationId = catalogEntry
-    ? buildProductContainerId({
-      category: catalogEntry.category,
-      brand: catalogEntry.brand,
-      series: catalogEntry.series,
-      deviceType: catalogEntry.deviceType,
-      storage: catalogEntry.storageRaw || parsedStorage,
-      condition: catalogEntry.conditionRaw || resolvedCondition,
-      spec: catalogEntry.specRaw || resolvedSpecification,
-    })
+  const productContainerId = buildProductContainerId({
+    category: (catalogEntry?.category || finalTaxonomy.Category),
+    brand: (catalogEntry?.brand || finalTaxonomy.Brand),
+    series: (catalogEntry?.series || finalTaxonomy.Series),
+    deviceType: (catalogEntry?.deviceType || resolvedDeviceType),
+    storage: (catalogEntry?.storageRaw || parsedStorage),
+    condition: (catalogEntry?.conditionRaw || resolvedCondition),
+    spec: (catalogEntry?.specRaw || resolvedSpecification),
+  });
+
+  const aiVariationId = (ENABLE_CONTAINER_IDS && catalogEntry)
+    ? productContainerId
     : buildVariationId({
       series: finalTaxonomy.Series,
       storage: parsedStorage,
@@ -1171,6 +1176,7 @@ export const processWithShadowTesting = async ({ rawProductString, price }) => {
     condition: resolvedCondition,
     sim: resolvedSpecification,
     variationId: aiVariationId,
+    productContainerId,
     trustedFastLane: false,
     ignored: false,
   };
