@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import crypto from 'crypto';
 import express from 'express';
 import dotenv from 'dotenv';
 import multer from 'multer';
@@ -40,6 +41,10 @@ const MESSAGES_CACHE_TTL_MS = 15000;
 const MESSAGE_FETCH_TIMEOUT_MS = 8000;
 const processedMessageCache = new Map();
 const lineLevelExtractionCache = new Map();
+const WEBHOOK_JSON_LIMIT = process.env.WEBHOOK_JSON_LIMIT || '10mb';
+const WEBHOOK_FORM_LIMIT = process.env.WEBHOOK_FORM_LIMIT || '10mb';
+const MAX_LINE_PARSE_CHARS = Number(process.env.MAX_LINE_PARSE_CHARS || 8000);
+const MAX_AI_CHUNK_CHARS = Number(process.env.MAX_AI_CHUNK_CHARS || 16000);
 
 const sanitizeForFirestore = (value) => JSON.parse(JSON.stringify(value, (_key, entry) => (
   entry === undefined ? null : entry
@@ -128,8 +133,8 @@ app.use((req, res, next) => {
   return next();
 });
 app.use(compression());
-app.use(express.json({ limit: '2mb' }));
-app.use(express.urlencoded({ extended: true, limit: '2mb' }));
+app.use(express.json({ limit: WEBHOOK_JSON_LIMIT }));
+app.use(express.urlencoded({ extended: true, limit: WEBHOOK_FORM_LIMIT }));
 app.use(morgan('dev'));
 
 const PORT = process.env.PORT || 8000;
@@ -1483,6 +1488,12 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
     // --- CROSS-LEARNED TOKEN FIX 1: THE CACHE ---
     // Fingerprint both the start and end so long messages with similar headers don't collide.
     const normalizedIncoming = String(senderMessage || '').trim();
+    const toLineCacheKey = (value = '') => {
+      const text = String(value || '');
+      if (!text) return '';
+      if (text.length <= 180) return text;
+      return crypto.createHash('sha1').update(text).digest('hex');
+    };
     const msgHash = `${normalizedIncoming.slice(0, 500)}::${normalizedIncoming.slice(-500)}::len-${normalizedIncoming.length}`;
 
     if (processedMessageCache.has(msgHash)) {
@@ -1498,7 +1509,7 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
       let unknownLines = [];
 
       rawLines.forEach((line) => {
-        const lineHash = line.substring(0, 150);
+        const lineHash = toLineCacheKey(line);
         if (lineLevelExtractionCache.has(lineHash)) {
           const cachedProducts = lineLevelExtractionCache.get(lineHash);
           if (Array.isArray(cachedProducts) && cachedProducts.length) {
@@ -1548,8 +1559,8 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
 
         // Pass 1: deterministic extraction per line (works best for structured pricelist broadcasts).
         for (const unknownLine of unknownLines) {
-          const lineText = unknownLine.substring(0, 2000);
-          const lineHash = lineText.substring(0, 150);
+          const lineText = unknownLine.substring(0, MAX_LINE_PARSE_CHARS);
+          const lineHash = toLineCacheKey(lineText);
           const deterministicProduct = deterministicLineExtract(lineText);
 
           if (deterministicProduct) {
@@ -1575,7 +1586,7 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
         if (unresolvedLines.length > 0) {
           if (unresolvedLines.length <= 25) {
             for (const unresolvedLine of unresolvedLines) {
-              const lineHash = unresolvedLine.substring(0, 150);
+              const lineHash = toLineCacheKey(unresolvedLine);
               const lineProducts = await extractFromText(unresolvedLine, 160);
               extractedProducts = extractedProducts.concat(lineProducts);
               if (lineLevelExtractionCache.size > 500) lineLevelExtractionCache.clear();
@@ -1585,7 +1596,7 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
             const CHUNK_SIZE = 20;
             for (let index = 0; index < unresolvedLines.length; index += CHUNK_SIZE) {
               const chunkLines = unresolvedLines.slice(index, index + CHUNK_SIZE);
-              const textForAI = chunkLines.join('\n').substring(0, 4000);
+              const textForAI = chunkLines.join('\n').substring(0, MAX_AI_CHUNK_CHARS);
               const chunkProducts = await extractFromText(textForAI, 300);
               extractedProducts = extractedProducts.concat(chunkProducts);
             }
