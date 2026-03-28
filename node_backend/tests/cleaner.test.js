@@ -168,3 +168,12 @@ test('inferDeviceTypeFromRaw resolves Samsung flagship variants', () => {
   assert.equal(__testables.inferDeviceTypeFromRaw('S22 ultra128gb'), 'Samsung S22 Ultra');
   assert.equal(__testables.inferDeviceTypeFromRaw('Note 20 ultra 128gb'), 'Samsung Note 20 Ultra');
 });
+
+test('parseStructuredRawProduct keeps non-electronics listing name/spec/condition', () => {
+  const parsed = __testables.parseStructuredRawProduct('Wig Ziva, Indian Body Wave Wig | 13x4 frontal, 150% density, 20” | Good Condition | ₦180,000');
+  assert.deepEqual(parsed, {
+    name: 'Wig Ziva, Indian Body Wave Wig',
+    specification: '13x4 frontal, 150% density, 20”',
+    condition: 'Good Condition',
+  });
+});

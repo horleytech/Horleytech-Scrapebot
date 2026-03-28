@@ -1289,9 +1289,27 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
         }
       }
 
+      const singlePipeParts = workingLine.split('|').map((part) => part.trim()).filter(Boolean);
+      if (singlePipeParts.length >= 2) {
+        const lastToken = singlePipeParts[singlePipeParts.length - 1] || '';
+        const parsedTailPrice = normalizePriceToken(lastToken, { assumeMillionsForSmallDecimal: true });
+        const hasTailPrice = parsedTailPrice >= 10000 || /available|active|act|negotiable/i.test(lastToken);
+        const rawProduct = hasTailPrice
+          ? singlePipeParts.slice(0, -1).join(' | ')
+          : singlePipeParts.join(' | ');
+        const resolvedPrice = hasTailPrice ? parsedTailPrice : parsePriceFromRaw(workingLine);
+        if (rawProduct && (resolvedPrice >= 10000 || /available|active|act|negotiable/i.test(workingLine))) {
+          return {
+            rawProductString: rawProduct,
+            price: resolvedPrice >= 10000 ? resolvedPrice : 'Available',
+          };
+        }
+      }
+
       const hasProductSignal = /(iphone|ipad|macbook|airpod|watch|pixel|samsung|galaxy|fold|flip|ultra|pro|max|hp|lenovo|dell|asus|acer|thinkpad|ideapad|yoga|omnibook|pavilion|xps|alienware|printer|monitor|ups|tv|television|ssd|ram|gb|tb|wifi|cell|sim|core\s*i[3579])/i.test(workingLine)
         || startsWithSamsungShorthand;
-      if (!hasProductSignal) return null;
+      const hasStructuredFormat = singlePipeParts.length >= 2 || /,/.test(workingLine);
+      if (!hasProductSignal && !hasStructuredFormat) return null;
 
       const availableMatch = workingLine.match(/^(.*?)(?:-|:)?\s*(available|act|active)\s*$/i);
       if (availableMatch?.[1]) {

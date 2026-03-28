@@ -671,6 +671,49 @@ const inferDeviceTypeFromRaw = (rawText = '', fallbackSeries = 'Unknown Device')
   return fallbackSeries || 'Unknown Device';
 };
 
+const parseStructuredRawProduct = (rawText = '') => {
+  const parts = String(rawText || '')
+    .split('|')
+    .map((part) => part.trim())
+    .filter(Boolean);
+
+  if (parts.length < 2) {
+    return { name: '', specification: '', condition: '' };
+  }
+
+  const isPriceLike = (value = '') => {
+    const text = String(value || '').trim();
+    if (!text) return false;
+    if (/available|negotiable/i.test(text)) return true;
+    if (/₦|naira|^\d[\d,\s.]*[mk]?$/i.test(text)) return true;
+    return false;
+  };
+
+  const isConditionLike = (value = '') => (
+    /\b(brand\s*new|new|uk\s*used|used|like\s*new|good\s*condition|fair|open\s*box|mint|pristine|non-?\s*active)\b/i
+      .test(String(value || '').trim())
+  );
+
+  let normalizedParts = [...parts];
+  if (normalizedParts.length && isPriceLike(normalizedParts[normalizedParts.length - 1])) {
+    normalizedParts = normalizedParts.slice(0, -1);
+  }
+  if (!normalizedParts.length) {
+    return { name: '', specification: '', condition: '' };
+  }
+
+  const name = normalizedParts[0] || '';
+  const remaining = normalizedParts.slice(1);
+
+  let condition = '';
+  if (remaining.length && isConditionLike(remaining[remaining.length - 1])) {
+    condition = remaining.pop();
+  }
+
+  const specification = remaining.join(' | ').trim();
+  return { name, specification, condition };
+};
+
 const sanitizeTaxonomyCandidate = (entry = canonicalFallbackTaxonomy()) => {
   const invalidSeriesPattern = /(grade\s*a|brand\s*new|uk\s*used|unknown|physical\s*sim|esim|locked)/i;
   const safeSeries = invalidSeriesPattern.test(String(entry.Series || '')) ? 'Others' : String(entry.Series || 'Others');
@@ -887,6 +930,7 @@ export const processWithShadowTesting = async ({ rawProductString, price }) => {
   const inferredConditionBase = inferConditionFromRaw(rawProductString, parsedCondition);
   const catalogEntry = await resolveCatalogEntry(rawProductString, parsedStorage);
   const parsedSim = catalogEntry?.spec || (await resolveSimWithDictionary(rawProductString)) || normalizeSim(rawProductString);
+  const structuredRaw = parseStructuredRawProduct(rawProductString);
 
   const ignoredByPhrase = await shouldIgnoreRawString(rawProductString);
   if (ignoredByPhrase) {
@@ -970,6 +1014,29 @@ export const processWithShadowTesting = async ({ rawProductString, price }) => {
   });
 
   const normalizedCategory = String(finalTaxonomy.Category || '').toLowerCase();
+  const isTaxonomyOthers = finalTaxonomy.Category === 'Others'
+    && finalTaxonomy.Brand === 'Others'
+    && finalTaxonomy.Series === 'Others';
+  const othersDeviceType = structuredRaw.name || rawProductString || resolvedDeviceType;
+  const othersSpecification = structuredRaw.specification || resolvedSpecification || rawProductString || 'Unknown';
+  const othersCondition = structuredRaw.condition || inferredConditionBase || 'Unknown';
+
+  if (isTaxonomyOthers) {
+    return {
+      rawProductString,
+      price,
+      taxonomy: finalTaxonomy,
+      deviceType: othersDeviceType,
+      storage: parsedStorage,
+      condition: othersCondition,
+      sim: othersSpecification,
+      variationId: null,
+      trustedFastLane: false,
+      ignored: false,
+      ignoreReason: '',
+    };
+  }
+
   const shouldUseAiForSim = ['smartphones', 'smartwatches'].includes(normalizedCategory) && resolvedSpecification === 'Unknown';
   if (shouldUseAiForSim) {
     resolvedSpecification = await resolveSimWithLowCostAI(rawProductString);
@@ -984,7 +1051,7 @@ export const processWithShadowTesting = async ({ rawProductString, price }) => {
   const requiresStorage = ['smartphones', 'laptops', 'tablets', 'gaming'].includes(normalizedCategory);
   const hasUnknownVariantAttr = (requiresStorage && parsedStorage === 'UNKNOWN');
 
-  if (hasUnknownVariantAttr || (finalTaxonomy.Category === 'Others' && finalTaxonomy.Brand === 'Others' && finalTaxonomy.Series === 'Others')) {
+  if (hasUnknownVariantAttr) {
     return {
       rawProductString,
       price,
@@ -996,7 +1063,7 @@ export const processWithShadowTesting = async ({ rawProductString, price }) => {
       variationId: null,
       trustedFastLane: false,
       ignored: true,
-      ignoreReason: hasUnknownVariantAttr ? 'unknown-variant-attribute' : 'taxonomy-others',
+      ignoreReason: 'unknown-variant-attribute',
     };
   }
 
@@ -1052,4 +1119,5 @@ export const __testables = {
   canonicalFallbackTaxonomy,
   regexPredictTaxonomy,
   toAliasDocId,
+  parseStructuredRawProduct,
 };
