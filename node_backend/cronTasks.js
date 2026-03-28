@@ -205,11 +205,20 @@ const loadStrictRoutingVendors = async (firestore) => {
 };
 
 const loadCsvDeviceTargets = async (firestore) => {
+  const envCsvUrl = String(
+    process.env.GLOBAL_PRODUCTS_CSV_URL
+    || process.env.COMPANY_PRICING_CSV_URL
+    || process.env.COMPANY_CSV_URL
+    || process.env.PRODUCT_DICTIONARY_URL
+    || ''
+  ).trim();
   try {
-    const sessionsSnap = await firestore.collection('horleyTech_PricingSessions').orderBy('createdAt', 'desc').limit(5).get();
-    const sessionDoc = sessionsSnap.docs.find((docSnap) => String(docSnap.data()?.companyCsvUrl || '').trim());
-    if (!sessionDoc) return [];
-    const csvUrl = String(sessionDoc.data()?.companyCsvUrl || '').trim();
+    let csvUrl = envCsvUrl;
+    if (!csvUrl) {
+      const sessionsSnap = await firestore.collection('horleyTech_PricingSessions').orderBy('createdAt', 'desc').limit(5).get();
+      const sessionDoc = sessionsSnap.docs.find((docSnap) => String(docSnap.data()?.companyCsvUrl || '').trim());
+      csvUrl = String(sessionDoc?.data()?.companyCsvUrl || '').trim();
+    }
     if (!csvUrl) return [];
     const response = await fetch(csvUrl, { headers: { Accept: 'text/csv,text/plain,*/*' } });
     if (!response.ok) return [];
