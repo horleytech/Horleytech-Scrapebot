@@ -1294,15 +1294,24 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
         .replace(/\\n/g, '\n')
         .replace(/\\r/g, '\n');
 
+      // Recover numbered WhatsApp lists even when each item spans multiple wrapped lines.
+      const numberedRows = [...normalizedMessage.matchAll(/(?:^|\n)\s*\d{1,3}\.\s*([\s\S]*?)(?=(?:\n\s*\d{1,3}\.\s*)|$)/g)]
+        .map((match) => String(match?.[1] || '').replace(/\s+/g, ' ').trim())
+        .filter(Boolean);
+
       const rows = normalizedMessage
         .split('\n')
         .map((line) => stripWhatsAppEnvelope(line))
         .map((line) => line.trim())
         .filter(Boolean);
 
+      const seedRows = numberedRows.length
+        ? Array.from(new Set([...numberedRows, ...rows]))
+        : rows;
+
       const conditionedRows = [];
       let sectionCondition = '';
-      for (const row of rows) {
+      for (const row of seedRows) {
         const line = String(row || '').trim();
         if (!line) continue;
 
