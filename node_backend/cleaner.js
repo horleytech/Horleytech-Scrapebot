@@ -954,25 +954,17 @@ export const processWithShadowTesting = async ({ rawProductString, price }) => {
 
   await incrementMetrics({ totalProcessed: 1 });
 
-  // Structured vendor lines (Name | Spec | Condition | Price) already contain rich semantics.
-  // In this path, avoid two-layer AI taxonomy overrides:
-  // - If dictionary/catalog has a match, trust it.
-  // - Otherwise safely keep exact vendor data in Others.
-  if (isStructuredVendorListing) {
-    const trustedTaxonomy = catalogEntry
-      ? {
-        Category: catalogEntry.category || 'Others',
-        Brand: catalogEntry.brand || 'Others',
-        Series: catalogEntry.series || 'Others',
-      }
-      : canonicalFallbackTaxonomy();
-    const safeTaxonomy = sanitizeTaxonomyCandidate(trustedTaxonomy);
-
+  // Structured vendor lines (Name | Spec | Condition | Price) that are NOT in catalog/CSV:
+  // keep exact vendor fields and skip two-layer AI to avoid unnecessary overrides.
+  // If there is a catalog match, do NOT short-circuit; continue through the normal
+  // two-layer cleanup flow for your core catalog products.
+  if (isStructuredVendorListing && !catalogEntry) {
+    const safeTaxonomy = sanitizeTaxonomyCandidate(canonicalFallbackTaxonomy());
     return {
       rawProductString,
       price,
       taxonomy: safeTaxonomy,
-      deviceType: catalogEntry?.deviceType || structuredRaw.name || rawProductString,
+      deviceType: structuredRaw.name || rawProductString,
       storage: parsedStorage,
       condition: structuredRaw.condition || inferredConditionBase || 'Unknown',
       sim: structuredRaw.specification || parsedSim || 'Unknown',
