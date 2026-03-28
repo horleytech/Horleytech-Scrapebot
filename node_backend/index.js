@@ -1194,6 +1194,14 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
     const pipelineMetrics = {
       fragmentsMerged: 0,
       fragmentsSkippedWithoutBase: 0,
+      linesSeen: 0,
+      linesParsedDeterministic: 0,
+      linesDroppedDeterministic: 0,
+      dropReasons: {},
+    };
+    const incrementDropReason = (reason = 'unknown') => {
+      const key = String(reason || 'unknown');
+      pipelineMetrics.dropReasons[key] = Number(pipelineMetrics.dropReasons[key] || 0) + 1;
     };
 
     const isLikelyFragment = (raw = '') => {
@@ -1255,8 +1263,36 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
         .map((line) => line.trim())
         .filter(Boolean);
 
+      const conditionedRows = [];
+      let sectionCondition = '';
+      for (const row of rows) {
+        const line = String(row || '').trim();
+        if (!line) continue;
+
+        const sectionMatch = line.match(/^\*?\s*(non\s*active(?:\s*without\s*warranty)?|active\s*stock|active|brand\s*new|uk\s*used)\s*\*?$/i);
+        if (sectionMatch?.[1]) {
+          const token = sectionMatch[1].toLowerCase();
+          if (token.includes('brand new')) sectionCondition = 'Brand New';
+          else if (token.includes('non')) sectionCondition = 'Non Active';
+          else if (token.includes('active')) sectionCondition = 'Active';
+          else if (token.includes('uk used')) sectionCondition = 'UK Used';
+          continue;
+        }
+
+        if (/^\d+\s*[.)]?\s*$/.test(line)) continue;
+
+        const hasConditionTag = /(brand\s*new|non\s*active|active|uk\s*used|like\s*new|good\s*condition|used)/i.test(line);
+        const hasPriceHint = /(₦\s*)?\d[\d,.\s]*(m|k)?\b/i.test(line);
+        const looksLikeProductEntry = /(iphone|ipad|macbook|airpod|watch|samsung|galaxy|fold|flip|pixel|note|tab|laptop|gb|tb|wig)/i.test(line);
+        if (sectionCondition && !hasConditionTag && hasPriceHint && looksLikeProductEntry) {
+          conditionedRows.push(`${line} | ${sectionCondition}`);
+        } else {
+          conditionedRows.push(line);
+        }
+      }
+
       const merged = [];
-      for (const line of rows) {
+      for (const line of conditionedRows) {
         const priceOnly = /^(₦?\s*)?\d[\d,.\s]*(m|k)?$/i.test(line);
         if (priceOnly && merged.length > 0) {
           merged[merged.length - 1] = `${merged[merged.length - 1]} ${line}`;
@@ -1342,6 +1378,15 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
         };
       }
 
+      const looksLikeNoPriceEntry = hasProductSignal
+        && /\b(iphone|ipad|macbook|airpod|watch|samsung|galaxy|fold|flip|pixel|note|tab|s\d{1,2}|pro|max|plus|ultra|air|gb|tb)\b/i.test(workingLine);
+      if (looksLikeNoPriceEntry) {
+        return {
+          rawProductString: workingLine.trim(),
+          price: 'Available',
+        };
+      }
+
       return null;
     };
 
@@ -1420,6 +1465,7 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
       const rawLines = normalizeLinesForDeterministicParse(senderMessage)
         .map((line) => line.trim())
         .filter((line) => line.length > 3);
+      pipelineMetrics.linesSeen += rawLines.length;
 
       let knownProducts = [];
       let unknownLines = [];
@@ -1482,11 +1528,19 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
           if (deterministicProduct) {
             const lineProducts = [deterministicProduct];
             extractedProducts = extractedProducts.concat(lineProducts);
+            pipelineMetrics.linesParsedDeterministic += 1;
             if (lineLevelExtractionCache.size > 500) lineLevelExtractionCache.clear();
             lineLevelExtractionCache.set(lineHash, lineProducts);
             continue;
           }
 
+          pipelineMetrics.linesDroppedDeterministic += 1;
+          const dropReason = !/\d/.test(lineText)
+            ? 'no-price'
+            : (!/(iphone|ipad|macbook|airpod|watch|samsung|galaxy|fold|flip|pixel|note|tab|laptop|gb|tb|wig|service|repair|plumber)/i.test(lineText)
+              ? 'no-signal'
+              : 'unresolved');
+          incrementDropReason(dropReason);
           unresolvedLines.push(lineText);
         }
 
@@ -1604,10 +1658,21 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
           lastUpdated: new Date().toISOString(),
           fragmentsMerged: admin.firestore.FieldValue.increment(Number(metrics.fragmentsMerged || 0)),
           fragmentsSkippedWithoutBase: admin.firestore.FieldValue.increment(Number(metrics.fragmentsSkippedWithoutBase || 0)),
+          linesSeen: admin.firestore.FieldValue.increment(Number(metrics.linesSeen || 0)),
+          linesParsedDeterministic: admin.firestore.FieldValue.increment(Number(metrics.linesParsedDeterministic || 0)),
+          linesDroppedDeterministic: admin.firestore.FieldValue.increment(Number(metrics.linesDroppedDeterministic || 0)),
           excludedPhraseDrops: admin.firestore.FieldValue.increment(excludedDrops),
           taxonomyFallbackDrops: admin.firestore.FieldValue.increment(taxonomyFallbacks),
           lowConfidenceRows: admin.firestore.FieldValue.increment(lowConfidence),
         }, { merge: true });
+        if (metrics.dropReasons && Object.keys(metrics.dropReasons).length) {
+          await firestore.collection(SETTINGS_COLLECTION).doc('pipelineMetrics').set({
+            dropReasons: Object.entries(metrics.dropReasons).reduce((acc, [reason, count]) => {
+              acc[reason] = admin.firestore.FieldValue.increment(Number(count || 0));
+              return acc;
+            }, {}),
+          }, { merge: true });
+        }
       } catch (metricError) {
         console.warn('⚠️ Pipeline metrics write skipped:', metricError.message);
       }
