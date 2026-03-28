@@ -203,12 +203,30 @@ const normalizeVariationSpecLabel = (value = '') => {
   return String(value || 'Unknown').trim() || 'Unknown';
 };
 
-const normalizeContainerToken = (value = '') => String(value || '')
-  .trim()
-  .toLowerCase()
-  .replace(/\s+/g, ' ')
-  .replace(/[^a-z0-9]+/g, '-')
-  .replace(/(^-|-$)/g, '');
+const hashToken = (value = '') => {
+  const text = String(value || '');
+  let hash = 0;
+  for (let i = 0; i < text.length; i += 1) {
+    hash = ((hash << 5) - hash + text.charCodeAt(i)) | 0;
+  }
+  return Math.abs(hash).toString(36);
+};
+
+const normalizeContainerToken = (value = '', maxLength = 48) => {
+  const normalized = String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/(^-|-$)/g, '');
+
+  if (!normalized) return '';
+  if (normalized.length <= maxLength) return normalized;
+
+  const suffix = hashToken(normalized).slice(0, 8);
+  const prefixLength = Math.max(8, maxLength - 9);
+  return `${normalized.slice(0, prefixLength)}-${suffix}`;
+};
 
 const buildProductContainerId = ({
   category = '',

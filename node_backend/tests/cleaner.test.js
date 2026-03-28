@@ -68,6 +68,23 @@ test('product container id uses concrete csv container naming fields', () => {
   );
 });
 
+test('product container id remains bounded for long specification text', () => {
+  const id = __testables.buildProductContainerId({
+    category: 'Smartphones',
+    brand: 'Apple',
+    series: 'iPhone 16 Series',
+    deviceType: 'iPhone 16 Pro Max',
+    storage: '256GB',
+    condition: 'Brand New',
+    spec: 'PHYSICAL + ESIM (Non Active / Desert / Titanium / Special Edition / Limited Colorway)',
+  });
+
+  const parts = id.split('__');
+  const specToken = parts[parts.length - 1];
+  assert.ok(specToken.length <= 48);
+  assert.match(specToken, /-[a-z0-9]{1,8}$/);
+});
+
 test('regexPredictTaxonomy returns Others fallback when no hit', () => {
   const prediction = __testables.regexPredictTaxonomy('unknown xyz', [
     { raw: 'iphone 15 pro', Category: 'Smartphones', Brand: 'Apple', Series: 'iPhone 15 Pro' },
