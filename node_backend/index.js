@@ -1191,6 +1191,30 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
   res.status(200).json({ data: [{ message: '' }] });
 
   try {
+    const normalizeVendorKey = (value = '') => String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    const resolveExtractionRoutingConfig = async () => {
+      try {
+        const firestore = getAdminFirestore();
+        const docSnap = await firestore.collection(SETTINGS_COLLECTION).doc('extractionRouting').get();
+        const data = docSnap.exists ? (docSnap.data() || {}) : {};
+        const enabled = data?.enabled !== false;
+        const rawList = Array.isArray(data?.strictVendors)
+          ? data.strictVendors
+          : String(data?.strictVendors || '').split(',');
+        const strictVendors = rawList
+          .map((item) => normalizeVendorKey(item))
+          .filter(Boolean);
+        return { enabled, strictVendors: new Set(strictVendors) };
+      } catch (error) {
+        console.warn('⚠️ Extraction routing config load skipped:', error.message);
+        return { enabled: true, strictVendors: new Set() };
+      }
+    };
+
+    const routingConfig = await resolveExtractionRoutingConfig();
+    const strictVendorMode = routingConfig.enabled
+      && routingConfig.strictVendors.has(normalizeVendorKey(senderName));
+
     const pipelineMetrics = {
       fragmentsMerged: 0,
       fragmentsSkippedWithoutBase: 0,
@@ -1198,6 +1222,7 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
       linesParsedDeterministic: 0,
       linesDroppedDeterministic: 0,
       dropReasons: {},
+      strictVendorMode: strictVendorMode ? 1 : 0,
     };
     const incrementDropReason = (reason = 'unknown') => {
       const key = String(reason || 'unknown');
@@ -1350,7 +1375,8 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
         const leadSegment = String(singlePipeParts[0] || '').trim();
         const looksLikeStructuredGenericListing = /[a-z]{3,}/i.test(leadSegment)
           && !/(updated price list|enquiries|orders|follow us|instagram|stores ltd|lagos)/i.test(leadSegment);
-        if ((hasProductSignal || looksLikeStructuredGenericListing) && rawProduct && parsedPrice >= 10000) {
+        const allowGenericStructured = !strictVendorMode;
+        if ((hasProductSignal || (allowGenericStructured && looksLikeStructuredGenericListing)) && rawProduct && parsedPrice >= 10000) {
           return {
             rawProductString: rawProduct,
             price: parsedPrice,
@@ -1378,7 +1404,7 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
         };
       }
 
-      const looksLikeNoPriceEntry = hasProductSignal
+      const looksLikeNoPriceEntry = strictVendorMode && hasProductSignal
         && /\b(iphone|ipad|macbook|airpod|watch|samsung|galaxy|fold|flip|pixel|note|tab|s\d{1,2}|pro|max|plus|ultra|air|gb|tb)\b/i.test(workingLine);
       if (looksLikeNoPriceEntry) {
         return {
@@ -1661,6 +1687,7 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
           linesSeen: admin.firestore.FieldValue.increment(Number(metrics.linesSeen || 0)),
           linesParsedDeterministic: admin.firestore.FieldValue.increment(Number(metrics.linesParsedDeterministic || 0)),
           linesDroppedDeterministic: admin.firestore.FieldValue.increment(Number(metrics.linesDroppedDeterministic || 0)),
+          strictVendorModeRuns: admin.firestore.FieldValue.increment(Number(metrics.strictVendorMode || 0)),
           excludedPhraseDrops: admin.firestore.FieldValue.increment(excludedDrops),
           taxonomyFallbackDrops: admin.firestore.FieldValue.increment(taxonomyFallbacks),
           lowConfidenceRows: admin.firestore.FieldValue.increment(lowConfidence),

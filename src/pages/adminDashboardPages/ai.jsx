@@ -16,6 +16,10 @@ const Ai = () => {
   // const [pricesData, setPricesData] = useState(null);
   const [responseMessage, setResponseMessage] = useState('');
   const [success, setSuccess] = useState(false);
+  const [strictVendorsText, setStrictVendorsText] = useState('');
+  const [strictRoutingEnabled, setStrictRoutingEnabled] = useState(true);
+  const [loadingRouting, setLoadingRouting] = useState(false);
+  const [savingRouting, setSavingRouting] = useState(false);
 
   const _dummyData = [
     {
@@ -49,6 +53,56 @@ const Ai = () => {
   useEffect(() => {
     console.log({ file });
   }, [file]);
+
+  const loadExtractionRouting = async () => {
+    setLoadingRouting(true);
+    try {
+      const response = await fetch('/api/admin/settings/extractionRouting', {
+        headers: { 'Content-Type': 'application/json', 'x-user-role': 'admin' },
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload.success) throw new Error(payload.error || 'Failed to load extraction routing settings');
+      const strictVendors = Array.isArray(payload.data?.strictVendors)
+        ? payload.data.strictVendors.join(', ')
+        : String(payload.data?.strictVendors || '');
+      setStrictVendorsText(strictVendors);
+      setStrictRoutingEnabled(payload.data?.enabled !== false);
+    } catch (error) {
+      toast.error(error.message || 'Failed to load extraction routing settings');
+    } finally {
+      setLoadingRouting(false);
+    }
+  };
+
+  const saveExtractionRouting = async () => {
+    setSavingRouting(true);
+    try {
+      const strictVendors = strictVendorsText
+        .split(',')
+        .map((item) => item.trim())
+        .filter(Boolean);
+
+      const response = await fetch('/api/admin/settings/extractionRouting', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-user-role': 'admin' },
+        body: JSON.stringify({
+          enabled: Boolean(strictRoutingEnabled),
+          strictVendors,
+        }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload.success) throw new Error(payload.error || 'Failed to save extraction routing settings');
+      toast.success('Extraction routing settings saved');
+    } catch (error) {
+      toast.error(error.message || 'Failed to save extraction routing settings');
+    } finally {
+      setSavingRouting(false);
+    }
+  };
+
+  useEffect(() => {
+    loadExtractionRouting();
+  }, []);
 
   const handleDrop = (event) => {
     event.preventDefault();
@@ -148,6 +202,38 @@ const Ai = () => {
         </div>
 
         <div className="my-5">
+          <div className="mb-8 p-4 rounded-lg border border-gray-200 bg-white w-[50%]">
+            <p className="font-bold text-base mb-2">Strict Vendor Routing (Phones/Electronics)</p>
+            <p className="text-sm text-gray-600 mb-3">
+              Vendors in this list use the strict two-layer phone/electronics flow. Others use the general `Product | Specs | Condition | Price` flow.
+            </p>
+            <label className="flex items-center gap-2 mb-3">
+              <input
+                type="checkbox"
+                checked={strictRoutingEnabled}
+                onChange={(event) => setStrictRoutingEnabled(event.target.checked)}
+                disabled={loadingRouting || savingRouting}
+              />
+              <span>Enable strict vendor routing</span>
+            </label>
+            <textarea
+              value={strictVendorsText}
+              onChange={(event) => setStrictVendorsText(event.target.value)}
+              className="w-full min-h-[110px] border rounded-lg p-3"
+              placeholder="Lala Ikeja, Isreal Ikeja, Horleytech Line"
+              disabled={loadingRouting || savingRouting}
+            />
+            <p className="text-xs text-gray-500 mt-2">Enter vendor names separated by commas.</p>
+            <button
+              type="button"
+              onClick={saveExtractionRouting}
+              disabled={loadingRouting || savingRouting}
+              className="mt-3 bg-black text-white rounded-lg px-4 py-2 hover:bg-gray-700 disabled:opacity-50"
+            >
+              {savingRouting ? 'Saving...' : 'Save Routing Settings'}
+            </button>
+          </div>
+
           <form
             className="flex flex-col space-y-5 w-[50%]"
             onSubmit={handleSubmit}
