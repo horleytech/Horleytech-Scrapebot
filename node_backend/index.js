@@ -1638,11 +1638,22 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
       }
     }
 
-    if (shadowProcessed.length > 0) {
-      console.log(`✅ Stage 1 extracted ${shadowProcessed.length} items.`);
+    const filteredShadowProcessed = strictVendorMode
+      ? shadowProcessed.filter((item) => !(item?.ignored))
+      : shadowProcessed;
+
+    if (strictVendorMode) {
+      const strictDrops = shadowProcessed.length - filteredShadowProcessed.length;
+      if (strictDrops > 0) {
+        console.log(`🧹 Strict mode filtered ${strictDrops} ignored/invalid items for ${senderName}.`);
+      }
+    }
+
+    if (filteredShadowProcessed.length > 0) {
+      console.log(`✅ Stage 1 extracted ${filteredShadowProcessed.length} items.`);
       const exactServerDate = new Date().toLocaleString('en-US', { timeZone: 'Africa/Lagos' });
 
-      const enrichedProducts = sanitizeForFirestore(shadowProcessed.map((product) => ({
+      const enrichedProducts = sanitizeForFirestore(filteredShadowProcessed.map((product) => ({
         Category: product.taxonomy?.Category || 'Others',
         Brand: product.taxonomy?.Brand || 'Others',
         Series: product.taxonomy?.Series || 'Others',
@@ -1678,6 +1689,9 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
       const excludedDrops = shadowProcessed.filter((item) => item?.ignoreReason === 'excluded-phrase').length;
       const taxonomyFallbacks = shadowProcessed.filter((item) => item?.ignoreReason === 'taxonomy-others').length;
       const lowConfidence = shadowProcessed.filter((item) => String(item?.confidenceLevel || '') === 'low').length;
+      const strictFiltered = strictVendorMode
+        ? Math.max(0, shadowProcessed.length - filteredShadowProcessed.length)
+        : 0;
       try {
         const firestore = getAdminFirestore();
         const metrics = pipelineMetrics || { fragmentsMerged: 0, fragmentsSkippedWithoutBase: 0 };
@@ -1692,6 +1706,7 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
           excludedPhraseDrops: admin.firestore.FieldValue.increment(excludedDrops),
           taxonomyFallbackDrops: admin.firestore.FieldValue.increment(taxonomyFallbacks),
           lowConfidenceRows: admin.firestore.FieldValue.increment(lowConfidence),
+          strictFilteredRows: admin.firestore.FieldValue.increment(strictFiltered),
         }, { merge: true });
         if (metrics.dropReasons && Object.keys(metrics.dropReasons).length) {
           await firestore.collection(SETTINGS_COLLECTION).doc('pipelineMetrics').set({
@@ -1704,6 +1719,8 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
       } catch (metricError) {
         console.warn('⚠️ Pipeline metrics write skipped:', metricError.message);
       }
+    } else if (strictVendorMode && shadowProcessed.length > 0) {
+      console.log(`🛑 Strict mode blocked save for ${senderName}; all ${shadowProcessed.length} items were ignored.`);
     } else {
       console.log('🤷‍♂️ No products found in message.');
     }
