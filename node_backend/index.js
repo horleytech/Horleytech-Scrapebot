@@ -1554,26 +1554,33 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
       console.log(`✅ Stage 1 extracted ${shadowProcessed.length} items.`);
       const exactServerDate = new Date().toLocaleString('en-US', { timeZone: 'Africa/Lagos' });
 
-      const enrichedProducts = sanitizeForFirestore(shadowProcessed.map((product) => ({
-        Category: product.taxonomy?.Category || 'Others',
-        Brand: product.taxonomy?.Brand || 'Others',
-        Series: product.taxonomy?.Series || 'Others',
-        'Device Type': product.deviceType || product.taxonomy?.Series || product.rawProductString,
-        Condition: product.condition,
-        'SIM Type/Model/Processor': product.sim,
-        'Storage Capacity/Configuration': product.storage,
-        'Regular price': product.price || 'Available',
-        rawProductString: product.rawProductString,
-        variationId: product.variationId,
-        trustedFastLane: product.trustedFastLane,
-        ignored: Boolean(product.ignored),
-        ignoreReason: product.ignoreReason || '',
-        confidenceScore: Number(product.confidenceScore || 0),
-        confidenceLevel: product.confidenceLevel || 'low',
-        DatePosted: exactServerDate,
-        isGroupMessage: isMessageFromGroup || false,
-        groupName: isMessageFromGroup ? groupName : 'Direct Message'
-      })));
+      const enrichedProducts = sanitizeForFirestore(shadowProcessed.map((product) => {
+        const normalizedDeviceType = String(product.deviceType || '').trim();
+        const shouldUseRawAsDeviceLabel = ['others', 'unknown', 'unknown device'].includes(normalizedDeviceType.toLowerCase());
+
+        return {
+          Category: product.taxonomy?.Category || 'Others',
+          Brand: product.taxonomy?.Brand || 'Others',
+          Series: product.taxonomy?.Series || 'Others',
+          'Device Type': shouldUseRawAsDeviceLabel
+            ? (product.rawProductString || product.taxonomy?.Series || 'Others')
+            : (normalizedDeviceType || product.taxonomy?.Series || product.rawProductString),
+          Condition: product.condition,
+          'SIM Type/Model/Processor': product.sim,
+          'Storage Capacity/Configuration': product.storage,
+          'Regular price': product.price || 'Available',
+          rawProductString: product.rawProductString,
+          variationId: product.variationId,
+          trustedFastLane: product.trustedFastLane,
+          ignored: Boolean(product.ignored),
+          ignoreReason: product.ignoreReason || '',
+          confidenceScore: Number(product.confidenceScore || 0),
+          confidenceLevel: product.confidenceLevel || 'low',
+          DatePosted: exactServerDate,
+          isGroupMessage: isMessageFromGroup || false,
+          groupName: isMessageFromGroup ? groupName : 'Direct Message'
+        };
+      }));
 
       const masterDocId = senderName.replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
 
