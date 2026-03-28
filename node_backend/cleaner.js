@@ -605,6 +605,57 @@ const inferTaxonomyFromRaw = (rawText = '') => {
   return canonicalFallbackTaxonomy();
 };
 
+const parseStructuredGeneralListing = (rawText = '') => {
+  const parts = String(rawText || '').split('|').map((part) => part.trim()).filter(Boolean);
+  if (parts.length < 3) return null;
+  const product = parts[0];
+  if (!product) return null;
+
+  if (parts.length === 3) {
+    const tokenA = parts[1];
+    const tokenB = parts[2];
+    const tokenAIsCondition = normalizeCondition(tokenA) !== 'Unknown';
+    const tokenBIsCondition = normalizeCondition(tokenB) !== 'Unknown';
+    if (tokenAIsCondition && !tokenBIsCondition) {
+      return { product, specification: tokenB, condition: tokenA, storage: '' };
+    }
+    return { product, specification: tokenA, condition: tokenB, storage: '' };
+  }
+
+  const tokenA = parts[1];
+  const tokenB = parts[2];
+  const tokenC = parts[3] || 'UNKNOWN';
+  const tokenAIsCondition = normalizeCondition(tokenA) !== 'Unknown';
+  const tokenBIsCondition = normalizeCondition(tokenB) !== 'Unknown';
+
+  // Supports both:
+  // 1) Product | Specs | Condition | Storage
+  // 2) Product | Condition | Specs | Storage
+  if (tokenAIsCondition && !tokenBIsCondition) {
+    return {
+      product,
+      condition: tokenA,
+      specification: tokenB || 'Unknown',
+      storage: tokenC || '',
+    };
+  }
+
+  return {
+    product,
+    specification: tokenA || 'Unknown',
+    condition: tokenB || 'Unknown',
+    storage: tokenC || '',
+  };
+};
+
+const formatGeneralListingDeviceType = (value = '') => {
+  const raw = String(value || '').trim();
+  if (!raw) return 'General Listing Item';
+  const commaLead = raw.split(',')[0].trim();
+  if (commaLead) return commaLead;
+  return raw.split(/\s+/).slice(0, 6).join(' ');
+};
+
 const inferDeviceTypeFromRaw = (rawText = '', fallbackSeries = 'Unknown Device') => {
   const text = String(rawText || '').toLowerCase();
   const normalizeIphoneSuffix = (value = '') => {
@@ -914,8 +965,16 @@ const tryTrustedFastLane = async (alias) => {
 
 export const processWithShadowTesting = async ({ rawProductString, price, strictVendorMode = false }) => {
   const alias = normalizeAlias(rawProductString);
-  const parsedStorage = normalizeStorage(rawProductString);
-  const parsedCondition = normalizeCondition(rawProductString);
+  const structuredGeneralListing = parseStructuredGeneralListing(rawProductString);
+  const generalListingAlias = structuredGeneralListing?.product
+    ? formatGeneralListingDeviceType(structuredGeneralListing.product)
+    : '';
+  const parsedStorage = structuredGeneralListing
+    ? String(structuredGeneralListing.storage || '').trim()
+    : normalizeStorage(rawProductString);
+  const parsedCondition = structuredGeneralListing
+    ? (String(structuredGeneralListing.condition || '').trim() || 'Unknown')
+    : normalizeCondition(rawProductString);
   const inferredConditionBase = inferConditionFromRaw(rawProductString, parsedCondition);
   const catalogEntry = await resolveCatalogEntry(rawProductString, parsedStorage);
   const parsedSim = catalogEntry?.spec || (await resolveSimWithDictionary(rawProductString)) || normalizeSim(rawProductString);
@@ -933,6 +992,7 @@ export const processWithShadowTesting = async ({ rawProductString, price, strict
       sim: parsedSim,
       variationId: null,
       trustedFastLane: false,
+      listingAlias: generalListingAlias,
       ignored: true,
       ignoreReason: 'excluded-phrase',
     };
@@ -954,6 +1014,7 @@ export const processWithShadowTesting = async ({ rawProductString, price, strict
       sim: parsedSim,
       variationId: fastLane.variationId,
       trustedFastLane: true,
+      listingAlias: generalListingAlias,
       ignored: false,
     };
   }
@@ -1013,18 +1074,23 @@ export const processWithShadowTesting = async ({ rawProductString, price, strict
   const normalizedSeries = String(finalTaxonomy?.Series || '').toLowerCase();
   const isCustomIndustrySeries = normalizedSeries === 'general listing';
   const resolvedCondition = isCustomIndustrySeries
-    ? baseCondition
+    ? (String(structuredGeneralListing?.condition || '').trim() || baseCondition)
     : resolveConditionWithDefaultUsed(rawProductString, baseCondition);
   const safeFallbackSeries = String(finalTaxonomy.Series || '').trim().toLowerCase() === 'others'
     ? 'Unknown Device'
     : finalTaxonomy.Series;
   const resolvedDeviceType = catalogEntry?.deviceType
-    || inferDeviceTypeFromRaw(rawProductString, safeFallbackSeries || 'Unknown Device');
+    || (isCustomIndustrySeries && structuredGeneralListing?.product
+      ? structuredGeneralListing.product
+      : inferDeviceTypeFromRaw(rawProductString, safeFallbackSeries || 'Unknown Device'));
   let resolvedSpecification = resolveSpecification({
     rawProductString,
     category: finalTaxonomy.Category,
     parsedSim,
   });
+  if (isCustomIndustrySeries && structuredGeneralListing?.specification) {
+    resolvedSpecification = structuredGeneralListing.specification;
+  }
 
   const normalizedCategory = String(finalTaxonomy.Category || '').toLowerCase();
   const shouldUseAiForSim = ['smartphones', 'smartwatches'].includes(normalizedCategory) && resolvedSpecification === 'Unknown';
@@ -1052,6 +1118,7 @@ export const processWithShadowTesting = async ({ rawProductString, price, strict
       sim: resolvedSpecification,
       variationId: null,
       trustedFastLane: false,
+      listingAlias: generalListingAlias,
       ignored: true,
       ignoreReason: hasUnknownVariantAttr ? 'unknown-variant-attribute' : 'taxonomy-others',
     };
@@ -1092,6 +1159,7 @@ export const processWithShadowTesting = async ({ rawProductString, price, strict
     sim: resolvedSpecification,
     variationId: aiVariationId,
     trustedFastLane: false,
+    listingAlias: generalListingAlias,
     ignored: false,
   };
 };
@@ -1103,6 +1171,8 @@ export const __testables = {
   inferConditionFromRaw,
   resolveConditionWithDefaultUsed,
   inferTaxonomyFromRaw,
+  parseStructuredGeneralListing,
+  formatGeneralListingDeviceType,
   inferDeviceTypeFromRaw,
   inferSimByBrandContext,
   buildVariationId,
