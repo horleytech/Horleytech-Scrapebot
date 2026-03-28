@@ -203,9 +203,9 @@ const Ai = () => {
 
         <div className="my-5">
           <div className="mb-8 p-4 rounded-lg border border-gray-200 bg-white w-[50%]">
-            <p className="font-bold text-base mb-2">Strict Vendor Routing (Phones/Electronics)</p>
+            <p className="font-bold text-base mb-2">Strict Routing Vendors (Laptop/Phone)</p>
             <p className="text-sm text-gray-600 mb-3">
-              Vendors in this list use the strict two-layer phone/electronics flow. Others use the general `Product | Specs | Condition | Price` flow.
+              Type exact vendor names here to force strict laptop/phone extraction. Vendors in this list use the two-layer phone/electronics flow, while others use the general `Product | Specs | Condition | Price` flow.
             </p>
             <label className="flex items-center gap-2 mb-3">
               <input
@@ -214,16 +214,16 @@ const Ai = () => {
                 onChange={(event) => setStrictRoutingEnabled(event.target.checked)}
                 disabled={loadingRouting || savingRouting}
               />
-              <span>Enable strict vendor routing</span>
+              <span>Enable laptop/phone vendor routing</span>
             </label>
             <textarea
               value={strictVendorsText}
               onChange={(event) => setStrictVendorsText(event.target.value)}
               className="w-full min-h-[110px] border rounded-lg p-3"
-              placeholder="Lala Ikeja, Isreal Ikeja, Horleytech Line"
+              placeholder="Type vendor names (comma separated): Lala Ikeja, Isreal Ikeja, Horleytech Line"
               disabled={loadingRouting || savingRouting}
             />
-            <p className="text-xs text-gray-500 mt-2">Enter vendor names separated by commas.</p>
+            <p className="text-xs text-gray-500 mt-2">This is the exact place to enter vendors for laptop/phone logic. Enter names separated by commas.</p>
             <button
               type="button"
               onClick={saveExtractionRouting}
