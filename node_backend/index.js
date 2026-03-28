@@ -1305,7 +1305,10 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
         const rawProduct = singlePipeParts.slice(0, -1).join(' | ');
         const priceToken = singlePipeParts[singlePipeParts.length - 1];
         const parsedPrice = normalizePriceToken(priceToken, { assumeMillionsForSmallDecimal: true });
-        if (hasProductSignal && rawProduct && parsedPrice >= 10000) {
+        const leadSegment = String(singlePipeParts[0] || '').trim();
+        const looksLikeStructuredGenericListing = /[a-z]{3,}/i.test(leadSegment)
+          && !/(updated price list|enquiries|orders|follow us|instagram|stores ltd|lagos)/i.test(leadSegment);
+        if ((hasProductSignal || looksLikeStructuredGenericListing) && rawProduct && parsedPrice >= 10000) {
           return {
             rawProductString: rawProduct,
             price: parsedPrice,
