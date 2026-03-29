@@ -1294,15 +1294,24 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
         .replace(/\\n/g, '\n')
         .replace(/\\r/g, '\n');
 
+      // Recover numbered WhatsApp lists even when each item spans multiple wrapped lines.
+      const numberedRows = [...normalizedMessage.matchAll(/(?:^|\n)\s*\d{1,3}\.\s*([\s\S]*?)(?=(?:\n\s*\d{1,3}\.\s*)|$)/g)]
+        .map((match) => String(match?.[1] || '').replace(/\s+/g, ' ').trim())
+        .filter(Boolean);
+
       const rows = normalizedMessage
         .split('\n')
         .map((line) => stripWhatsAppEnvelope(line))
         .map((line) => line.trim())
         .filter(Boolean);
 
+      const seedRows = numberedRows.length
+        ? Array.from(new Set([...numberedRows, ...rows]))
+        : rows;
+
       const conditionedRows = [];
       let sectionCondition = '';
-      for (const row of rows) {
+      for (const row of seedRows) {
         const line = String(row || '').trim();
         if (!line) continue;
 
@@ -1328,8 +1337,22 @@ app.post('/api/webhook/whatsapp', async (req, res) => {
         }
       }
 
+      // Some WhatsApp payloads flatten multiple numbered items into one line.
+      // Expand inline numbered entries so each product line can be parsed independently.
+      const expandedRows = [];
+      for (const row of conditionedRows) {
+        const line = String(row || '').trim();
+        if (!line) continue;
+        const inlineSegments = line.split(/(?=\b\d{1,3}\.\s+)/g).map((part) => part.trim()).filter(Boolean);
+        if (inlineSegments.length > 1) {
+          inlineSegments.forEach((segment) => expandedRows.push(segment.replace(/^\d{1,3}\.\s*/, '').trim()));
+        } else {
+          expandedRows.push(line);
+        }
+      }
+
       const merged = [];
-      for (const line of conditionedRows) {
+      for (const line of expandedRows) {
         const priceOnly = /^(₦?\s*)?\d[\d,.\s]*(m|k)?$/i.test(line);
         if (priceOnly && merged.length > 0) {
           merged[merged.length - 1] = `${merged[merged.length - 1]} ${line}`;
